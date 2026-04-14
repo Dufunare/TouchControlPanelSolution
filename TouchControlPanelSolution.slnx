@@ -1,0 +1,12 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="shared/shared.vcxitems" Id="897b282e-602f-4c43-bf89-cc12b4b357a4" />
+  <Project Path="TouchBackendLib/TouchBackendLib.vcxproj" Id="fc8d10d8-3e70-4bc6-b429-169c64c31ab3" />
+  <Project Path="TouchControlPanelApp/TouchControlPanelApp.vcxproj" Id="90988e49-983f-4033-9eab-a0df9cb2e8a0">
+    <BuildDependency Project="TouchBackendLib/TouchBackendLib.vcxproj" />
+    <Platform Project="x64" />
+  </Project>
+</Solution>

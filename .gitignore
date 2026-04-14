@@ -1,0 +1,56 @@
+# =========================
+# Visual Studio
+# =========================
+.vs/
+*.VC.db
+*.VC.opendb
+
+# Build output
+x64/
+Debug/
+Release/
+ipch/
+*.ipch
+*.obj
+*.pch
+*.pdb
+*.ilk
+*.exe
+*.lib
+*.exp
+*.tlog
+*.lastbuildstate
+*.recipe
+
+# =========================
+# Qt
+# =========================
+moc_*.cpp
+moc_*.h
+ui_*.h
+qrc_*.cpp
+*_autogen/
+moc_predefs.h
+
+# Qt build (if using cmake later)
+build/
+CMakeFiles/
+CMakeCache.txt
+cmake-build-*/
+.compile_commands.json
+
+# =========================
+# Runtime / logs
+# =========================
+*.log
+*.tmp
+
+# =========================
+# DLLs (optional)
+# =========================
+*.dll
+
+# =========================
+# User-specific
+# =========================
+*.user
