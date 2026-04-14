@@ -17,7 +17,7 @@ namespace touchpanel
             const auto* errorText = hdGetErrorString(error.errorCode);
             if (errorText == nullptr)
             {
-                return prefix + "未知 OpenHaptics 错误";
+                return prefix + "Unknown OpenHaptics error";
             }
 
             return prefix + errorText;
@@ -111,7 +111,7 @@ namespace touchpanel
         if (HD_DEVICE_ERROR(error))
         {
             m_impl->lastErrorCode.store(static_cast<int>(error.errorCode), std::memory_order_relaxed);
-            m_impl->lastErrorText = errorToString(error, "初始化 Touch 设备失败：");
+            m_impl->lastErrorText = errorToString(error, "Initialize Touch Device failed：");
             return false;
         }
 
@@ -130,7 +130,7 @@ namespace touchpanel
     {
         if (!m_impl->initialized.load(std::memory_order_relaxed))
         {
-            m_impl->lastErrorText = "后端尚未初始化，请先调用 initialize().";
+            m_impl->lastErrorText = "Uninitialized，please call firstly initialize().";
             return false;
         }
 
@@ -151,7 +151,7 @@ namespace touchpanel
             if (HD_DEVICE_ERROR(error))
             {
                 m_impl->lastErrorCode.store(static_cast<int>(error.errorCode), std::memory_order_relaxed);
-                m_impl->lastErrorText = errorToString(error, "注册 OpenHaptics scheduler 回调失败：");
+                m_impl->lastErrorText = errorToString(error, "register OpenHaptics scheduler failed：");
                 return false;
             }
         }
@@ -166,7 +166,7 @@ namespace touchpanel
             if (HD_DEVICE_ERROR(error))
             {
                 m_impl->lastErrorCode.store(static_cast<int>(error.errorCode), std::memory_order_relaxed);
-                m_impl->lastErrorText = errorToString(error, "启动 OpenHaptics scheduler 失败：");
+                m_impl->lastErrorText = errorToString(error, "start OpenHaptics scheduler failed：");
 
                 if (m_impl->hasCallback)
                 {
@@ -243,7 +243,7 @@ namespace touchpanel
         const auto* errorText = hdGetErrorString(static_cast<HDerror>(errorCode));
         if (errorText == nullptr)
         {
-            return "未知 OpenHaptics 错误";
+            return "Unknown OpenHaptics Error";
         }
 
         return std::string(errorText);
