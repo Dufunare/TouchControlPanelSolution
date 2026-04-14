@@ -104,14 +104,50 @@ namespace touchpanel
             return true;
         }
 
+        m_impl->running.store(false, std::memory_order_relaxed);
+        m_impl->valid.store(false, std::memory_order_relaxed);
+
+        if (m_impl->hasDevice && m_impl->deviceHandle != HD_INVALID_HANDLE)
+        {
+            hdDisableDevice(m_impl->deviceHandle);
+        }
+        m_impl->deviceHandle = HD_INVALID_HANDLE;
+        m_impl->hasDevice = false;
+        m_impl->initialized.store(false, std::memory_order_relaxed);
+
+        HDErrorInfo error{};
+        while (HD_DEVICE_ERROR(error = hdGetError()))
+        {
+        }
+
         // 这里使用默认设备。后续如需多设备支持，可以把设备名或设备索引做成配置项。
         m_impl->deviceHandle = hdInitDevice(HD_DEFAULT_DEVICE);
 
-        const HDErrorInfo error = hdGetError();
-        if (HD_DEVICE_ERROR(error))
+        error = hdGetError();
+        if (m_impl->deviceHandle == HD_INVALID_HANDLE || HD_DEVICE_ERROR(error))
         {
-            m_impl->lastErrorCode.store(static_cast<int>(error.errorCode), std::memory_order_relaxed);
-            m_impl->lastErrorText = errorToString(error, "Initialize Touch Device failed:");
+            if (m_impl->deviceHandle != HD_INVALID_HANDLE)
+            {
+                hdDisableDevice(m_impl->deviceHandle);
+                m_impl->deviceHandle = HD_INVALID_HANDLE;
+            }
+
+            m_impl->hasDevice = false;
+            m_impl->initialized.store(false, std::memory_order_relaxed);
+            m_impl->running.store(false, std::memory_order_relaxed);
+            m_impl->valid.store(false, std::memory_order_relaxed);
+
+            if (HD_DEVICE_ERROR(error))
+            {
+                m_impl->lastErrorCode.store(static_cast<int>(error.errorCode), std::memory_order_relaxed);
+                m_impl->lastErrorText = errorToString(error, "Initialize Touch Device failed:");
+            }
+            else
+            {
+                m_impl->lastErrorCode.store(-1, std::memory_order_relaxed);
+                m_impl->lastErrorText = "Initialize failed: Device not found or driver state dirty.";
+            }
+
             return false;
         }
 
