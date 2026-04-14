@@ -115,8 +115,10 @@
     <ClCompile Include="src\MainWindow.cpp" />
     <ClCompile Include="src\widgets\GLCoordinateWidget.cpp" />
     <ClCompile Include="src\widgets\StatusPanelWidget.cpp" />
+    <ClCompile Include="src\widgets\VideoWidget.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\widgets\VideoWidget.h" />
     <QtMoc Include="src\DeviceController.h" />
     <ClInclude Include="src\DeviceStateQt.h" />
     <ClInclude Include="src\MainWindow.h" />

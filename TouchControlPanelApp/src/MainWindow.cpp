@@ -6,6 +6,7 @@
 #include "DeviceController.h"
 #include "widgets/GLCoordinateWidget.h"
 #include "widgets/StatusPanelWidget.h"
+#include "widgets/VideoWidget.h"
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
@@ -14,11 +15,20 @@ MainWindow::MainWindow(QWidget* parent)
     resize(1280, 800);
 
     m_controller = new DeviceController(&m_backend, this);
+    m_videoWidget = new VideoWidget(this);
     m_glWidget = new GLCoordinateWidget(this);
     m_statusPanel = new StatusPanelWidget(this);
 
+    auto* leftSplitter = new QSplitter(Qt::Vertical, this);
+    leftSplitter->addWidget(m_videoWidget);
+    leftSplitter->addWidget(m_glWidget);
+    leftSplitter->setStretchFactor(0, 2);
+    leftSplitter->setStretchFactor(1, 1);
+    leftSplitter->setChildrenCollapsible(false);
+    leftSplitter->setSizes({ 520, 260 });
+
     auto* splitter = new QSplitter(Qt::Horizontal, this);
-    splitter->addWidget(m_glWidget);
+    splitter->addWidget(leftSplitter);
     splitter->addWidget(m_statusPanel);
     splitter->setStretchFactor(0, 3);
     splitter->setStretchFactor(1, 1);
