@@ -2,6 +2,20 @@
 
 #include <QString>
 
+namespace
+{
+    QString decodeBackendText(const std::string& text)
+    {
+        const QString utf8Text = QString::fromUtf8(text.c_str());
+        if (!utf8Text.contains(QChar::ReplacementCharacter))
+        {
+            return utf8Text;
+        }
+
+        return QString::fromLocal8Bit(text.c_str());
+    }
+}
+
 DeviceController::DeviceController(touchpanel::TouchBackend* backend, QObject* parent)
     : QObject(parent), m_backend(backend)
 {
@@ -25,7 +39,7 @@ void DeviceController::initializeBackend()
     }
     else
     {
-        emit backendMessageChanged(QString::fromStdString(m_backend->lastError()));
+        emit backendMessageChanged(decodeBackendText(m_backend->lastError()));
     }
 }
 
@@ -57,7 +71,7 @@ void DeviceController::startStreaming()
     }
     else
     {
-        emit backendMessageChanged(QString::fromStdString(m_backend->lastError()));
+        emit backendMessageChanged(decodeBackendText(m_backend->lastError()));
     }
 }
 
@@ -93,7 +107,7 @@ void DeviceController::pollDeviceState()
     {
         m_pollTimer.stop();
 
-        const auto error = QString::fromStdString(m_backend->lastError());
+        const auto error = decodeBackendText(m_backend->lastError());
         if (!error.isEmpty())
         {
             emit backendMessageChanged(QStringLiteral("采集循环已停止：%1").arg(error));

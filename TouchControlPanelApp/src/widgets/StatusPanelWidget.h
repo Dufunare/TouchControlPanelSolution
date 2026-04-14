@@ -5,6 +5,7 @@
 #include "DeviceState.h"
 
 class QLabel;
+class QPlainTextEdit;
 class QPushButton;
 
 class StatusPanelWidget : public QWidget
@@ -32,7 +33,7 @@ private:
     QLabel* m_yValue = nullptr;
     QLabel* m_zValue = nullptr;
 
-    QLabel* m_messageValue = nullptr;
+    QPlainTextEdit* m_messageValue = nullptr;
 
     QPushButton* m_initializeButton = nullptr;
     QPushButton* m_startButton = nullptr;

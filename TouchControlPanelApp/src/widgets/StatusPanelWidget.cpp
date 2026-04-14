@@ -3,8 +3,12 @@
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QLabel>
+#include <QMenu>
+#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QVBoxLayout>
+#include <QDateTime>
+#include <QTextOption>
 
 namespace
 {
@@ -21,7 +25,7 @@ StatusPanelWidget::StatusPanelWidget(QWidget* parent)
     : QWidget(parent)
 {
     auto* rootLayout = new QVBoxLayout(this);
-    rootLayout->setContentsMargins(12, 12, 12, 12);
+    rootLayout->setContentsMargins(12, 12,12, 0);
     rootLayout->setSpacing(12);
 
     auto* introGroup = new QGroupBox("阶段 1：Touch 坐标采集 + 3D 点显示", this);
@@ -70,17 +74,49 @@ StatusPanelWidget::StatusPanelWidget(QWidget* parent)
     auto* messageGroup = new QGroupBox("消息输出", this);
     auto* messageLayout = new QVBoxLayout(messageGroup);
 
-    m_messageValue = new QLabel("请先点击“初始化设备”。", messageGroup);
-    m_messageValue->setWordWrap(true);
-    m_messageValue->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    m_messageValue = new QPlainTextEdit(messageGroup);
+    m_messageValue->setReadOnly(true);
+    m_messageValue->setMaximumBlockCount(500);
+    m_messageValue->setLineWrapMode(QPlainTextEdit::WidgetWidth);
+    m_messageValue->setWordWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
+    m_messageValue->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_messageValue->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_messageValue->setContextMenuPolicy(Qt::CustomContextMenu);
+    m_messageValue->setPlaceholderText("运行日志会显示在这里...");
+    m_messageValue->setStyleSheet(
+        "QPlainTextEdit {"
+        "  background-color: #0D1117;"
+        "  color: #D7E2F0;"
+        "  border: 1px solid #2B3240;"
+        "  selection-background-color: #264F78;"
+        "  font-family: Consolas, 'Courier New', monospace;"
+        "  font-size: 10pt;"
+        "}");
+    m_messageValue->appendPlainText("请先点击“初始化设备”。");
     messageLayout->addWidget(m_messageValue);
+
+    connect(m_messageValue, &QPlainTextEdit::customContextMenuRequested, this,
+        [this](const QPoint& pos)
+        {
+            QMenu* menu = m_messageValue->createStandardContextMenu();
+            menu->addSeparator();
+            QAction* clearAction = menu->addAction("清空日志");
+
+            const QAction* selected = menu->exec(m_messageValue->mapToGlobal(pos));
+            if (selected == clearAction)
+            {
+                m_messageValue->clear();
+            }
+
+            delete menu;
+        });
 
     rootLayout->addWidget(introGroup);
     rootLayout->addWidget(stateGroup);
     rootLayout->addWidget(coordGroup);
     rootLayout->addWidget(controlGroup);
     rootLayout->addWidget(messageGroup);
-    rootLayout->addStretch(1);
+   
 
     connect(m_initializeButton, &QPushButton::clicked, this, &StatusPanelWidget::initializeRequested);
     connect(m_startButton, &QPushButton::clicked, this, &StatusPanelWidget::startRequested);
@@ -101,5 +137,6 @@ void StatusPanelWidget::setDeviceState(const touchpanel::DeviceState& state)
 
 void StatusPanelWidget::setBackendMessage(const QString& text)
 {
-    m_messageValue->setText(text);
+    const QString ts = QDateTime::currentDateTime().toString("HH:mm:ss");
+    m_messageValue->appendPlainText(QStringLiteral("[%1] %2").arg(ts, text));
 }
