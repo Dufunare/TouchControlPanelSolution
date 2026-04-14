@@ -7,8 +7,11 @@
 #include <vector>
 
 #include <QDebug>
+#include <QFont>
 #include <QMouseEvent>
+#include <QPainter>
 #include <QSizePolicy>
+#include <QString>
 #include <QVector3D>
 #include <QWheelEvent>
 
@@ -478,6 +481,27 @@ void GLCoordinateWidget::paintGL()
     m_penVao.release();
 
     m_program->release();
+
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::TextAntialiasing, true);
+
+    QFont font("Consolas");
+    font.setPointSize(11);
+    painter.setFont(font);
+
+    const QString text = QString("X: %1   Y: %2   Z: %3 mm")
+        .arg(m_state.positionMm[0], 0, 'f', 3)
+        .arg(m_state.positionMm[1], 0, 'f', 3)
+        .arg(m_state.positionMm[2], 0, 'f', 3);
+
+    const QRect textRect(14, 12, width() - 28, 28);
+    const QColor textColor = m_state.valid ? QColor(230, 240, 255) : QColor(170, 170, 170);
+
+    painter.setPen(QColor(0, 0, 0, 180));
+    painter.drawText(textRect.translated(1, 1), Qt::AlignLeft | Qt::AlignVCenter, text);
+
+    painter.setPen(textColor);
+    painter.drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter, text);
 }
 
 void GLCoordinateWidget::mousePressEvent(QMouseEvent* event)

@@ -49,17 +49,6 @@ StatusPanelWidget::StatusPanelWidget(QWidget* parent)
     stateLayout->addRow("数据有效性：", m_validValue);
     stateLayout->addRow("采样计数：", m_counterValue);
 
-    auto* coordGroup = new QGroupBox("实时坐标（mm）", this);
-    auto* coordLayout = new QFormLayout(coordGroup);
-
-    m_xValue = createValueLabel("0.000");
-    m_yValue = createValueLabel("0.000");
-    m_zValue = createValueLabel("0.000");
-
-    coordLayout->addRow("X：", m_xValue);
-    coordLayout->addRow("Y：", m_yValue);
-    coordLayout->addRow("Z：", m_zValue);
-
     auto* controlGroup = new QGroupBox("控制按钮", this);
     auto* controlLayout = new QVBoxLayout(controlGroup);
 
@@ -113,7 +102,6 @@ StatusPanelWidget::StatusPanelWidget(QWidget* parent)
 
     rootLayout->addWidget(introGroup);
     rootLayout->addWidget(stateGroup);
-    rootLayout->addWidget(coordGroup);
     rootLayout->addWidget(controlGroup);
     rootLayout->addWidget(messageGroup);
    
@@ -129,10 +117,6 @@ void StatusPanelWidget::setDeviceState(const touchpanel::DeviceState& state)
     m_schedulerValue->setText(state.schedulerRunning ? "运行中" : "已停止");
     m_validValue->setText(state.valid ? "有效" : "无效");
     m_counterValue->setText(QString::number(state.sampleCounter));
-
-    m_xValue->setText(QString::number(state.positionMm[0], 'f', 3));
-    m_yValue->setText(QString::number(state.positionMm[1], 'f', 3));
-    m_zValue->setText(QString::number(state.positionMm[2], 'f', 3));
 }
 
 void StatusPanelWidget::setBackendMessage(const QString& text)

@@ -29,10 +29,6 @@ private:
     QLabel* m_validValue = nullptr;
     QLabel* m_counterValue = nullptr;
 
-    QLabel* m_xValue = nullptr;
-    QLabel* m_yValue = nullptr;
-    QLabel* m_zValue = nullptr;
-
     QPlainTextEdit* m_messageValue = nullptr;
 
     QPushButton* m_initializeButton = nullptr;
