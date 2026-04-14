@@ -111,7 +111,7 @@ namespace touchpanel
         if (HD_DEVICE_ERROR(error))
         {
             m_impl->lastErrorCode.store(static_cast<int>(error.errorCode), std::memory_order_relaxed);
-            m_impl->lastErrorText = errorToString(error, "Initialize Touch Device failed：");
+            m_impl->lastErrorText = errorToString(error, "Initialize Touch Device failed:");
             return false;
         }
 
@@ -151,7 +151,7 @@ namespace touchpanel
             if (HD_DEVICE_ERROR(error))
             {
                 m_impl->lastErrorCode.store(static_cast<int>(error.errorCode), std::memory_order_relaxed);
-                m_impl->lastErrorText = errorToString(error, "register OpenHaptics scheduler failed：");
+                m_impl->lastErrorText = errorToString(error, "register OpenHaptics scheduler failed:");
                 return false;
             }
         }
@@ -166,7 +166,7 @@ namespace touchpanel
             if (HD_DEVICE_ERROR(error))
             {
                 m_impl->lastErrorCode.store(static_cast<int>(error.errorCode), std::memory_order_relaxed);
-                m_impl->lastErrorText = errorToString(error, "start OpenHaptics scheduler failed：");
+                m_impl->lastErrorText = errorToString(error, "start OpenHaptics scheduler failed:");
 
                 if (m_impl->hasCallback)
                 {
