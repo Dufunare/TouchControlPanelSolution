@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|x64">
@@ -113,11 +113,13 @@
     <ClCompile Include="src\DeviceController.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\MainWindow.cpp" />
+    <ClCompile Include="src\widgets\ControlPanelWidget.cpp" />
     <ClCompile Include="src\widgets\GLCoordinateWidget.cpp" />
     <ClCompile Include="src\widgets\StatusPanelWidget.cpp" />
     <ClCompile Include="src\widgets\VideoWidget.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <QtMoc Include="src\widgets\ControlPanelWidget.h" />
     <ClInclude Include="src\widgets\VideoWidget.h" />
     <QtMoc Include="src\DeviceController.h" />
     <ClInclude Include="src\DeviceStateQt.h" />

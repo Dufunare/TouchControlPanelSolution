@@ -5,6 +5,7 @@
 #include "TouchBackend.h"
 
 class DeviceController;
+class ControlPanelWidget;
 class GLCoordinateWidget;
 class StatusPanelWidget;
 class VideoWidget;
@@ -18,6 +19,7 @@ public:
 private:
     touchpanel::TouchBackend m_backend;
     DeviceController* m_controller = nullptr;
+    ControlPanelWidget* m_controlPanel = nullptr;
     VideoWidget* m_videoWidget = nullptr;
     GLCoordinateWidget* m_glWidget = nullptr;
     StatusPanelWidget* m_statusPanel = nullptr;

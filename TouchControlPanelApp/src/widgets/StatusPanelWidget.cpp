@@ -5,7 +5,6 @@
 #include <QLabel>
 #include <QMenu>
 #include <QPlainTextEdit>
-#include <QPushButton>
 #include <QVBoxLayout>
 #include <QDateTime>
 #include <QTextOption>
@@ -40,17 +39,6 @@ StatusPanelWidget::StatusPanelWidget(QWidget* parent)
     stateLayout->addRow("采样循环：", m_schedulerValue);
     stateLayout->addRow("数据有效性：", m_validValue);
     stateLayout->addRow("采样计数：", m_counterValue);
-
-    auto* controlGroup = new QGroupBox("控制按钮", this);
-    auto* controlLayout = new QVBoxLayout(controlGroup);
-
-    m_initializeButton = new QPushButton("1. 初始化设备", controlGroup);
-    m_startButton = new QPushButton("2. 启动实时采集", controlGroup);
-    m_stopButton = new QPushButton("3. 停止采集", controlGroup);
-
-    controlLayout->addWidget(m_initializeButton);
-    controlLayout->addWidget(m_startButton);
-    controlLayout->addWidget(m_stopButton);
 
     auto* messageGroup = new QGroupBox("消息输出", this);
     auto* messageLayout = new QVBoxLayout(messageGroup);
@@ -93,14 +81,8 @@ StatusPanelWidget::StatusPanelWidget(QWidget* parent)
         });
 
     rootLayout->addWidget(stateGroup);
-    rootLayout->addWidget(controlGroup);
-	rootLayout->addStretch(1);
+    rootLayout->addStretch(1);
     rootLayout->addWidget(messageGroup);
-   
-
-    connect(m_initializeButton, &QPushButton::clicked, this, &StatusPanelWidget::initializeRequested);
-    connect(m_startButton, &QPushButton::clicked, this, &StatusPanelWidget::startRequested);
-    connect(m_stopButton, &QPushButton::clicked, this, &StatusPanelWidget::stopRequested);
 }
 
 void StatusPanelWidget::setDeviceState(const touchpanel::DeviceState& state)
