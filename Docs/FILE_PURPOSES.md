@@ -1,39 +1,28 @@
-# 每个文件是做什么的
+# 每个文件是做什么的（按当前项目）
 
-## shared/
+## shared
 
 ### `shared/DeviceState.h`
 
-这是前后端共享的数据结构。
+前后端共享状态结构。
 
-当前保存的是：
+当前字段：
 
-- `positionMm[3]`：XYZ 坐标
+- `positionMm[3]`：XYZ 位置（mm）
 - `initialized`：后端是否初始化
 - `valid`：当前采样是否有效
-- `schedulerRunning`：OpenHaptics scheduler 是否运行
+- `schedulerRunning`：scheduler 是否运行
 - `sampleCounter`：采样计数
-
-以后如果你想增加：
-
-- 按钮状态
-- 速度
-- 力
-- 关节角
-- 时间戳
-- 设备 ID
-
-最先改的往往就是这个文件。
 
 ---
 
-## TouchBackendLib/
+## ControlBackend
 
-### `TouchBackendLib/include/TouchBackend.h`
+### `ControlBackend/include/TouchBackend.h`
 
-后端静态库对外暴露的“公共接口”。
+后端对外公开接口，前端只依赖这个头文件。
 
-前端只应该知道这些函数：
+主要接口：
 
 - `initialize()`
 - `start()`
@@ -41,146 +30,117 @@
 - `latestState()`
 - `lastError()`
 
-这样前端就不需要直接 include OpenHaptics 的头文件。
+### `ControlBackend/src/TouchBackend.cpp`
 
-### `TouchBackendLib/src/TouchBackend.cpp`
+后端核心实现，负责：
 
-真正接 OpenHaptics 的地方。
-
-它负责：
-
-- 初始化设备
-- 注册 scheduler 回调
-- 启动 scheduler
-- 在回调里读取当前坐标
-- 保存“最新状态快照”
-- 在停止时清理 scheduler / 设备
-
-以后如果要加：
-
-- 按钮读取
-- 速度读取
-- 力反馈输出
-- 校准
-- 多设备支持
-
-基本都会改这个文件，或者从这个文件继续拆出更多后端类。
+- OpenHaptics 设备初始化与关闭
+- scheduler 异步回调注册与取消
+- 在回调中读取 `HD_CURRENT_POSITION`
+- 用原子变量维护状态快照
+- 错误信息维护与返回
 
 ---
 
-## TouchControlPanelApp/src/
+## TouchControlPanelApp/src
 
 ### `TouchControlPanelApp/src/main.cpp`
 
-程序入口。
-
-它负责：
+程序入口：
 
 - 创建 `QApplication`
-- 注册 Qt 元类型
+- 注册 `touchpanel::DeviceState` 元类型
 - 设置 OpenGL 默认格式
-- 创建主窗口并运行事件循环
+- 创建并显示 `MainWindow`
 
 ### `TouchControlPanelApp/src/DeviceStateQt.h`
 
-把 `touchpanel::DeviceState` 注册为 Qt 可识别的类型。  
-这样它就能出现在 signal / slot 的参数里。
+Qt 元类型桥接头，用于信号槽传递 `touchpanel::DeviceState`。
 
 ### `TouchControlPanelApp/src/DeviceController.h`
 
-Qt 侧的控制器头文件。
+控制器声明，定义：
 
-它对上接按钮事件，对下调用 `TouchBackend`，再把状态发给界面。
+- 初始化/启动/停止槽函数
+- 状态更新和消息更新信号
+- 定时轮询槽函数
 
 ### `TouchControlPanelApp/src/DeviceController.cpp`
 
-控制器实现。
+控制器实现，负责：
 
-它负责：
-
-- 响应初始化按钮
-- 响应启动按钮
-- 响应停止按钮
-- 用 `QTimer` 定时读取后端状态
-- 发出“状态更新”和“消息文本”信号
+- 响应状态面板按钮动作
+- 在未初始化时自动尝试初始化
+- 用 `QTimer` 每 `8ms` 轮询后端
+- 在采样循环异常停止时自动停表并提示
 
 ### `TouchControlPanelApp/src/MainWindow.h`
 
-主窗口类声明。
+主窗口声明，持有：
+
+- `TouchBackend`
+- `DeviceController`
+- `VideoWidget`
+- `GLCoordinateWidget`
+- `StatusPanelWidget`
 
 ### `TouchControlPanelApp/src/MainWindow.cpp`
 
-主窗口装配文件。
+主窗口装配：
 
-它负责：
+- 创建控制器与各 Widget
+- 构建左右/上下分割布局
+- 连接按钮控制和状态分发信号
+- 把后端消息同步到状态栏
 
-- 创建 `DeviceController`
-- 创建左侧 `GLCoordinateWidget`
-- 创建右侧 `StatusPanelWidget`
-- 用 `QSplitter` 把它们拼起来
-- 把 signal / slot 连接起来
+### `TouchControlPanelApp/src/TouchControlPanelApp.ui`
 
-以后如果你新增一个界面区域，例如：
-
-- 视频区
-- 参数区
-- 日志区
-- 任务状态区
-
-一般都要改这个文件，把新 Widget 拼进来。
+Qt Designer 生成的基础 UI 文件。当前主界面布局主要由 `MainWindow.cpp` 手写装配。
 
 ---
 
-## TouchControlPanelApp/src/widgets/
+## TouchControlPanelApp/src/widgets
 
 ### `widgets/GLCoordinateWidget.h`
 
-OpenGL 坐标显示控件的类声明。
+OpenGL 3D 显示控件声明。
 
 ### `widgets/GLCoordinateWidget.cpp`
 
-OpenGL 坐标显示控件的具体实现。
+OpenGL 3D 显示实现，包含：
 
-当前负责：
-
-- 初始化 shader
-- 创建网格 / 坐标轴 / 点 的 VBO / VAO
-- 在 `paintGL()` 里绘制 3D 场景
-- 接收 `DeviceState` 后调用 `update()` 刷新
-
-以后如果想加：
-
-- 鼠标旋转视角
-- 缩放
-- 轨迹线
-- 多个点
-- 目标点 / 参考坐标系
-- 力向量箭头
-
-主要改这个文件。
+- 坐标轴与箭头
+- 立方边框
+- 原点与触笔几何
+- 鼠标旋转与滚轮缩放
+- 左上角 XYZ 文本叠加
 
 ### `widgets/StatusPanelWidget.h`
 
-右侧状态控件声明。
+状态面板声明，包含状态标签、消息框和控制信号。
 
 ### `widgets/StatusPanelWidget.cpp`
 
-右侧状态控件实现。
+状态面板实现，包含：
 
-当前负责：
+- 初始化/运行/有效性/计数显示
+- 初始化、启动、停止三个按钮
+- 时间戳日志输出
+- 日志右键菜单（清空）
 
-- 显示后端状态
-- 显示 X / Y / Z 数值
-- 显示采样计数
-- 提供初始化 / 启动 / 停止按钮
-- 显示后端消息文本
+### `widgets/VideoWidget.h`
 
-以后如果你想加：
+视频显示控件声明，提供：
 
-- 参数输入框
-- 复选框
-- 模式切换按钮
-- 日志输出
-- 状态灯
+- `setFrame(QImage)`
+- `setFrameFromMat(cv::Mat)`（占位）
+- 无信号显示切换
 
-主要改这个文件，或者从它继续拆更多 Widget。
+### `widgets/VideoWidget.cpp`
+
+视频显示控件实现，包含：
+
+- 线程安全帧缓存
+- 跨线程回到 UI 线程刷新
+- 自适应缩放显示
+- `NO SIGNAL` 覆盖层显示

@@ -1,147 +1,85 @@
-# 架构总览
+# 架构总览（当前实现）
 
-## 1. 目标
+## 1. 总体目标
 
-构建一套适合长期演进的 OpenHaptics + Qt 控制面板框架，满足：
+当前工程目标是构建一个可扩展的 OpenHaptics + Qt 控制面板基础框架，已实现：
 
-- 实时获取 Touch 设备坐标
-- 在 Qt 前端显示 3D 坐标系中的移动点
-- 后续能容易扩展新后端功能
-- 后续能容易扩展新前端区域
-- 前后端可以“一起扩展”，也可以“各自独立扩展”
+- Touch 设备坐标采样
+- Qt 前端状态刷新
+- OpenGL 3D 可视化
+- 视频区域占位
 
----
+## 2. 三层结构
 
-## 2. 分层
+### 设备后端层
 
-### 层 1：设备后端层
-
-`TouchBackendLib`
+模块：`ControlBackend`
 
 负责：
 
-- 初始化 OpenHaptics
-- 启动 / 停止 scheduler
-- 读取设备状态
-- 保存最新状态快照
-- 向外提供统一接口
+- OpenHaptics 设备初始化/释放
+- scheduler 回调管理
+- 坐标采样与快照维护
 
-### 层 2：Qt 控制层
+### Qt 控制层
 
-`DeviceController`
+模块：`DeviceController`
 
 负责：
 
-- 把界面按钮动作翻译成后端调用
-- 定时从后端取状态
-- 把状态广播给界面
+- 接收 UI 控制事件
+- 调用后端 start/stop/initialize
+- 以 `8ms` 定时轮询后端状态
+- 发送状态与消息信号
 
-### 层 3：Qt 界面层
+### Qt 界面层
 
-`MainWindow + Widgets`
+模块：`MainWindow + Widgets`
 
 负责：
 
-- 布局
-- 交互
-- 显示
-- 局部界面模块化
+- 主布局拼装
+- 3D 可视化展示
+- 状态与日志展示
+- 视频画面占位展示
 
----
-
-## 3. 分层理由
-
-### 这样做以后：
-
-- OpenHaptics 后端代码不会和 UI 缠在一起
-- 新增 Widget 时，不必大改后端
-- 新增设备功能时，不必把逻辑都塞进主窗口
-- 以后做视频区 / 参数区 / 日志区 / 轨迹区都很自然
-
-### 如果不这样做，最容易出现的坏结果：
-
-- `MainWindow.cpp` 过于冗长不好调试
-- OpenHaptics 调用和 Qt 代码互相耦合
-- 改一个按钮，后端也需要一起改动
-- 加新区域时越来越难维护
-
----
-
-## 4. 当前第一阶段的数据流
+## 3. 当前数据流
 
 ```text
-[Touch 设备]
-     ↓
+[Touch设备]
+    ↓
 [OpenHaptics scheduler callback]
-     ↓
-[TouchBackend 内部保存最新 DeviceState]
-     ↓
-[DeviceController 每 16ms 读取一次 latestState()]
-     ↓
-[MainWindow 分发给各个 Widget]
-     ├─ GLCoordinateWidget 画 3D 点
-     └─ StatusPanelWidget 显示文字状态
+    ↓
+[TouchBackend 原子状态更新]
+    ↓
+[DeviceController(QTimer 8ms) 读取 latestState()]
+    ↓
+[MainWindow 分发给各 Widget]
+    ├─ GLCoordinateWidget：3D 视图
+    └─ StatusPanelWidget：状态与日志
 ```
 
----
-
-## 5. 当前界面结构
+## 4. 当前 UI 结构
 
 ```text
 MainWindow
-└─ QSplitter (水平)
-   ├─ 左侧：GLCoordinateWidget
-   └─ 右侧：StatusPanelWidget
+└─ QSplitter(水平)
+   ├─ 左：QSplitter(垂直)
+   │  ├─ VideoWidget
+   │  └─ GLCoordinateWidget
+   └─ 右：StatusPanelWidget
 ```
 
-以后可能会扩展为：
+## 5. 扩展原则
 
-```text
-MainWindow
-└─ QSplitter (水平)
-   ├─ 左侧：GLCoordinateWidget
-   └─ 右侧：QWidget + QGridLayout
-      ├─ 右上：VideoViewerWidget
-      ├─ 右中：StatusPanelWidget
-      └─ 右下：ControlWidget / LogWidget
-```
+- 共享状态放 `shared/`
+- 设备逻辑放 `ControlBackend`
+- 显示逻辑放独立 Widget
+- 主窗口只做装配，不堆业务
 
----
+## 6. 当前关键事实
 
-## 6. 扩展规则
-
-### 规则 1
-
-**共享数据先放 `shared/`。**
-
-### 规则 2
-
-**设备逻辑先放后端库。**
-
-### 规则 3
-
-**界面逻辑先放独立 Widget。**
-
-### 规则 4
-
-**主窗口只负责拼装，不负责重业务。**
-
-### 规则 5
-
-**大块新功能优先拆成新 Controller / Service / Widget。**
-
----
-
-## 7. 当前最重要的 3 个文件
-
-### `TouchBackend.cpp`
-
-这是设备数据入口。
-
-### `DeviceController.cpp`
-
-这是 Qt 和后端的桥。
-
-### `MainWindow.cpp`
-
-这是整个界面装配中心。
+- 后端项目名已是 `ControlBackend`
+- 视频区已存在组件 `VideoWidget`
+- 当前轮询频率为 `8ms`
+- `StatusPanelWidget` 侧重状态与日志，XYZ 文本叠加在 3D 视图中

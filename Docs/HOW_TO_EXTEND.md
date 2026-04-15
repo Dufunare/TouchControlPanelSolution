@@ -1,191 +1,98 @@
-# 后续怎么加新功能
+# 后续怎么加新功能（按当前项目）
+
+## 先记一个原则
+
+每次扩展前，先判断功能属于哪一层：
+
+- 设备采集/控制：后端层（ControlBackend）
+- 调度与转发：控制层（DeviceController 或新 Controller）
+- 展示与交互：界面层（Widget）
+
+主窗口只负责拼装，不承载复杂业务。
 
 ---
 
-## 场景 A：只加前端功能
+## 场景 A：只加前端显示
 
-例如：
+例如：新增参数区、日志图表区、状态灯区。
 
-- 右侧加一个日志区域
-- 加一个参数设置区域
-- 加一个任务状态灯区域
-- 加一个曲线图区域
+推荐做法：
 
-### 要新增的文件
+1. 新建 Widget 文件
+2. 在 `MainWindow.cpp` 拼接到布局
+3. 通过现有或新增 Controller 提供数据
 
-例如要加日志区：
+典型改动文件：
 
-- `TouchControlPanelApp/src/widgets/LogWidget.h`
-- `TouchControlPanelApp/src/widgets/LogWidget.cpp`
-
-### 要改的文件
-
-- `MainWindow.cpp`  
-  把 `LogWidget` 加进布局
-- 如果日志数据来自后端，还要改 `DeviceController.cpp`
-
-### 原则
-
-- 日志怎么显示 -> Widget 管
-- 日志什么时候刷新 -> Controller 管
-- 主窗口只负责把它摆进去
+- `TouchControlPanelApp/src/widgets/NewWidget.h`
+- `TouchControlPanelApp/src/widgets/NewWidget.cpp`
+- `TouchControlPanelApp/src/MainWindow.cpp`
 
 ---
 
-## 场景 B：只加后端功能
+## 场景 B：只加设备状态
 
-例如：
+例如：按钮状态、速度、力、关节角。
 
-- 读取按钮状态
-- 读取速度
-- 读取关节角
-- 读取安全开关状态
+推荐做法：
 
-### 你要改的文件
+1. 扩展 `shared/DeviceState.h`
+2. 在 `ControlBackend/src/TouchBackend.cpp` 回调中填充数据
+3. 按需要在界面展示
 
-1. `shared/DeviceState.h`  
-   增加字段
-2. `TouchBackendLib/src/TouchBackend.cpp`  
-   在 OpenHaptics 回调里采集并填充新字段
+典型改动文件：
 
-### 可能还要改的文件
+- `shared/DeviceState.h`
+- `ControlBackend/src/TouchBackend.cpp`
+- `TouchControlPanelApp/src/widgets/StatusPanelWidget.cpp`（可选）
+- `TouchControlPanelApp/src/widgets/GLCoordinateWidget.cpp`（可选）
 
-- `StatusPanelWidget.cpp`  
-  如果你想把这些值显示出来
-- `GLCoordinateWidget.cpp`  
-  如果你想把这些值画出来
+---
 
-### 举例
+## 场景 C：新增独立业务模块（前后端联动）
 
-如果加按钮状态，可以在 `DeviceState` 里加：
+例如：轨迹录制回放、任务流程控制、力反馈策略。
 
-```cpp
-int buttons = 0;
+推荐做法：
+
+- 新增后端服务类
+- 新增前端 Controller
+- 新增对应 Widget
+- 主窗口只做实例化与连接
+
+建议目录示例：
+
+```text
+ControlBackend/include/TrajectoryService.h
+ControlBackend/src/TrajectoryService.cpp
+TouchControlPanelApp/src/TrajectoryController.h
+TouchControlPanelApp/src/TrajectoryController.cpp
+TouchControlPanelApp/src/widgets/TrajectoryWidget.h
+TouchControlPanelApp/src/widgets/TrajectoryWidget.cpp
+shared/TrajectoryFrame.h
 ```
 
-然后在 `TouchBackend.cpp` 的 haptics frame 里加：
+---
 
-```cpp
-HDint buttons = 0;
-hdGetIntegerv(HD_CURRENT_BUTTONS, &buttons);
-```
+## 场景 D：接入真实视频流
 
-然后把这个值写进共享状态。
+当前项目已有 `VideoWidget`，可直接作为显示层。
+
+推荐接入路线：
+
+1. 新增采集线程或视频服务模块
+2. 把原始帧统一转换为 `QImage`
+3. 在 UI 线程调用 `VideoWidget::setFrame()`
+4. 如需 OpenCV，补齐 `setFrameFromMat()`
+
+不要把大图像帧塞进 `DeviceState`。`DeviceState` 只放“小而高频”的状态快照。
 
 ---
 
-## 场景 C：前后端联动的新业务模块
+## 当前项目里的扩展检查清单
 
-例如：
-
-- 力反馈控制
-- 自动回零
-- 任务脚本执行
-- 轨迹录制 / 回放
-
-这是最典型的“前后端都要动”的扩展。
-
-### 推荐做法
-
-新建一组“业务模块文件”。
-
-例如加“轨迹录制”：
-
-**后端：**
-
-- `TouchBackendLib/include/TrajectoryService.h`
-- `TouchBackendLib/src/TrajectoryService.cpp`
-
-**前端：**
-
-- `TouchControlPanelApp/src/widgets/TrajectoryWidget.h`
-- `TouchControlPanelApp/src/widgets/TrajectoryWidget.cpp`
-- `TouchControlPanelApp/src/TrajectoryController.h`
-- `TouchControlPanelApp/src/TrajectoryController.cpp`
-
-**共享：**
-
-- `shared/TrajectoryFrame.h`
-
-### 主窗口怎么改
-
-- 在 `MainWindow.cpp` 里创建 `TrajectoryWidget`
-- 把它加到布局里
-- 把它和 `TrajectoryController` 连起来
-
-### 原则
-
-- 新业务尽量有自己独立的 Widget / Controller / Service
-- 不要把所有新代码都堆进 `MainWindow.cpp`
-- 不要把所有后端逻辑都堆进 `TouchBackend.cpp`
-
----
-
-## 场景 D：以后加图像回传 / 视频区
-
-这类功能和“设备位置”不是同一种数据流，所以**不要硬塞进 `DeviceState`**。
-
-### 为什么
-
-`DeviceState` 适合放“小而高频的状态快照”，比如：
-
-- 坐标
-- 速度
-- 按钮
-- 力
-
-但图像帧通常：
-
-- 数据量大
-- 更新频率和坐标不同
-- 生命周期不同
-- 更适合单独通道传输
-
-### 推荐新增的文件
-
-**共享：**
-
-- `shared/VideoFrame.h`
-
-**后端：**
-
-- `TouchBackendLib/include/VideoStreamService.h`
-- `TouchBackendLib/src/VideoStreamService.cpp`
-
-**前端：**
-
-- `TouchControlPanelApp/src/widgets/VideoViewerWidget.h`
-- `TouchControlPanelApp/src/widgets/VideoViewerWidget.cpp`
-- `TouchControlPanelApp/src/VideoController.h`
-- `TouchControlPanelApp/src/VideoController.cpp`
-
-**主窗口：**
-
-- 修改 `MainWindow.cpp`
-- 把 `VideoViewerWidget` 放到合适区域
-
-### 布局建议
-
-现在的布局很适合这样扩展：
-
-- 左侧大区域：3D 触觉 / 坐标显示
-- 右上：视频回传
-- 右下：按钮 + 参数 + 状态
-
-这时可以这样改：
-
-- 主窗口仍然保留一个最外层 `QSplitter`
-- 右侧区域内部换成 `QVBoxLayout` 或 `QGridLayout`
-- 在右上放 `VideoViewerWidget`
-- 在右下放 `StatusPanelWidget` 和其他控制块
-
----
-
-## 以后每次加功能时，先问自己这 4 个问题
-
-1. 这个功能是“设备逻辑”还是“界面显示”？
-2. 这个功能的数据应该放到共享状态里，还是应该单独建数据通道？
-3. 这个功能要不要单独 Widget？
-4. 这个功能是不是应该单独 Controller / Service？
-
-只要每次都先分层，再写代码，项目就不会越来越乱。
+1. 新字段是否先定义在 `shared/DeviceState.h`
+2. OpenHaptics 调用是否留在后端而非 UI
+3. QWidget 更新是否仅发生在 Qt 主线程
+4. 新功能是否拆成独立 Widget/Controller
+5. `MainWindow.cpp` 是否仍保持“装配角色”
