@@ -16,7 +16,7 @@ namespace Dobot
         virtual ~CDobotClient();
 
         static bool InitNet();
-        static void UinitNet();
+        static void UninitNet();
 
         std::string GetIp() const;
         unsigned short GetPort() const;

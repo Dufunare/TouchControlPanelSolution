@@ -90,7 +90,7 @@ namespace Dobot
 
     uint64_t CBitConverter::ToUInt64(char* pBuffer)
     {
-        uint64_t value = pBuffer[7];
+        uint64_t value = pBuffer[7] & 0xFF;
         value <<= 8;
         value |= pBuffer[6] & 0xFF;
         value <<= 8;

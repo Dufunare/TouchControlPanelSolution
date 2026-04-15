@@ -33,7 +33,7 @@ namespace Dobot
         return true;
     }
 
-    void CDobotClient::UinitNet()
+    void CDobotClient::UninitNet()
     {
         WSACleanup();
     }

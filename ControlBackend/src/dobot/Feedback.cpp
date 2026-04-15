@@ -259,7 +259,7 @@ namespace Dobot
         m_feedbackData.AutoManualMode       = CBitConverter::ToShort(pBuffer + iStartIndex);  iStartIndex += 2;
         m_feedbackData.ExportStatus          = CBitConverter::ToUShort(pBuffer + iStartIndex); iStartIndex += 2;
         m_feedbackData.SafetyState           = pBuffer[iStartIndex++];
-        m_feedbackData.SafetyState_Resevered = pBuffer[iStartIndex++];
+        m_feedbackData.SafetyState_Reserved = pBuffer[iStartIndex++];
 
         iArrLength = sizeof(m_feedbackData.Reserved9) / sizeof(m_feedbackData.Reserved9[0]);
         for (int i = 0; i < iArrLength; ++i)

@@ -106,7 +106,7 @@ namespace Dobot
         short AutoManualMode = 0;
         unsigned short ExportStatus = 0;
         char SafetyState = 0;
-        char SafetyState_Resevered = 0;
+        char SafetyState_Reserved = 0;
         unsigned char Reserved9[18]{};
     };
 } // namespace Dobot
