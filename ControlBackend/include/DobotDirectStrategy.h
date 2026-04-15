@@ -15,8 +15,8 @@ namespace touchpanel
     /// Concrete ICommunicationStrategy that communicates directly with a
     /// Dobot CR-series robot arm via the official TCP protocol (V4).
     ///
-    /// - Control port  29999  (Dashboard): sends ServoP commands.
-    /// - Feedback port 30004  (Feedback) : monitors errors / collisions.
+    /// - Control port is provided by connect(ip, port), default 29999 when port==0.
+    /// - Feedback port uses control port + 5 (e.g. 29999 -> 30004).
     ///
     /// Coordinate mapping (scale + offset) and soft-limit clamping are applied
     /// inside sendCoordinate() before the command string is assembled.
@@ -91,6 +91,7 @@ namespace touchpanel
 
         std::thread m_feedbackThread;
         std::atomic<bool> m_feedbackRunning{ false };
+        bool m_netInitialized = false;
 
         mutable std::mutex m_errorMutex;
         std::string m_lastError;

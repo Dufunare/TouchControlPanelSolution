@@ -2,6 +2,8 @@
 #include "pch.h"
 #include "dobot/BitConverter.h"
 
+#include <cstring>
+
 namespace Dobot
 {
     short CBitConverter::ToShort(char* pBuffer)
@@ -110,35 +112,15 @@ namespace Dobot
 
     float CBitConverter::ToFloat(char* pBuffer)
     {
-        union Float
-        {
-            char ch[4];
-            float f;
-        };
-        Float value{};
-        value.ch[0] = pBuffer[0];
-        value.ch[1] = pBuffer[1];
-        value.ch[2] = pBuffer[2];
-        value.ch[3] = pBuffer[3];
-        return value.f;
+        float value = 0.0f;
+        std::memcpy(&value, pBuffer, sizeof(value));
+        return value;
     }
 
     double CBitConverter::ToDouble(char* pBuffer)
     {
-        union Double
-        {
-            char ch[8];
-            double f;
-        };
-        Double value{};
-        value.ch[0] = pBuffer[0];
-        value.ch[1] = pBuffer[1];
-        value.ch[2] = pBuffer[2];
-        value.ch[3] = pBuffer[3];
-        value.ch[4] = pBuffer[4];
-        value.ch[5] = pBuffer[5];
-        value.ch[6] = pBuffer[6];
-        value.ch[7] = pBuffer[7];
-        return value.f;
+        double value = 0.0;
+        std::memcpy(&value, pBuffer, sizeof(value));
+        return value;
     }
 } // namespace Dobot

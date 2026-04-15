@@ -6,6 +6,10 @@
 
 namespace Dobot
 {
+    std::mutex CDobotClient::s_netMutex;
+    unsigned int CDobotClient::s_netRefCount = 0;
+    bool CDobotClient::s_netInitialized = false;
+
     CDobotClient::CDobotClient()
     {
         Construct();
@@ -18,6 +22,14 @@ namespace Dobot
 
     bool CDobotClient::InitNet()
     {
+        std::lock_guard<std::mutex> lk(s_netMutex);
+
+        if (s_netInitialized)
+        {
+            ++s_netRefCount;
+            return true;
+        }
+
         WORD wVer = MAKEWORD(2, 2);
         WSADATA wsd;
         if (0 != WSAStartup(wVer, &wsd))
@@ -28,14 +40,30 @@ namespace Dobot
         if (2 != LOBYTE(wVer) || 2 != HIBYTE(wVer))
         {
             std::cout << "winsock is not match version\n";
+            WSACleanup();
             return false;
         }
+
+        s_netInitialized = true;
+        s_netRefCount = 1;
         return true;
     }
 
     void CDobotClient::UninitNet()
     {
-        WSACleanup();
+        std::lock_guard<std::mutex> lk(s_netMutex);
+
+        if (!s_netInitialized || s_netRefCount == 0)
+        {
+            return;
+        }
+
+        --s_netRefCount;
+        if (s_netRefCount == 0)
+        {
+            WSACleanup();
+            s_netInitialized = false;
+        }
     }
 
     void CDobotClient::Construct()

@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "CommunicationThread.h"
 
+#include <algorithm>
 #include <chrono>
 
 namespace touchpanel
@@ -51,7 +52,7 @@ namespace touchpanel
 
     void CommunicationThread::setSendIntervalMs(unsigned int ms)
     {
-        m_intervalMs = ms;
+    m_intervalMs.store((std::max)(1u, ms), std::memory_order_relaxed);
     }
 
     // -----------------------------------------------------------------------
@@ -84,7 +85,8 @@ namespace touchpanel
                 m_strategy->sendCoordinate(x, y, z);
             }
 
-            std::this_thread::sleep_for(std::chrono::milliseconds(m_intervalMs));
+            const unsigned int interval = m_intervalMs.load(std::memory_order_relaxed);
+            std::this_thread::sleep_for(std::chrono::milliseconds(interval));
         }
     }
 } // namespace touchpanel

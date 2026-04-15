@@ -1,6 +1,8 @@
 #pragma once
 // Ported from Dobot TCP-IP-CR-CPP-V4 official demo.
 
+#include <atomic>
+#include <mutex>
 #include <thread>
 #include "DobotClient.h"
 #include "FeedbackData.h"
@@ -13,16 +15,16 @@ namespace Dobot
         CFeedback();
         virtual ~CFeedback();
 
-        const CFeedbackData& GetFeedbackData() const;
+        CFeedbackData GetFeedbackData() const;
 
         inline bool IsDataHasRead() const
         {
-            return m_IsDataHasRead;
+            return m_IsDataHasRead.load(std::memory_order_relaxed);
         }
 
         inline void SetDataHasRead(bool bValue)
         {
-            m_IsDataHasRead = bValue;
+            m_IsDataHasRead.store(bValue, std::memory_order_relaxed);
         }
 
         std::string ConvertRobotMode();
@@ -36,7 +38,8 @@ namespace Dobot
 
     private:
         std::thread m_thd;
-        bool m_IsDataHasRead = false;
+        std::atomic<bool> m_IsDataHasRead{ false };
+        mutable std::mutex m_dataMutex;
         CFeedbackData m_feedbackData;
     };
 } // namespace Dobot

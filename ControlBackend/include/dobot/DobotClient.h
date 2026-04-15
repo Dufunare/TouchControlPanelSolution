@@ -1,10 +1,8 @@
 #pragma once
 // Ported from Dobot TCP-IP-CR-CPP-V4 official demo.
-// Windows-only build: relies on WinSock2 (included via pch.h).
+// Windows-only build: relies on WinSock2 (provided by pch.h in this project).
 
-#include <WinSock2.h>
-#include <WS2tcpip.h>
-
+#include <mutex>
 #include <string>
 
 namespace Dobot
@@ -37,6 +35,10 @@ namespace Dobot
         int Receive(char* pBuffer, int iLen);
 
     private:
+        static std::mutex s_netMutex;
+        static unsigned int s_netRefCount;
+        static bool s_netInitialized;
+
         std::string m_strIp;
         unsigned short m_iPort = 0;
         SOCKET m_sockListen = INVALID_SOCKET;

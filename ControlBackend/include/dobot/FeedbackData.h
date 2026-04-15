@@ -12,12 +12,12 @@ namespace Dobot
 
         short Reserved1[3]{};
 
-        long DigitalInputs = 0;
-        long DigitalOutputs = 0;
-        long RobotMode = 0;
-        long TimeStamp = 0;
-        long RunTime = 0;
-        long TestValue = 0;
+        int64_t DigitalInputs = 0;
+        int64_t DigitalOutputs = 0;
+        int64_t RobotMode = 0;
+        int64_t TimeStamp = 0;
+        int64_t RunTime = 0;
+        int64_t TestValue = 0;
 
         unsigned char Reserved2[8]{};
 
@@ -89,7 +89,7 @@ namespace Dobot
         unsigned char Reserved7[61]{};
 
         double VibrationDisZ = 0;
-        long CurrentCommandId = 0;
+        int64_t CurrentCommandId = 0;
         double MActual[6]{};
         double Load = 0;
         double CenterX = 0;

@@ -54,7 +54,7 @@ namespace touchpanel
 
         std::thread m_thread;
         std::atomic<bool> m_running{ false };
-        unsigned int m_intervalMs = 30;
+        std::atomic<unsigned int> m_intervalMs{ 30 };
 
         // Thread-safe coordinate cache written by the servo loop.
         mutable std::mutex m_cacheMutex;

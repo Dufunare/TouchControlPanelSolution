@@ -14,7 +14,8 @@ namespace touchpanel
 
         /// Establish connections to the target device / relay station.
         /// @param ip   Target IP address.
-        /// @param port Primary control port (strategy may open additional ports).
+        /// @param port Primary control port (0 means strategy default).
+        ///             Strategy may open additional ports derived from this value.
         /// @returns true on success.
         virtual bool connect(const std::string& ip, unsigned short port) = 0;
 

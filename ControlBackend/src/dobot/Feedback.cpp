@@ -10,7 +10,15 @@
 namespace Dobot
 {
     CFeedback::CFeedback() = default;
-    CFeedback::~CFeedback() = default;
+
+    CFeedback::~CFeedback()
+    {
+        Disconnect();
+        if (m_thd.joinable())
+        {
+            m_thd.join();
+        }
+    }
 
     void CFeedback::OnConnected()
     {
@@ -26,12 +34,20 @@ namespace Dobot
     {
         if (m_thd.joinable())
         {
-            m_thd.join();
+            if (m_thd.get_id() == std::this_thread::get_id())
+            {
+                m_thd.detach();
+            }
+            else
+            {
+                m_thd.join();
+            }
         }
     }
 
-    const CFeedbackData& CFeedback::GetFeedbackData() const
+    CFeedbackData CFeedback::GetFeedbackData() const
     {
+        std::lock_guard<std::mutex> lk(m_dataMutex);
         return m_feedbackData;
     }
 
@@ -93,6 +109,7 @@ namespace Dobot
 
     void CFeedback::ParseData(char* pBuffer)
     {
+        std::lock_guard<std::mutex> lk(m_dataMutex);
         int iStartIndex = 0;
 
         m_feedbackData.MessageSize = CBitConverter::ToUShort(pBuffer + iStartIndex);
@@ -268,7 +285,7 @@ namespace Dobot
             iStartIndex += 1;
         }
 
-        m_IsDataHasRead = true;
+        m_IsDataHasRead.store(true, std::memory_order_relaxed);
     }
 
     std::string CFeedback::ConvertRobotMode()

@@ -14,26 +14,40 @@ namespace touchpanel
         disconnect();
     }
 
-    bool DobotDirectStrategy::connect(const std::string& ip, unsigned short /*port*/)
+    bool DobotDirectStrategy::connect(const std::string& ip, unsigned short port)
     {
-        // Initialise Winsock once.
-        Dobot::CDobotClient::InitNet();
+        if (isConnected())
+        {
+            return true;
+        }
 
-        constexpr unsigned short kControlPort  = 29999;
-        constexpr unsigned short kFeedbackPort = 30004;
-
-        if (!m_dashboard.Connect(ip, kControlPort))
+        if (!Dobot::CDobotClient::InitNet())
         {
             std::lock_guard<std::mutex> lk(m_errorMutex);
-            m_lastError = "Failed to connect to Dashboard (port 29999) at " + ip;
+            m_lastError = "Failed to initialize WinSock";
+            return false;
+        }
+        m_netInitialized = true;
+
+        const unsigned short controlPort = (port == 0) ? 29999 : port;
+        const unsigned short feedbackPort = static_cast<unsigned short>(controlPort + 5);
+
+        if (!m_dashboard.Connect(ip, controlPort))
+        {
+            std::lock_guard<std::mutex> lk(m_errorMutex);
+            m_lastError = "Failed to connect to Dashboard (port " + std::to_string(controlPort) + ") at " + ip;
+            Dobot::CDobotClient::UninitNet();
+            m_netInitialized = false;
             return false;
         }
 
-        if (!m_feedback.Connect(ip, kFeedbackPort))
+        if (!m_feedback.Connect(ip, feedbackPort))
         {
             m_dashboard.Disconnect();
             std::lock_guard<std::mutex> lk(m_errorMutex);
-            m_lastError = "Failed to connect to Feedback (port 30004) at " + ip;
+            m_lastError = "Failed to connect to Feedback (port " + std::to_string(feedbackPort) + ") at " + ip;
+            Dobot::CDobotClient::UninitNet();
+            m_netInitialized = false;
             return false;
         }
 
@@ -59,6 +73,12 @@ namespace touchpanel
 
         m_dashboard.Disconnect();
         m_feedback.Disconnect();
+
+        if (m_netInitialized)
+        {
+            Dobot::CDobotClient::UninitNet();
+            m_netInitialized = false;
+        }
     }
 
     bool DobotDirectStrategy::sendCoordinate(double x, double y, double z)
@@ -161,7 +181,7 @@ namespace touchpanel
         {
             if (m_feedback.IsConnected())
             {
-                const Dobot::CFeedbackData& data = m_feedback.GetFeedbackData();
+                const Dobot::CFeedbackData data = m_feedback.GetFeedbackData();
                 std::lock_guard<std::mutex> lk(m_feedbackMutex);
                 m_latestFeedback = data;
             }
