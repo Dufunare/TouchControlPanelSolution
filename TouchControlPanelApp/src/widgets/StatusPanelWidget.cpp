@@ -28,14 +28,6 @@ StatusPanelWidget::StatusPanelWidget(QWidget* parent)
     rootLayout->setContentsMargins(12, 12,12, 0);
     rootLayout->setSpacing(12);
 
-    auto* introGroup = new QGroupBox("阶段 1：Touch 坐标采集 + 3D 点显示", this);
-    auto* introLayout = new QVBoxLayout(introGroup);
-    auto* introText = new QLabel(
-        "左侧区域负责 3D 坐标系可视化；右侧区域负责状态展示和控制。"
-        "\n后续你可以在这里继续加入按钮区、视频区、参数区、日志区等模块。", introGroup);
-    introText->setWordWrap(true);
-    introLayout->addWidget(introText);
-
     auto* stateGroup = new QGroupBox("后端状态", this);
     auto* stateLayout = new QFormLayout(stateGroup);
 
@@ -100,9 +92,9 @@ StatusPanelWidget::StatusPanelWidget(QWidget* parent)
             delete menu;
         });
 
-    rootLayout->addWidget(introGroup);
     rootLayout->addWidget(stateGroup);
     rootLayout->addWidget(controlGroup);
+	rootLayout->addStretch(1);
     rootLayout->addWidget(messageGroup);
    
 
