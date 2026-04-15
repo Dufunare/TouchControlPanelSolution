@@ -99,12 +99,16 @@
       <LanguageStandard>stdcpp20</LanguageStandard>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(MSBuildThisFileDirectory);$(ProjectDir)include;$(ProjectDir)include\dobot</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>
       </SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
+    <Lib>
+      <AdditionalDependencies>ws2_32.lib</AdditionalDependencies>
+    </Lib>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
@@ -117,12 +121,16 @@
       <LanguageStandard>stdcpp20</LanguageStandard>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(MSBuildThisFileDirectory);$(ProjectDir)include;$(ProjectDir)include\dobot</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>
       </SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
+    <Lib>
+      <AdditionalDependencies>ws2_32.lib</AdditionalDependencies>
+    </Lib>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
@@ -133,7 +141,7 @@
       <LanguageStandard>stdcpp20</LanguageStandard>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(MSBuildThisFileDirectory);$(ProjectDir)include;C:\OpenHaptics\Developer\3.5.0\include;C:\OpenHaptics\Developer\3.5.0\utilities\include</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(MSBuildThisFileDirectory);$(ProjectDir)include;$(ProjectDir)include\dobot;C:\OpenHaptics\Developer\3.5.0\include;C:\OpenHaptics\Developer\3.5.0\utilities\include</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>
@@ -141,7 +149,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
     <Lib>
-      <AdditionalDependencies>hd.lib;hl.lib;hdu.lib</AdditionalDependencies>
+      <AdditionalDependencies>hd.lib;hl.lib;hdu.lib;ws2_32.lib</AdditionalDependencies>
     </Lib>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -155,16 +163,29 @@
       <LanguageStandard>stdcpp20</LanguageStandard>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(MSBuildThisFileDirectory);$(ProjectDir)include;$(ProjectDir)include\dobot;C:\OpenHaptics\Developer\3.5.0\include;C:\OpenHaptics\Developer\3.5.0\utilities\include</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>
       </SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
+    <Lib>
+      <AdditionalDependencies>hd.lib;hl.lib;hdu.lib;ws2_32.lib</AdditionalDependencies>
+    </Lib>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="framework.h" />
     <ClInclude Include="include\TouchBackend.h" />
+    <ClInclude Include="include\ICommunicationStrategy.h" />
+    <ClInclude Include="include\DobotDirectStrategy.h" />
+    <ClInclude Include="include\CommunicationThread.h" />
+    <ClInclude Include="include\dobot\BitConverter.h" />
+    <ClInclude Include="include\dobot\DescartesPoint.h" />
+    <ClInclude Include="include\dobot\DobotClient.h" />
+    <ClInclude Include="include\dobot\Dashboard.h" />
+    <ClInclude Include="include\dobot\Feedback.h" />
+    <ClInclude Include="include\dobot\FeedbackData.h" />
     <ClInclude Include="pch.h" />
   </ItemGroup>
   <ItemGroup>
@@ -175,6 +196,12 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="src\TouchBackend.cpp" />
+    <ClCompile Include="src\DobotDirectStrategy.cpp" />
+    <ClCompile Include="src\CommunicationThread.cpp" />
+    <ClCompile Include="src\dobot\BitConverter.cpp" />
+    <ClCompile Include="src\dobot\DobotClient.cpp" />
+    <ClCompile Include="src\dobot\Dashboard.cpp" />
+    <ClCompile Include="src\dobot\Feedback.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

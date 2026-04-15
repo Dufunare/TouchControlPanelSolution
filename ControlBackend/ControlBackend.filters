@@ -13,6 +13,12 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="源文件\dobot">
+      <UniqueIdentifier>{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="头文件\dobot">
+      <UniqueIdentifier>{B2C3D4E5-F6A7-8901-BCDE-F12345678901}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="framework.h">
@@ -24,6 +30,33 @@
     <ClInclude Include="include\TouchBackend.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="include\ICommunicationStrategy.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="include\DobotDirectStrategy.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="include\CommunicationThread.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="include\dobot\BitConverter.h">
+      <Filter>头文件\dobot</Filter>
+    </ClInclude>
+    <ClInclude Include="include\dobot\DescartesPoint.h">
+      <Filter>头文件\dobot</Filter>
+    </ClInclude>
+    <ClInclude Include="include\dobot\DobotClient.h">
+      <Filter>头文件\dobot</Filter>
+    </ClInclude>
+    <ClInclude Include="include\dobot\Dashboard.h">
+      <Filter>头文件\dobot</Filter>
+    </ClInclude>
+    <ClInclude Include="include\dobot\Feedback.h">
+      <Filter>头文件\dobot</Filter>
+    </ClInclude>
+    <ClInclude Include="include\dobot\FeedbackData.h">
+      <Filter>头文件\dobot</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\TouchBackend.cpp">
@@ -31,6 +64,24 @@
     </ClCompile>
     <ClCompile Include="src\pch.cpp">
       <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\DobotDirectStrategy.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\CommunicationThread.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\dobot\BitConverter.cpp">
+      <Filter>源文件\dobot</Filter>
+    </ClCompile>
+    <ClCompile Include="src\dobot\DobotClient.cpp">
+      <Filter>源文件\dobot</Filter>
+    </ClCompile>
+    <ClCompile Include="src\dobot\Dashboard.cpp">
+      <Filter>源文件\dobot</Filter>
+    </ClCompile>
+    <ClCompile Include="src\dobot\Feedback.cpp">
+      <Filter>源文件\dobot</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>
