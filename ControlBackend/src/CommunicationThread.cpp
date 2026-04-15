@@ -18,18 +18,18 @@ namespace touchpanel
 
     void CommunicationThread::start()
     {
-        if (m_running.load(std::memory_order_relaxed))
+        if (m_running.load(std::memory_order_acquire))
         {
             return;
         }
 
-        m_running.store(true, std::memory_order_relaxed);
+        m_running.store(true, std::memory_order_release);
         m_thread = std::thread(&CommunicationThread::threadFunc, this);
     }
 
     void CommunicationThread::stop()
     {
-        m_running.store(false, std::memory_order_relaxed);
+        m_running.store(false, std::memory_order_release);
         if (m_thread.joinable())
         {
             m_thread.join();
@@ -47,7 +47,7 @@ namespace touchpanel
 
     bool CommunicationThread::isRunning() const
     {
-        return m_running.load(std::memory_order_relaxed);
+        return m_running.load(std::memory_order_acquire);
     }
 
     void CommunicationThread::setSendIntervalMs(unsigned int ms)
@@ -61,7 +61,7 @@ namespace touchpanel
 
     void CommunicationThread::threadFunc()
     {
-        while (m_running.load(std::memory_order_relaxed))
+        while (m_running.load(std::memory_order_acquire))
         {
             double x = 0.0;
             double y = 0.0;

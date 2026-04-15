@@ -290,7 +290,9 @@ namespace Dobot
 
     std::string CFeedback::ConvertRobotMode()
     {
-        switch (m_feedbackData.RobotMode)
+        const CFeedbackData snapshot = GetFeedbackData();
+
+        switch (snapshot.RobotMode)
         {
         case -1: return "NO_CONTROLLER";
         case  0: return "NO_CONNECTED";
@@ -308,7 +310,7 @@ namespace Dobot
         default: break;
         }
         std::string str("UNKNOWN: RobotMode=");
-        str += std::to_string(m_feedbackData.RobotMode);
+        str += std::to_string(snapshot.RobotMode);
         return str;
     }
 } // namespace Dobot

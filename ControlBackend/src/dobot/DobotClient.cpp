@@ -114,6 +114,8 @@ namespace Dobot
         if (SOCKET_ERROR == ::connect(m_sockListen, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)))
         {
             printf("connect Error: (errcode: %d)\n", WSAGetLastError());
+            closesocket(m_sockListen);
+            m_sockListen = INVALID_SOCKET;
             return false;
         }
 

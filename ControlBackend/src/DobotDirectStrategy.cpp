@@ -52,7 +52,7 @@ namespace touchpanel
         }
 
         // Start the local feedback polling thread.
-        m_feedbackRunning.store(true, std::memory_order_relaxed);
+        m_feedbackRunning.store(true, std::memory_order_release);
         m_feedbackThread = std::thread(&DobotDirectStrategy::feedbackLoop, this);
 
         {
@@ -65,7 +65,7 @@ namespace touchpanel
 
     void DobotDirectStrategy::disconnect()
     {
-        m_feedbackRunning.store(false, std::memory_order_relaxed);
+        m_feedbackRunning.store(false, std::memory_order_release);
         if (m_feedbackThread.joinable())
         {
             m_feedbackThread.join();
@@ -91,20 +91,26 @@ namespace touchpanel
         }
 
         // 1. Check feedback for errors / collisions before sending.
+        bool hasRobotError = false;
+        bool isCollisionMode = false;
         {
             std::lock_guard<std::mutex> lk(m_feedbackMutex);
-            if (m_latestFeedback.ErrorStatus)
-            {
-                std::lock_guard<std::mutex> ek(m_errorMutex);
-                m_lastError = "Robot error detected – refusing to send coordinate";
-                return false;
-            }
-            if (m_latestFeedback.RobotMode == 11)
-            {
-                std::lock_guard<std::mutex> ek(m_errorMutex);
-                m_lastError = "Collision detected (RobotMode==11) – refusing to send";
-                return false;
-            }
+            hasRobotError = (m_latestFeedback.ErrorStatus != 0);
+            isCollisionMode = (m_latestFeedback.RobotMode == 11);
+        }
+
+        if (hasRobotError)
+        {
+            std::lock_guard<std::mutex> lk(m_errorMutex);
+            m_lastError = "Robot error detected – refusing to send coordinate";
+            return false;
+        }
+
+        if (isCollisionMode)
+        {
+            std::lock_guard<std::mutex> lk(m_errorMutex);
+            m_lastError = "Collision detected (RobotMode==11) – refusing to send";
+            return false;
         }
 
         // 2. Coordinate mapping: rawCoord * scale + offset
@@ -177,7 +183,7 @@ namespace touchpanel
 
     void DobotDirectStrategy::feedbackLoop()
     {
-        while (m_feedbackRunning.load(std::memory_order_relaxed))
+        while (m_feedbackRunning.load(std::memory_order_acquire))
         {
             if (m_feedback.IsConnected())
             {
