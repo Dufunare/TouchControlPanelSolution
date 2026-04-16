@@ -46,6 +46,9 @@
     <ClCompile Include="src\widgets\VideoWidget.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\widgets\ControlPanelWidget.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\DeviceStateQt.h">
@@ -71,6 +74,9 @@
       <Filter>Header Files</Filter>
     </QtMoc>
     <QtMoc Include="src\widgets\StatusPanelWidget.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+    <QtMoc Include="src\widgets\ControlPanelWidget.h">
       <Filter>Header Files</Filter>
     </QtMoc>
   </ItemGroup>
