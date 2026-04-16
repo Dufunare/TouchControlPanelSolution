@@ -24,6 +24,8 @@ signals:
     void robotConnectRequested(const QString& ip, quint16 port);
     void powerOnRequested();
     void enableRobotRequested();
+    void disableRobotRequested();
+    void clearErrorRequested();
     void emergencyStopRequested();
     void startDragRequested();
     void stopDragRequested();
@@ -38,6 +40,8 @@ private:
     QPushButton* m_robotDisconnectButton = nullptr;
     QPushButton* m_powerOnButton = nullptr;
     QPushButton* m_enableRobotButton = nullptr;
+    QPushButton* m_disableRobotButton = nullptr;
+    QPushButton* m_clearErrorButton = nullptr;
     QPushButton* m_emergencyStopButton = nullptr;
     QPushButton* m_startDragButton = nullptr;
     QPushButton* m_stopDragButton = nullptr;

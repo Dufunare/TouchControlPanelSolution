@@ -185,6 +185,16 @@ void DeviceController::enableRobot()
     m_robotBackend.enableRobot();
 }
 
+void DeviceController::disableRobot()
+{
+    m_robotBackend.disableRobot();
+}
+
+void DeviceController::clearRobotError()
+{
+    m_robotBackend.clearError();
+}
+
 void DeviceController::emergencyStopRobot()
 {
     m_robotBackend.emergencyStop();

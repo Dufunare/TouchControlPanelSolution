@@ -59,6 +59,10 @@ MainWindow::MainWindow(QWidget* parent)
         m_controller, &DeviceController::powerOnRobot);
     connect(m_controlPanel, &ControlPanelWidget::enableRobotRequested,
         m_controller, &DeviceController::enableRobot);
+    connect(m_controlPanel, &ControlPanelWidget::disableRobotRequested,
+        m_controller, &DeviceController::disableRobot);
+    connect(m_controlPanel, &ControlPanelWidget::clearErrorRequested,
+        m_controller, &DeviceController::clearRobotError);
     connect(m_controlPanel, &ControlPanelWidget::emergencyStopRequested,
         m_controller, &DeviceController::emergencyStopRobot);
     connect(m_controlPanel, &ControlPanelWidget::startDragRequested,

@@ -44,6 +44,8 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     m_robotDisconnectButton = new QPushButton("断开 TCP 连接", robotGroup);
     m_powerOnButton = new QPushButton("PowerOn()", robotGroup);
     m_enableRobotButton = new QPushButton("EnableRobot()", robotGroup);
+    m_disableRobotButton = new QPushButton("DisableRobot()", robotGroup);
+    m_clearErrorButton = new QPushButton("ClearError()", robotGroup);
     m_emergencyStopButton = new QPushButton("EmergencyStop()", robotGroup);
     m_startDragButton = new QPushButton("StartDrag()", robotGroup);
     m_stopDragButton = new QPushButton("StopDrag()", robotGroup);
@@ -53,6 +55,8 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     robotLayout->addWidget(m_robotDisconnectButton);
     robotLayout->addWidget(m_powerOnButton);
     robotLayout->addWidget(m_enableRobotButton);
+    robotLayout->addWidget(m_disableRobotButton);
+    robotLayout->addWidget(m_clearErrorButton);
     robotLayout->addWidget(m_emergencyStopButton);
     robotLayout->addWidget(m_startDragButton);
     robotLayout->addWidget(m_stopDragButton);
@@ -74,6 +78,8 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     connect(m_robotDisconnectButton, &QPushButton::clicked, this, &ControlPanelWidget::robotDisconnectRequested);
     connect(m_powerOnButton, &QPushButton::clicked, this, &ControlPanelWidget::powerOnRequested);
     connect(m_enableRobotButton, &QPushButton::clicked, this, &ControlPanelWidget::enableRobotRequested);
+    connect(m_disableRobotButton, &QPushButton::clicked, this, &ControlPanelWidget::disableRobotRequested);
+    connect(m_clearErrorButton, &QPushButton::clicked, this, &ControlPanelWidget::clearErrorRequested);
     connect(m_emergencyStopButton, &QPushButton::clicked, this, &ControlPanelWidget::emergencyStopRequested);
     connect(m_startDragButton, &QPushButton::clicked, this, &ControlPanelWidget::startDragRequested);
     connect(m_stopDragButton, &QPushButton::clicked, this, &ControlPanelWidget::stopDragRequested);

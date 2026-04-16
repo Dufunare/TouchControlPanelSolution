@@ -28,6 +28,8 @@ public slots:
     void disconnectTransit();
     void powerOnRobot();
     void enableRobot();
+    void disableRobot();
+    void clearRobotError();
     void emergencyStopRobot();
     void startDragRobot();
     void stopDragRobot();

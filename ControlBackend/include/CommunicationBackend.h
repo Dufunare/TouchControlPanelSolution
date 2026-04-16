@@ -32,6 +32,8 @@ namespace touchpanel
 
         void powerOn();
         void enableRobot();
+        void disableRobot();
+        void clearError();
         void emergencyStop();
         void startDrag();
         void stopDrag();

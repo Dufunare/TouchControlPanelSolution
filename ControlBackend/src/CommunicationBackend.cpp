@@ -2,6 +2,7 @@
 #include "CommunicationBackend.h"
 
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <mutex>
 #include <string>
@@ -12,7 +13,7 @@ namespace touchpanel
 {
     namespace
     {
-        constexpr std::uint16_t kTransitDefaultPort = 9000;
+        constexpr std::uint16_t kTransitDefaultPort = 8888;
         constexpr std::uint16_t kRobotControlPort = 29999;
 
         std::string trimCr(std::string line)
@@ -33,6 +34,70 @@ namespace touchpanel
             }
 
             return raw.substr(separator + 1);
+        }
+
+        struct ParsedReply
+        {
+            bool valid = false;
+            int errorId = -1;
+            std::string messageName;
+        };
+
+        ParsedReply parseTransitReply(const std::string& payload)
+        {
+            ParsedReply parsed;
+
+            std::string text = payload;
+            while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back())))
+            {
+                text.pop_back();
+            }
+            if (!text.empty() && text.back() == ';')
+            {
+                text.pop_back();
+            }
+
+            const auto firstComma = text.find(',');
+            if (firstComma == std::string::npos)
+            {
+                return parsed;
+            }
+
+            try
+            {
+                parsed.errorId = std::stoi(text.substr(0, firstComma));
+            }
+            catch (...)
+            {
+                return parsed;
+            }
+
+            const auto valueOpen = text.find('{', firstComma + 1);
+            if (valueOpen == std::string::npos)
+            {
+                return parsed;
+            }
+
+            const auto valueClose = text.find('}', valueOpen + 1);
+            if (valueClose == std::string::npos)
+            {
+                return parsed;
+            }
+
+            const auto secondComma = text.find(',', valueClose + 1);
+            if (secondComma == std::string::npos)
+            {
+                return parsed;
+            }
+
+            parsed.messageName = text.substr(secondComma + 1);
+            while (!parsed.messageName.empty() && std::isspace(static_cast<unsigned char>(parsed.messageName.front())))
+            {
+                parsed.messageName.erase(parsed.messageName.begin());
+            }
+
+            parsed.valid = !parsed.messageName.empty();
+            return parsed;
         }
     }
 
@@ -56,7 +121,7 @@ namespace touchpanel
         std::thread recvThread;
         std::thread timeoutThread;
 
-        std::string defaultIp = "127.0.0.1";
+        std::string defaultIp = "192.168.100.194";
         std::uint16_t defaultPort = kTransitDefaultPort;
 
         struct PendingCommand
@@ -205,7 +270,7 @@ namespace touchpanel
             emitMessage("[OP] " + operation + " 超时：等待机械臂回复超时。");
         }
 
-        void finishPendingByReplyObserved(const std::string& detail)
+        void finishPendingByReplyObserved(bool success, const std::string& detail)
         {
             std::string operation;
             {
@@ -219,8 +284,15 @@ namespace touchpanel
                 pending = {};
             }
 
-            emitOperation(operation, false, "got_reply");
-            emitMessage("[OP] " + operation + " 已收到回包，待规则确认：" + detail);
+            emitOperation(operation, success, detail);
+            if (success)
+            {
+                emitMessage("[OP] " + operation + " 执行成功：" + detail);
+            }
+            else
+            {
+                emitMessage("[OP] " + operation + " 执行失败：" + detail);
+            }
         }
 
         void finishPendingAsCanceled(const std::string& reason)
@@ -256,7 +328,24 @@ namespace touchpanel
 
             if (hasPending)
             {
-                finishPendingByReplyObserved(detail.empty() ? rawLine : detail);
+                const auto parsed = parseTransitReply(detail.empty() ? rawLine : detail);
+                if (!parsed.valid)
+                {
+                    finishPendingByReplyObserved(false, "回包格式无法解析：" + (detail.empty() ? rawLine : detail));
+                    return;
+                }
+
+                const bool success = (parsed.errorId == 0);
+                if (success)
+                {
+                    finishPendingByReplyObserved(true, parsed.messageName);
+                    emitRobotStatus("命令成功：" + parsed.messageName);
+                }
+                else
+                {
+                    finishPendingByReplyObserved(false, "ErrorID=" + std::to_string(parsed.errorId) + " " + parsed.messageName);
+                    emitRobotStatus("命令失败：ErrorID=" + std::to_string(parsed.errorId));
+                }
                 return;
             }
 
@@ -270,6 +359,7 @@ namespace touchpanel
 
             while (!stopRequested.load(std::memory_order_relaxed))
             {
+                SOCKET currentSocket = INVALID_SOCKET;
                 int received = 0;
                 {
                     std::lock_guard<std::mutex> lock(socketMutex);
@@ -278,8 +368,10 @@ namespace touchpanel
                         break;
                     }
 
-                    received = ::recv(socketHandle, recvBuffer.data(), static_cast<int>(recvBuffer.size()), 0);
+                    currentSocket = socketHandle;
                 }
+
+                received = ::recv(currentSocket, recvBuffer.data(), static_cast<int>(recvBuffer.size()), 0);
 
                 if (received <= 0)
                 {
@@ -290,15 +382,43 @@ namespace touchpanel
 
                 while (true)
                 {
-                    const auto lineEnd = buffer.find('\n');
+                    const auto lineEnd = buffer.find_first_of("\r\n\0");
                     if (lineEnd == std::string::npos)
                     {
                         break;
                     }
 
-                    std::string line = trimCr(buffer.substr(0, lineEnd));
-                    buffer.erase(0, lineEnd + 1);
-                    onLineReceived(line);
+                    std::string line = buffer.substr(0, lineEnd);
+
+                    size_t eraseCount = lineEnd + 1;
+                    while (eraseCount < buffer.size() && (buffer[eraseCount] == '\r' || buffer[eraseCount] == '\n' || buffer[eraseCount] == '\0'))
+                    {
+                        ++eraseCount;
+                    }
+
+                    buffer.erase(0, eraseCount);
+
+                    line = trimCr(line);
+                    if (!line.empty())
+                    {
+                        onLineReceived(line);
+                    }
+                }
+
+                bool hasPending = false;
+                {
+                    std::lock_guard<std::mutex> lock(pendingMutex);
+                    hasPending = pending.active;
+                }
+
+                if (hasPending && !buffer.empty())
+                {
+                    std::string line = trimCr(buffer);
+                    buffer.clear();
+                    if (!line.empty())
+                    {
+                        onLineReceived(line);
+                    }
                 }
             }
 
@@ -532,6 +652,16 @@ namespace touchpanel
     void CommunicationBackend::enableRobot()
     {
         m_impl->sendRobotCommand("EnableRobot", "EnableRobot()", 5000);
+    }
+
+    void CommunicationBackend::disableRobot()
+    {
+        m_impl->sendRobotCommand("DisableRobot", "DisableRobot()", 5000);
+    }
+
+    void CommunicationBackend::clearError()
+    {
+        m_impl->sendRobotCommand("ClearError", "ClearError()", 5000);
     }
 
     void CommunicationBackend::emergencyStop()
