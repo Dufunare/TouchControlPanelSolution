@@ -27,7 +27,7 @@ StatusPanelWidget::StatusPanelWidget(QWidget* parent)
     rootLayout->setContentsMargins(12, 12,12, 0);
     rootLayout->setSpacing(12);
 
-    auto* stateGroup = new QGroupBox("后端状态", this);
+    auto* stateGroup = new QGroupBox("Touch 状态", this);
     auto* stateLayout = new QFormLayout(stateGroup);
 
     m_initializedValue = createValueLabel("否");
