@@ -1,42 +1,34 @@
-# OpenHaptics + Qt 控制面板文档索引（当前仓库）
+# Touch Control Panel Solution
 
-本目录文档已按当前工程结构更新：
+基于 OpenHaptics 和纯 C++ 通信框架，为遥操作机械臂精心设计的模块化上位机系统。
 
-- 后端静态库项目：`ControlBackend`
-- 前端 Qt 项目：`TouchControlPanelApp`
-- 共享状态：`shared/DeviceState.h`
+## 当前架构亮点
 
-## 当前已实现能力
+*   **纯 C++ 通信后端**：完全抛弃 Qt 网络库，封装 `CommunicationBackend` (Winsock + std::thread)，便于与 `TouchBackend` 同样实现高跨平台迁移性。
+*   **物理发送与界面刷新解耦**：前台展示依靠 `8ms` 极致帧率定时器，后台通信驱动依托 `33ms` 高效稳健定时器同步发送 Teleop / Drag 数据包。
+*   **功能分立的前端面板**：
+    *   **控制枢纽** (`ControlPanelWidget`)：掌控设备启停、TCP 连接和各种操控模式交互。
+    *   **独立监控** (`StatusPanelWidget`)：三独立视图全记录（常规日志、TX 报文通信记录、RX 报文记录），链路问题一目了然。
 
-- OpenHaptics 设备初始化与采样循环
-- Qt 控制层轮询后端状态（8ms）
-- 3D 坐标可视化（OpenGL）
-- 状态/日志面板
-- 视频显示占位区（VideoWidget）
+## 工作空间模块
 
-## 当前界面布局
+1.  **ControlBackend**
+    - 提供纯粹的 OpenHaptics (TouchBackend) 封装。
+    - 提供纯粹的 Windows TCP 网络 (CommunicationBackend) 脱钩式封装。
+2.  **TouchControlPanelApp**
+    - Qt 上位机界面主进程，集成展示双分屏（视图与面板交火）。
+    - 统筹数据双流，跨线程连接界面、底层触觉设备及远端机械臂主机。
+3.  **shared**
+    - `DeviceState.h` 高效数据快照交互结构体。
 
-```text
-MainWindow
-└─ QSplitter(水平)
-   ├─ 左：QSplitter(垂直)
-   │  ├─ VideoWidget
-   │  └─ GLCoordinateWidget
-   └─ 右：StatusPanelWidget
-```
+## 快速指南
 
-## 先看哪些文档
+1.  使用 Visual Studio 打开 `TouchControlPanelSolution.slnx`。
+2.  编译静态纯 C++ 库 `ControlBackend`。
+3.  编译执行 `TouchControlPanelApp`。
+4.  在右方 **ControlPanelWidget** 修改 IP 并连接机械臂，初始化设备并操作。
+5.  在右侧 **StatusPanelWidget** 监控网络指令与 TX/RX 吞吐率。
 
-1. `ARCHITECTURE.md`：完整架构与线程/数据流
-2. `ARCHITECTURE_OVERVIEW.md`：快速总览
-3. `FILE_PURPOSES.md`：文件职责地图
-4. `HOW_TO_EXTEND.md`：如何扩展
-5. `VS_QT_SETUP.md`：VS + Qt + OpenHaptics 配置
-6. `QT_BASICS.md`：项目中会用到的 Qt 核心概念
-
-## 快速启动建议
-
-1. 先确保 `ControlBackend` 可单独编译。
-2. 再编译 `TouchControlPanelApp`，确认可链接 `ControlBackend.lib`。
-3. 运行后先点击“初始化设备”，再点击“启动实时采集”。
-4. 观察右侧日志与左侧 3D 画面是否同步更新。
+## 详细架构参见 Doc 文件夹
+- ARCHITECTURE.md
+- DEVELOPER_GUIDE.md

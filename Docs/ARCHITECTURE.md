@@ -1,4 +1,4 @@
-# OpenHaptics + Qt 控制面板架构文档（按当前工程更新）
+# OpenHaptics + Qt + 机械臂控制架构文档（按当前工程更新）
 
 ## 1. 文档目标
 
@@ -10,7 +10,7 @@
 
 当前方案是：
 
-- 后端静态库：`ControlBackend`
+- 后端静态库：`ControlBackend`（含触觉与纯 C++ 通信模块）
 - 前端 Qt 程序：`TouchControlPanelApp`
 - 共享状态：`shared/DeviceState.h`
 
@@ -20,31 +20,27 @@
 
 职责：
 
-- 管理 OpenHaptics 设备初始化与释放
-- 注册和取消 scheduler 回调
-- 在 servo callback 内读取当前位置
-- 保存线程安全的最新状态快照
-- 通过最小接口给前端提供状态读取
-
-入口接口：`TouchBackend`（PImpl 结构）
+- **触觉控制** (`TouchBackend`)：管理 OpenHaptics 设备初始化与释放，注册 scheduler 回调，在 servo callback 内读取当前位置，保存线程安全的最新状态快照。
+- **网络通信** (`CommunicationBackend`)：纯 C++ 实现（基于 Winsock 和 `std::thread`），彻底脱离 Qt 网络库。负责与机械臂或中转端进行 TCP 通信，通过 `std::function` 回调向上传递事件。
 
 ### 2.2 Qt 控制层（DeviceController）
 
 职责：
 
-- 响应 UI 发出的初始化/启动/停止信号
-- 驱动后端生命周期
-- 用 `QTimer` 轮询后端最新状态
-- 把状态和消息转发给 UI
-
-当前轮询周期：`8ms`（约 125 FPS）
+- 整合 `TouchBackend` 与 `CommunicationBackend`。
+- 响应 UI 发出的触觉设备启动/停止以及机械臂连接/移动信号。
+- 用双 `QTimer` 驱动业务：
+  - `m_pollTimer`：`8ms` 周期，用于高频轮询后端状态并更新 UI。
+  - `m_motionTimer`：`33ms` 周期，用于定期向机械臂下发 Teleop（遥操作）或 Drag（拖拽）指令。
+- 把状态、网络接收数据和日志转发给 UI。
 
 ### 2.3 Qt 界面层（MainWindow + Widgets）
 
 职责：
 
 - 组织主布局
-- 展示状态与日志
+- 展示状态、通信字节（TX/RX）与日志的专属面板
+- 提供触控笔和机械臂控制面板
 - 渲染 3D 坐标场景
 - 预留视频显示区域
 
@@ -52,7 +48,8 @@
 
 - `VideoWidget`：视频占位/帧显示（含 NO SIGNAL 状态）
 - `GLCoordinateWidget`：3D 坐标轴、边框、触笔点位可视化
-- `StatusPanelWidget`：状态 + 控制按钮 + 日志
+- `ControlPanelWidget`：负责 Touch 初始化/控制，以及机器人控制（支持 IP 覆盖、急停、拖拽/遥操作控制模式）。
+- `StatusPanelWidget`：专属日志面板，包含常规日志、TCP TX（发送）字节和 RX（接收）字节显示。
 
 ## 3. 当前主界面结构
 
@@ -62,149 +59,67 @@ MainWindow
    ├─ 左侧 QSplitter(垂直)
    │  ├─ 上：VideoWidget
    │  └─ 下：GLCoordinateWidget
-   └─ 右侧：StatusPanelWidget
+   └─ 右侧 QSplitter(垂直)
+      ├─ 上：ControlPanelWidget
+      └─ 下：StatusPanelWidget
 ```
-
-说明：
-
-- 左侧分为视频区和 3D 区，比例默认约 2:1
-- 右侧是状态与控制面板
-- 这种结构已经支持“视频 + 三维坐标 + 控制面板”的阶段化演进
 
 ## 4. 当前数据流与线程模型
 
 ```text
-Touch 设备
-  ↓
-OpenHaptics scheduler 回调（后端线程）
-  ↓
-TouchBackend 原子变量更新（x/y/z、valid、running、sampleCounter）
-  ↓
-DeviceController(QTimer 8ms，Qt 主线程)
+Touch 设备                            机械臂/中转站
+  ↓                                      ↑↓
+OpenHaptics callback             CommunicationBackend (C++ std::thread)
+  ↓                                      ↑↓
+TouchBackend(原子变量)             异步网络回调 (std::function)
+  ↓                                      ↑↓
+         DeviceController (Qt 主线程)
+         ├─ m_pollTimer (8ms): 读取 Touch 状态并刷新 UI
+         └─ m_motionTimer (33ms): 读取坐标并下发 TCP 运动指令
   ↓
 MainWindow 分发
   ├─ GLCoordinateWidget::setDeviceState
-  └─ StatusPanelWidget::setDeviceState
+  ├─ StatusPanelWidget (写日志、TX/RX)
+  └─ ControlPanelWidget (更新连接状态等)
 ```
 
 关键规则：
 
-- OpenHaptics 的 `hdGet*` 调用放在 haptics frame 中执行
-- QWidget 只在 Qt 主线程更新
-- UI 不直接访问 OpenHaptics API，只访问 `TouchBackend`
+- OpenHaptics 调用在其专属 haptics 线程执行。
+- 网络收发在纯 C++ 的后台 `std::thread` 中执行。
+- UI 不直接访问 OpenHaptics 或 Winsock，全权由 `DeviceController` 跨线程统筹（Qt 信号槽或定时器）。
 
 ## 5. 核心类职责（按当前代码）
 
+### `CommunicationBackend` (新)
+
+- 纯 C++ 的 TCP 客户端实现。
+- 支持异步连接、断开、发送和接收。
+- 采用 `std::thread` 监听数据，通过注册 `std::function` 回调派发连接成功、断开、数据到达和错误事件。
+
 ### `touchpanel::TouchBackend`
 
-- `initialize()`：初始化设备并清理错误状态
-- `start()`：注册异步回调并启动 scheduler
-- `stop()`：停止采集并取消回调
-- `latestState()`：返回快照（位置、初始化状态、有效性、运行状态、采样计数）
-- `lastError()`：返回最近错误文本
+- 初始化设备、启动 scheduler 并管理数据快照。
 
 ### `DeviceController`
 
-- 控制后端生命周期
-- 维护 `QTimer` 轮询
-- 发送 `deviceStateUpdated` 和 `backendMessageChanged`
-- 检测 scheduler 异常停止并自动停表、上报消息
+- 控制前后端和网络通讯的生命周期。
+- 双定时器：`8ms` 更新显示，`33ms` 运动发包。
+- 将从 `CommunicationBackend` 收到的日志、报文转发给 `StatusPanelWidget` 显示。
 
-### `GLCoordinateWidget`
+### `ControlPanelWidget`
 
-- 基于 `QOpenGLWidget` 渲染 3D 场景
-- 当前包含：边框、RGB 轴、箭头、原点、触笔几何
-- 支持鼠标旋转与滚轮缩放
-- 局部覆盖文字显示 XYZ 数值
+- 面板集成了 Touch 设备的启停控制。
+- 集成了机械臂控制模块：可手动填写覆盖 IP、建立 TCP 连接、触发急停（E-stop），并支持 Drag / Teleop 模式切换。
 
 ### `StatusPanelWidget`
 
-- 显示初始化状态、采样循环状态、数据有效性、采样计数
-- 提供 3 个控制按钮：初始化、启动、停止
-- 内置只读日志窗口，支持右键清空日志
+- 不再混合复杂的控制按钮。
+- 纯粹的状态与日志输出，划分为三个独立显示区：常规 System Log、TX（发送报文）和 RX（接收报文）。
 
-### `VideoWidget`
+## 6. 旧文档与当前现状的核心差异
 
-- 管理视频帧显示与无信号状态
-- 线程安全接收 `QImage`
-- 保证跨线程调用时回到 UI 线程刷新
-- 目前 `setFrameFromMat()` 仍为占位实现
+- **网络层已无 Qt 痕迹**：移除了针对 `TransitTcpClient` 等基于 Qt 网络的类，由 `ControlBackend` 中的 `CommunicationBackend` 替代，回归纯 C++。
+- **UI布局和职责分离**：原本混在 `StatusPanelWidget` 的控制按钮全部提炼并扩充到了新的 `ControlPanelWidget`。`StatusPanelWidget` 专责日志。
+- **精确驱动频率**：确立了 8ms UI刷新与 33ms 运动控制发包的解耦策略。
 
-## 6. 当前目录与模块边界
-
-```text
-TouchControlPanelSolution/
-├─ ControlBackend/
-│  ├─ include/TouchBackend.h
-│  └─ src/TouchBackend.cpp
-├─ TouchControlPanelApp/
-│  └─ src/
-│     ├─ DeviceController.h/.cpp
-│     ├─ MainWindow.h/.cpp
-│     ├─ main.cpp
-│     └─ widgets/
-│        ├─ GLCoordinateWidget.h/.cpp
-│        ├─ StatusPanelWidget.h/.cpp
-│        └─ VideoWidget.h/.cpp
-└─ shared/
-   └─ DeviceState.h
-```
-
-边界约束：
-
-- 共享状态定义只放在 `shared/`
-- OpenHaptics 细节只放在 `ControlBackend`
-- UI 拼装只在 `MainWindow`
-- 功能显示逻辑尽量沉到对应 Widget
-
-## 7. 已实现能力与未实现占位
-
-已实现：
-
-- 设备初始化与采样循环启动/停止
-- 位置数据采集与快照读取
-- Qt 侧高频轮询和状态展示
-- OpenGL 3D 轨迹点位可视化（当前为点位/触笔）
-- 视频区域组件化占位（可接入外部图像源）
-
-当前占位/后续方向：
-
-- `VideoWidget::setFrameFromMat()` 尚未接入 OpenCV Mat 转换
-- 还未加入按钮状态、速度、力反馈、校准流程
-- 还未拆分独立的视频控制器或数据服务
-
-## 8. 扩展建议（结合现状）
-
-### 8.1 增加更多设备状态
-
-推荐顺序：
-
-1. 扩展 `shared/DeviceState.h`
-2. 在 `ControlBackend/src/TouchBackend.cpp` 中填充字段
-3. 在 `StatusPanelWidget` 或 `GLCoordinateWidget` 增加展示
-
-### 8.2 接入真实视频流
-
-推荐顺序：
-
-1. 保持 `VideoWidget` 仅做显示
-2. 新增视频采集/解码服务（后端或独立线程）
-3. 在 UI 线程通过 `setFrame()` 投喂 `QImage`
-4. 如需 OpenCV，补齐 `setFrameFromMat()` 的像素格式转换
-
-### 8.3 新增业务功能
-
-例如轨迹录制、任务控制、参数面板：
-
-- 新增独立 Widget/Controller
-- `MainWindow` 只做装配
-- 避免把业务流程直接写入 `MainWindow.cpp`
-
-## 9. 当前与旧文档的关键差异
-
-- 后端项目名是 `ControlBackend`，不是 `TouchBackendLib`
-- 主界面已是“三分区”：视频 + 3D + 状态控制
-- 轮询周期是 `8ms`，不是 `16ms`
-- 状态面板当前主要显示运行状态与日志，XYZ 数字叠加在 3D 视图
-
-以上内容均按当前仓库代码同步更新。
