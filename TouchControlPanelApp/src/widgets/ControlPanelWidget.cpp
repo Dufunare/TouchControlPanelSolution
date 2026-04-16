@@ -49,6 +49,8 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     m_emergencyStopButton = new QPushButton("EmergencyStop()", robotGroup);
     m_startDragButton = new QPushButton("StartDrag()", robotGroup);
     m_stopDragButton = new QPushButton("StopDrag()", robotGroup);
+    m_startTeleopButton = new QPushButton("开始控制（按住按钮跟随）", robotGroup);
+    m_stopTeleopButton = new QPushButton("停止控制", robotGroup);
 
     robotLayout->addLayout(endpointLayout);
     robotLayout->addWidget(m_robotConnectButton);
@@ -60,6 +62,8 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     robotLayout->addWidget(m_emergencyStopButton);
     robotLayout->addWidget(m_startDragButton);
     robotLayout->addWidget(m_stopDragButton);
+    robotLayout->addWidget(m_startTeleopButton);
+    robotLayout->addWidget(m_stopTeleopButton);
 
     rootLayout->addWidget(touchGroup);
     rootLayout->addWidget(robotGroup);
@@ -83,4 +87,6 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     connect(m_emergencyStopButton, &QPushButton::clicked, this, &ControlPanelWidget::emergencyStopRequested);
     connect(m_startDragButton, &QPushButton::clicked, this, &ControlPanelWidget::startDragRequested);
     connect(m_stopDragButton, &QPushButton::clicked, this, &ControlPanelWidget::stopDragRequested);
+    connect(m_startTeleopButton, &QPushButton::clicked, this, &ControlPanelWidget::startTeleopRequested);
+    connect(m_stopTeleopButton, &QPushButton::clicked, this, &ControlPanelWidget::stopTeleopRequested);
 }

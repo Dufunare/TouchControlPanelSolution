@@ -2,9 +2,13 @@
 #include "CommunicationBackend.h"
 
 #include <atomic>
+#include <array>
 #include <cctype>
 #include <chrono>
+#include <cmath>
+#include <iomanip>
 #include <mutex>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -15,6 +19,14 @@ namespace touchpanel
     {
         constexpr std::uint16_t kTransitDefaultPort = 8888;
         constexpr std::uint16_t kRobotControlPort = 29999;
+        constexpr std::uint16_t kRobotMotionPort = 30003;
+
+        constexpr double kMotionXMin = -350.0;
+        constexpr double kMotionXMax = 650.0;
+        constexpr double kMotionYMin = -350.0;
+        constexpr double kMotionYMax = 350.0;
+        constexpr double kMotionZMin = 50.0;
+        constexpr double kMotionZMax = 500.0;
 
         std::string trimCr(std::string line)
         {
@@ -36,10 +48,39 @@ namespace touchpanel
             return raw.substr(separator + 1);
         }
 
+        std::string trimSpace(std::string text)
+        {
+            while (!text.empty() && std::isspace(static_cast<unsigned char>(text.front())))
+            {
+                text.erase(text.begin());
+            }
+
+            while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back())))
+            {
+                text.pop_back();
+            }
+
+            return text;
+        }
+
+        double clampValue(double value, double minValue, double maxValue)
+        {
+            return (value < minValue) ? minValue : ((value > maxValue) ? maxValue : value);
+        }
+
+        std::string formatDouble3(double value)
+        {
+            std::ostringstream oss;
+            oss << std::fixed << std::setprecision(3) << value;
+            return oss.str();
+        }
+
         struct ParsedReply
         {
             bool valid = false;
             int errorId = -1;
+            std::vector<double> values;
+            std::string commandName;
             std::string messageName;
         };
 
@@ -47,11 +88,7 @@ namespace touchpanel
         {
             ParsedReply parsed;
 
-            std::string text = payload;
-            while (!text.empty() && std::isspace(static_cast<unsigned char>(text.back())))
-            {
-                text.pop_back();
-            }
+            std::string text = trimSpace(payload);
             if (!text.empty() && text.back() == ';')
             {
                 text.pop_back();
@@ -84,19 +121,53 @@ namespace touchpanel
                 return parsed;
             }
 
+            const std::string valueBlock = text.substr(valueOpen + 1, valueClose - valueOpen - 1);
+            if (!valueBlock.empty())
+            {
+                size_t start = 0;
+                while (start < valueBlock.size())
+                {
+                    const auto comma = valueBlock.find(',', start);
+                    const auto end = (comma == std::string::npos) ? valueBlock.size() : comma;
+                    const std::string token = trimSpace(valueBlock.substr(start, end - start));
+                    if (!token.empty())
+                    {
+                        try
+                        {
+                            parsed.values.push_back(std::stod(token));
+                        }
+                        catch (...)
+                        {
+                        }
+                    }
+
+                    if (comma == std::string::npos)
+                    {
+                        break;
+                    }
+
+                    start = comma + 1;
+                }
+            }
+
             const auto secondComma = text.find(',', valueClose + 1);
             if (secondComma == std::string::npos)
             {
                 return parsed;
             }
 
-            parsed.messageName = text.substr(secondComma + 1);
-            while (!parsed.messageName.empty() && std::isspace(static_cast<unsigned char>(parsed.messageName.front())))
+            parsed.messageName = trimSpace(text.substr(secondComma + 1));
+            const auto bracket = parsed.messageName.find('(');
+            parsed.commandName = (bracket == std::string::npos)
+                ? parsed.messageName
+                : parsed.messageName.substr(0, bracket);
+
+            while (!parsed.commandName.empty() && std::isspace(static_cast<unsigned char>(parsed.commandName.back())))
             {
-                parsed.messageName.erase(parsed.messageName.begin());
+                parsed.commandName.pop_back();
             }
 
-            parsed.valid = !parsed.messageName.empty();
+            parsed.valid = !parsed.commandName.empty();
             return parsed;
         }
     }
@@ -134,6 +205,15 @@ namespace touchpanel
 
         PendingCommand pending;
         std::mutex pendingMutex;
+
+        std::mutex robotStateMutex;
+        int lastRobotMode = -1;
+        bool hasLastPose = false;
+        std::array<double, 6> lastPose{ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+
+        std::mutex motionLogMutex;
+        std::chrono::steady_clock::time_point lastMotionLogTime{};
+        int motionSentSinceLastLog = 0;
 
         void emitMessage(const std::string& text)
         {
@@ -219,7 +299,7 @@ namespace touchpanel
             }
         }
 
-        bool sendLine(const std::string& line)
+        bool sendLine(const std::string& line, bool reportTx)
         {
             if (!connected.load(std::memory_order_relaxed))
             {
@@ -247,9 +327,66 @@ namespace touchpanel
                 return false;
             }
 
-            emitMessage("[TCP-TX] " + line);
-            emitTx(line);
+            if (reportTx)
+            {
+                emitMessage("[TCP-TX] " + line);
+                emitTx(line);
+            }
             return true;
+        }
+
+        void sendMotionCommand(double x, double y, double z)
+        {
+            if (!connected.load(std::memory_order_relaxed))
+            {
+                return;
+            }
+
+            const double mappedX = clampValue(x, kMotionXMin, kMotionXMax);
+            const double mappedY = clampValue(y, kMotionYMin, kMotionYMax);
+            const double mappedZ = clampValue(z, kMotionZMin, kMotionZMax);
+
+            const std::string command =
+                "ServoP(" + formatDouble3(mappedX) + "," + formatDouble3(mappedY) + "," + formatDouble3(mappedZ) + ",150,0,90)";
+            const std::string packet = std::to_string(kRobotMotionPort) + "|" + command;
+
+            if (!sendLine(packet, false))
+            {
+                return;
+            }
+
+            const auto now = std::chrono::steady_clock::now();
+            std::lock_guard<std::mutex> lock(motionLogMutex);
+            ++motionSentSinceLastLog;
+            if (lastMotionLogTime.time_since_epoch().count() == 0 ||
+                now - lastMotionLogTime >= std::chrono::seconds(1))
+            {
+                emitMessage("[MOTION] ServoP 流发送中，本秒已发送 " + std::to_string(motionSentSinceLastLog) + " 条。");
+                motionSentSinceLastLog = 0;
+                lastMotionLogTime = now;
+            }
+        }
+
+        void updateRobotSnapshot(const ParsedReply& parsed)
+        {
+            if (parsed.errorId != 0)
+            {
+                return;
+            }
+
+            std::lock_guard<std::mutex> lock(robotStateMutex);
+            if (parsed.commandName == "RobotMode" && !parsed.values.empty())
+            {
+                lastRobotMode = static_cast<int>(std::llround(parsed.values[0]));
+            }
+            else if (parsed.commandName == "GetPose" && parsed.values.size() >= 6)
+            {
+                for (size_t i = 0; i < 6; ++i)
+                {
+                    lastPose[i] = parsed.values[i];
+                }
+                hasLastPose = true;
+            }
         }
 
         void finishPendingTimeout()
@@ -319,6 +456,11 @@ namespace touchpanel
             emitRx(rawLine);
 
             const std::string detail = extractPayload(rawLine);
+            const auto parsed = parseTransitReply(detail.empty() ? rawLine : detail);
+            if (parsed.valid)
+            {
+                updateRobotSnapshot(parsed);
+            }
 
             bool hasPending = false;
             {
@@ -328,7 +470,6 @@ namespace touchpanel
 
             if (hasPending)
             {
-                const auto parsed = parseTransitReply(detail.empty() ? rawLine : detail);
                 if (!parsed.valid)
                 {
                     finishPendingByReplyObserved(false, "回包格式无法解析：" + (detail.empty() ? rawLine : detail));
@@ -503,7 +644,7 @@ namespace touchpanel
             }
 
             const std::string packet = std::to_string(kRobotControlPort) + "|" + command;
-            if (!sendLine(packet))
+            if (!sendLine(packet, true))
             {
                 finishPendingAsCanceled("发送失败");
                 return;
@@ -642,6 +783,44 @@ namespace touchpanel
         m_impl->emitConnection(false);
         m_impl->emitMessage("中转站连接已断开。");
         m_impl->finishPendingAsCanceled("连接断开，命令未完成。");
+    }
+
+    bool CommunicationBackend::isTransitConnected() const
+    {
+        return m_impl->connected.load(std::memory_order_relaxed);
+    }
+
+    void CommunicationBackend::sendMotion(double x, double y, double z)
+    {
+        m_impl->sendMotionCommand(x, y, z);
+    }
+
+    void CommunicationBackend::requestRobotMode()
+    {
+        m_impl->sendRobotCommand("RobotMode", "RobotMode()", 3000);
+    }
+
+    void CommunicationBackend::requestCurrentPose()
+    {
+        m_impl->sendRobotCommand("GetPose", "GetPose()", 3000);
+    }
+
+    bool CommunicationBackend::isRobotModeReady() const
+    {
+        std::lock_guard<std::mutex> lock(m_impl->robotStateMutex);
+        return m_impl->lastRobotMode == 5;
+    }
+
+    bool CommunicationBackend::tryGetLastPose(std::array<double, 6>& pose) const
+    {
+        std::lock_guard<std::mutex> lock(m_impl->robotStateMutex);
+        if (!m_impl->hasLastPose)
+        {
+            return false;
+        }
+
+        pose = m_impl->lastPose;
+        return true;
     }
 
     void CommunicationBackend::powerOn()

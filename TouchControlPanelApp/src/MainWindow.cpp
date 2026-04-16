@@ -1,4 +1,4 @@
-#include "MainWindow.h"
+﻿#include "MainWindow.h"
 
 #include <QSplitter>
 #include <QStatusBar>
@@ -69,6 +69,10 @@ MainWindow::MainWindow(QWidget* parent)
         m_controller, &DeviceController::startDragRobot);
     connect(m_controlPanel, &ControlPanelWidget::stopDragRequested,
         m_controller, &DeviceController::stopDragRobot);
+    connect(m_controlPanel, &ControlPanelWidget::startTeleopRequested,
+        m_controller, &DeviceController::startTeleop);
+    connect(m_controlPanel, &ControlPanelWidget::stopTeleopRequested,
+        m_controller, &DeviceController::stopTeleop);
 
     connect(m_controller, &DeviceController::deviceStateUpdated, this,
         [this](const touchpanel::DeviceState& state)
@@ -95,3 +99,4 @@ MainWindow::MainWindow(QWidget* parent)
             statusBar()->showMessage(message);
         });
 }
+

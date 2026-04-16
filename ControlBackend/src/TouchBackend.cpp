@@ -39,6 +39,7 @@ namespace touchpanel
         std::atomic<double> x{ 0.0 };
         std::atomic<double> y{ 0.0 };
         std::atomic<double> z{ 0.0 };
+        std::atomic<bool> button1Pressed{ false };
 
         std::atomic<std::uint64_t> sampleCounter{ 0 };
         std::atomic<int> lastErrorCode{ HD_SUCCESS };
@@ -57,7 +58,9 @@ namespace touchpanel
             hdBeginFrame(self->deviceHandle);
 
             HDdouble position[3] = { 0.0, 0.0, 0.0 };
+            HDint currentButtons = 0;
             hdGetDoublev(HD_CURRENT_POSITION, position);
+            hdGetIntegerv(HD_CURRENT_BUTTONS, &currentButtons);
 
             const HDErrorInfo error = hdGetError();
             hdEndFrame(self->deviceHandle);
@@ -73,6 +76,7 @@ namespace touchpanel
             self->x.store(position[0], std::memory_order_relaxed);
             self->y.store(position[1], std::memory_order_relaxed);
             self->z.store(position[2], std::memory_order_relaxed);
+            self->button1Pressed.store((currentButtons & HD_DEVICE_BUTTON_1) != 0, std::memory_order_relaxed);
             self->sampleCounter.fetch_add(1, std::memory_order_relaxed);
             self->valid.store(true, std::memory_order_relaxed);
 
@@ -257,6 +261,7 @@ namespace touchpanel
         m_impl->x.store(0.0, std::memory_order_relaxed);
         m_impl->y.store(0.0, std::memory_order_relaxed);
         m_impl->z.store(0.0, std::memory_order_relaxed);
+        m_impl->button1Pressed.store(false, std::memory_order_relaxed);
     }
 
     DeviceState TouchBackend::latestState() const
@@ -268,6 +273,7 @@ namespace touchpanel
         state.initialized = m_impl->initialized.load(std::memory_order_relaxed);
         state.valid = m_impl->valid.load(std::memory_order_relaxed);
         state.schedulerRunning = m_impl->running.load(std::memory_order_relaxed);
+        state.button1Pressed = m_impl->button1Pressed.load(std::memory_order_relaxed);
         state.sampleCounter = m_impl->sampleCounter.load(std::memory_order_relaxed);
         return state;
     }

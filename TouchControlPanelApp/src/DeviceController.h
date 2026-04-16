@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <array>
 #include <QTimer>
 #include <QtGlobal>
 
@@ -33,6 +34,8 @@ public slots:
     void emergencyStopRobot();
     void startDragRobot();
     void stopDragRobot();
+    void startTeleop();
+    void stopTeleop();
 
 signals:
     void deviceStateUpdated(const touchpanel::DeviceState& state);
@@ -45,9 +48,19 @@ signals:
 
 private slots:
     void pollDeviceState();
+    void onMotionTick();
 
 private:
     touchpanel::TouchBackend* m_backend = nullptr;
     touchpanel::CommunicationBackend& m_robotBackend;
     QTimer m_pollTimer;
+    QTimer m_motionTimer;
+    bool m_lastButtonPressed = false;
+    bool m_motionBaselineReady = false;
+    int m_modeQueryCooldownTicks = 0;
+    int m_poseQueryCooldownTicks = 0;
+    std::array<double, 3> m_touchOrigin{ 0.0, 0.0, 0.0 };
+    std::array<double, 3> m_robotOrigin{ 0.0, 0.0, 0.0 };
+    std::array<double, 3> m_lastSent{ 0.0, 0.0, 0.0 };
+    bool m_hasLastSent = false;
 };

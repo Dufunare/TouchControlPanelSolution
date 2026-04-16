@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <array>
 #include <functional>
 #include <string>
 
@@ -29,6 +30,13 @@ namespace touchpanel
 
         void connectTransit(const std::string& ipOverride = {}, std::uint16_t portOverride = 0);
         void disconnectTransit();
+        bool isTransitConnected() const;
+
+        void sendMotion(double x, double y, double z);
+        void requestRobotMode();
+        void requestCurrentPose();
+        bool isRobotModeReady() const;
+        bool tryGetLastPose(std::array<double, 6>& pose) const;
 
         void powerOn();
         void enableRobot();

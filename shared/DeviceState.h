@@ -12,6 +12,7 @@ namespace touchpanel
         bool initialized = false;
         bool valid = false;
         bool schedulerRunning = false;
+        bool button1Pressed = false;
 
         std::uint64_t sampleCounter = 0;
     };

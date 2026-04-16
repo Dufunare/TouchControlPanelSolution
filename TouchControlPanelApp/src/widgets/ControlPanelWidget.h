@@ -29,6 +29,8 @@ signals:
     void emergencyStopRequested();
     void startDragRequested();
     void stopDragRequested();
+    void startTeleopRequested();
+    void stopTeleopRequested();
 
 private:
     QPushButton* m_initializeButton = nullptr;
@@ -45,6 +47,8 @@ private:
     QPushButton* m_emergencyStopButton = nullptr;
     QPushButton* m_startDragButton = nullptr;
     QPushButton* m_stopDragButton = nullptr;
+    QPushButton* m_startTeleopButton = nullptr;
+    QPushButton* m_stopTeleopButton = nullptr;
 
     QLineEdit* m_transitIpEdit = nullptr;
     QSpinBox* m_transitPortSpin = nullptr;
