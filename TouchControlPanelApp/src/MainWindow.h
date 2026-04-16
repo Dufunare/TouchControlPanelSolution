@@ -2,6 +2,7 @@
 
 #include <QMainWindow>
 
+#include "CommunicationBackend.h"
 #include "TouchBackend.h"
 
 class DeviceController;
@@ -18,6 +19,7 @@ public:
 
 private:
     touchpanel::TouchBackend m_backend;
+    touchpanel::CommunicationBackend m_communicationBackend;
     DeviceController* m_controller = nullptr;
     ControlPanelWidget* m_controlPanel = nullptr;
     VideoWidget* m_videoWidget = nullptr;

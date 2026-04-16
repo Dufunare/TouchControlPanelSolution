@@ -5,7 +5,7 @@
 #include <QtGlobal>
 
 #include "DeviceStateQt.h"
-#include "communicationbackend/RobotControllerFacade.h"
+#include "CommunicationBackend.h"
 #include "TouchBackend.h"
 
 class DeviceController : public QObject
@@ -13,7 +13,10 @@ class DeviceController : public QObject
     Q_OBJECT
 
 public:
-    explicit DeviceController(touchpanel::TouchBackend* backend, QObject* parent = nullptr);
+    explicit DeviceController(
+        touchpanel::TouchBackend* backend,
+        touchpanel::CommunicationBackend& communicationBackend,
+        QObject* parent = nullptr);
 
 public slots:
     void initializeBackend();
@@ -43,6 +46,6 @@ private slots:
 
 private:
     touchpanel::TouchBackend* m_backend = nullptr;
-    RobotControllerFacade m_robotFacade;
+    touchpanel::CommunicationBackend& m_robotBackend;
     QTimer m_pollTimer;
 };

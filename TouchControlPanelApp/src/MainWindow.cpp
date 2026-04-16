@@ -16,7 +16,7 @@ MainWindow::MainWindow(QWidget* parent)
     setWindowTitle("OpenHaptics + Qt Touch 控制面板（阶段 1 骨架）");
     resize(1440, 860);
 
-    m_controller = new DeviceController(&m_backend, this);
+    m_controller = new DeviceController(&m_backend, m_communicationBackend, this);
     m_controlPanel = new ControlPanelWidget(this);
     m_videoWidget = new VideoWidget(this);
     m_glWidget = new GLCoordinateWidget(this);

@@ -16,24 +16,41 @@ namespace
     }
 }
 
-DeviceController::DeviceController(touchpanel::TouchBackend* backend, QObject* parent)
-    : QObject(parent), m_backend(backend)
+DeviceController::DeviceController(
+    touchpanel::TouchBackend* backend,
+    touchpanel::CommunicationBackend& communicationBackend,
+    QObject* parent)
+    : QObject(parent), m_backend(backend), m_robotBackend(communicationBackend)
 {
     m_pollTimer.setInterval(8); // 约 125 FPS 的前端刷新频率
     m_pollTimer.setTimerType(Qt::PreciseTimer);
 
     connect(&m_pollTimer, &QTimer::timeout, this, &DeviceController::pollDeviceState);
 
-    connect(&m_robotFacade, &RobotControllerFacade::backendMessageChanged,
-        this, &DeviceController::backendMessageChanged);
-    connect(&m_robotFacade, &RobotControllerFacade::tcpConnectionChanged,
-        this, &DeviceController::tcpConnectionChanged);
-    connect(&m_robotFacade, &RobotControllerFacade::robotStatusChanged,
-        this, &DeviceController::robotStatusChanged);
-    connect(&m_robotFacade, &RobotControllerFacade::tcpTxMessage,
-        this, &DeviceController::tcpTxMessage);
-    connect(&m_robotFacade, &RobotControllerFacade::tcpRxMessage,
-        this, &DeviceController::tcpRxMessage);
+    m_robotBackend.setMessageCallback([this](const std::string& text)
+        {
+            emit backendMessageChanged(decodeBackendText(text));
+        });
+
+    m_robotBackend.setConnectionCallback([this](bool connected)
+        {
+            emit tcpConnectionChanged(connected);
+        });
+
+    m_robotBackend.setRobotStatusCallback([this](const std::string& text)
+        {
+            emit robotStatusChanged(decodeBackendText(text));
+        });
+
+    m_robotBackend.setTcpTxCallback([this](const std::string& text)
+        {
+            emit tcpTxMessage(decodeBackendText(text));
+        });
+
+    m_robotBackend.setTcpRxCallback([this](const std::string& text)
+        {
+            emit tcpRxMessage(decodeBackendText(text));
+        });
 }
 
 void DeviceController::initializeBackend()
@@ -150,35 +167,35 @@ void DeviceController::pollDeviceState()
 
 void DeviceController::connectTransit(const QString& ipOverride, quint16 portOverride)
 {
-    m_robotFacade.connectTransit(ipOverride, portOverride);
+    m_robotBackend.connectTransit(ipOverride.toStdString(), portOverride);
 }
 
 void DeviceController::disconnectTransit()
 {
-    m_robotFacade.disconnectTransit();
+    m_robotBackend.disconnectTransit();
 }
 
 void DeviceController::powerOnRobot()
 {
-    m_robotFacade.powerOn();
+    m_robotBackend.powerOn();
 }
 
 void DeviceController::enableRobot()
 {
-    m_robotFacade.enableRobot();
+    m_robotBackend.enableRobot();
 }
 
 void DeviceController::emergencyStopRobot()
 {
-    m_robotFacade.emergencyStop();
+    m_robotBackend.emergencyStop();
 }
 
 void DeviceController::startDragRobot()
 {
-    m_robotFacade.startDrag();
+    m_robotBackend.startDrag();
 }
 
 void DeviceController::stopDragRobot()
 {
-    m_robotFacade.stopDrag();
+    m_robotBackend.stopDrag();
 }

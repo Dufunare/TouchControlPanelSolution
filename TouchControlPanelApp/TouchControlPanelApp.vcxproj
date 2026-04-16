@@ -110,10 +110,6 @@
     <QtRcc Include="TouchControlPanelApp.qrc" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="src\communicationbackend\RobotControllerFacade.cpp" />
-    <ClCompile Include="src\communicationbackend\TransitProtocolParser.cpp" />
-    <ClCompile Include="src\communicationbackend\TransitTcpClient.cpp" />
-    <ClCompile Include="src\communicationbackend\TransitTcpWorker.cpp" />
     <ClCompile Include="src\DeviceController.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\MainWindow.cpp" />
@@ -124,10 +120,6 @@
   </ItemGroup>
   <ItemGroup>
     <QtMoc Include="src\widgets\ControlPanelWidget.h" />
-    <QtMoc Include="src\communicationbackend\RobotControllerFacade.h" />
-    <ClInclude Include="src\communicationbackend\TransitProtocolParser.h" />
-    <QtMoc Include="src\communicationbackend\TransitTcpClient.h" />
-    <QtMoc Include="src\communicationbackend\TransitTcpWorker.h" />
     <ClInclude Include="src\widgets\VideoWidget.h" />
     <QtMoc Include="src\DeviceController.h" />
     <ClInclude Include="src\DeviceStateQt.h" />
@@ -145,6 +137,8 @@
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
 </Project>
+
+
 
 
 
