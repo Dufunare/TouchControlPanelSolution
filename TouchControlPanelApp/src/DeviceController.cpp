@@ -23,6 +23,17 @@ DeviceController::DeviceController(touchpanel::TouchBackend* backend, QObject* p
     m_pollTimer.setTimerType(Qt::PreciseTimer);
 
     connect(&m_pollTimer, &QTimer::timeout, this, &DeviceController::pollDeviceState);
+
+    connect(&m_robotFacade, &RobotControllerFacade::backendMessageChanged,
+        this, &DeviceController::backendMessageChanged);
+    connect(&m_robotFacade, &RobotControllerFacade::tcpConnectionChanged,
+        this, &DeviceController::tcpConnectionChanged);
+    connect(&m_robotFacade, &RobotControllerFacade::robotStatusChanged,
+        this, &DeviceController::robotStatusChanged);
+    connect(&m_robotFacade, &RobotControllerFacade::tcpTxMessage,
+        this, &DeviceController::tcpTxMessage);
+    connect(&m_robotFacade, &RobotControllerFacade::tcpRxMessage,
+        this, &DeviceController::tcpRxMessage);
 }
 
 void DeviceController::initializeBackend()
@@ -135,4 +146,39 @@ void DeviceController::pollDeviceState()
             emit backendMessageChanged("采集循环已停止。");
         }
     }
+}
+
+void DeviceController::connectTransit(const QString& ipOverride, quint16 portOverride)
+{
+    m_robotFacade.connectTransit(ipOverride, portOverride);
+}
+
+void DeviceController::disconnectTransit()
+{
+    m_robotFacade.disconnectTransit();
+}
+
+void DeviceController::powerOnRobot()
+{
+    m_robotFacade.powerOn();
+}
+
+void DeviceController::enableRobot()
+{
+    m_robotFacade.enableRobot();
+}
+
+void DeviceController::emergencyStopRobot()
+{
+    m_robotFacade.emergencyStop();
+}
+
+void DeviceController::startDragRobot()
+{
+    m_robotFacade.startDrag();
+}
+
+void DeviceController::stopDragRobot()
+{
+    m_robotFacade.stopDrag();
 }

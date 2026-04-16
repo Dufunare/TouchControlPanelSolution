@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|x64">
@@ -36,12 +36,12 @@
   </ImportGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'" Label="QtSettings">
     <QtInstall>6.11.0_msvc2022_64</QtInstall>
-    <QtModules>core;gui;widgets;openglwidgets</QtModules>
+    <QtModules>core;gui;widgets;openglwidgets;network</QtModules>
     <QtBuildConfig>debug</QtBuildConfig>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'" Label="QtSettings">
     <QtInstall>6.11.0_msvc2022_64</QtInstall>
-    <QtModules>core;gui;widgets;openglwidgets</QtModules>
+    <QtModules>core;gui;widgets;openglwidgets;network</QtModules>
     <QtBuildConfig>debug</QtBuildConfig>
   </PropertyGroup>
   <Target Name="QtMsBuildNotFound" BeforeTargets="CustomBuild;ClCompile" Condition="!Exists('$(QtMsBuild)\qt.targets') or !Exists('$(QtMsBuild)\qt.props')">
@@ -110,6 +110,10 @@
     <QtRcc Include="TouchControlPanelApp.qrc" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="src\communicationbackend\RobotControllerFacade.cpp" />
+    <ClCompile Include="src\communicationbackend\TransitProtocolParser.cpp" />
+    <ClCompile Include="src\communicationbackend\TransitTcpClient.cpp" />
+    <ClCompile Include="src\communicationbackend\TransitTcpWorker.cpp" />
     <ClCompile Include="src\DeviceController.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\MainWindow.cpp" />
@@ -120,6 +124,10 @@
   </ItemGroup>
   <ItemGroup>
     <QtMoc Include="src\widgets\ControlPanelWidget.h" />
+    <QtMoc Include="src\communicationbackend\RobotControllerFacade.h" />
+    <ClInclude Include="src\communicationbackend\TransitProtocolParser.h" />
+    <QtMoc Include="src\communicationbackend\TransitTcpClient.h" />
+    <QtMoc Include="src\communicationbackend\TransitTcpWorker.h" />
     <ClInclude Include="src\widgets\VideoWidget.h" />
     <QtMoc Include="src\DeviceController.h" />
     <ClInclude Include="src\DeviceStateQt.h" />
@@ -137,3 +145,6 @@
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
 </Project>
+
+
+

@@ -49,6 +49,18 @@
     <ClCompile Include="src\widgets\ControlPanelWidget.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\communicationbackend\TransitProtocolParser.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\communicationbackend\TransitTcpClient.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\communicationbackend\RobotControllerFacade.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\communicationbackend\TransitTcpWorker.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\DeviceStateQt.h">
@@ -61,6 +73,18 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\widgets\VideoWidget.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\communicationbackend\TransitProtocolParser.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\communicationbackend\TransitTcpClient.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\communicationbackend\RobotControllerFacade.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\communicationbackend\TransitTcpWorker.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

@@ -51,6 +51,20 @@ MainWindow::MainWindow(QWidget* parent)
         m_controller, &DeviceController::stopStreaming);
     connect(m_controlPanel, &ControlPanelWidget::resetRequested,
         m_controller, &DeviceController::resetBackend);
+    connect(m_controlPanel, &ControlPanelWidget::robotConnectRequested,
+        m_controller, &DeviceController::connectTransit);
+    connect(m_controlPanel, &ControlPanelWidget::robotDisconnectRequested,
+        m_controller, &DeviceController::disconnectTransit);
+    connect(m_controlPanel, &ControlPanelWidget::powerOnRequested,
+        m_controller, &DeviceController::powerOnRobot);
+    connect(m_controlPanel, &ControlPanelWidget::enableRobotRequested,
+        m_controller, &DeviceController::enableRobot);
+    connect(m_controlPanel, &ControlPanelWidget::emergencyStopRequested,
+        m_controller, &DeviceController::emergencyStopRobot);
+    connect(m_controlPanel, &ControlPanelWidget::startDragRequested,
+        m_controller, &DeviceController::startDragRobot);
+    connect(m_controlPanel, &ControlPanelWidget::stopDragRequested,
+        m_controller, &DeviceController::stopDragRobot);
 
     connect(m_controller, &DeviceController::deviceStateUpdated, this,
         [this](const touchpanel::DeviceState& state)
@@ -61,6 +75,15 @@ MainWindow::MainWindow(QWidget* parent)
 
     connect(m_controller, &DeviceController::backendMessageChanged,
         m_statusPanel, &StatusPanelWidget::setBackendMessage);
+
+    connect(m_controller, &DeviceController::tcpConnectionChanged,
+        m_statusPanel, &StatusPanelWidget::setTcpConnected);
+    connect(m_controller, &DeviceController::robotStatusChanged,
+        m_statusPanel, &StatusPanelWidget::setRobotStatusText);
+    connect(m_controller, &DeviceController::tcpTxMessage,
+        m_statusPanel, &StatusPanelWidget::appendTcpTxMessage);
+    connect(m_controller, &DeviceController::tcpRxMessage,
+        m_statusPanel, &StatusPanelWidget::appendTcpRxMessage);
 
     connect(m_controller, &DeviceController::backendMessageChanged, this,
         [this](const QString& message)

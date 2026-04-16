@@ -1,8 +1,11 @@
 #pragma once
 
 #include <QWidget>
+#include <QtGlobal>
 
 class QPushButton;
+class QLineEdit;
+class QSpinBox;
 
 class ControlPanelWidget : public QWidget
 {
@@ -17,8 +20,13 @@ signals:
     void stopRequested();
     void resetRequested();
 
-    void robotConnectRequested();
     void robotDisconnectRequested();
+    void robotConnectRequested(const QString& ip, quint16 port);
+    void powerOnRequested();
+    void enableRobotRequested();
+    void emergencyStopRequested();
+    void startDragRequested();
+    void stopDragRequested();
 
 private:
     QPushButton* m_initializeButton = nullptr;
@@ -28,4 +36,12 @@ private:
 
     QPushButton* m_robotConnectButton = nullptr;
     QPushButton* m_robotDisconnectButton = nullptr;
+    QPushButton* m_powerOnButton = nullptr;
+    QPushButton* m_enableRobotButton = nullptr;
+    QPushButton* m_emergencyStopButton = nullptr;
+    QPushButton* m_startDragButton = nullptr;
+    QPushButton* m_stopDragButton = nullptr;
+
+    QLineEdit* m_transitIpEdit = nullptr;
+    QSpinBox* m_transitPortSpin = nullptr;
 };
