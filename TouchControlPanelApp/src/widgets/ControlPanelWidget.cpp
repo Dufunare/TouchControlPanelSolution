@@ -17,10 +17,12 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     m_initializeButton = new QPushButton("1. 初始化设备", touchGroup);
     m_startButton = new QPushButton("2. 开始采集", touchGroup);
     m_stopButton = new QPushButton("3. 停止采集", touchGroup);
+    m_resetButton = new QPushButton("4. 重置连接", touchGroup);
 
     touchLayout->addWidget(m_initializeButton);
     touchLayout->addWidget(m_startButton);
     touchLayout->addWidget(m_stopButton);
+    touchLayout->addWidget(m_resetButton);
 
     auto *robotGroup = new QGroupBox("机械臂控制", this);
     auto *robotLayout = new QVBoxLayout(robotGroup);
@@ -38,6 +40,7 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     connect(m_initializeButton, &QPushButton::clicked, this, &ControlPanelWidget::initializeRequested);
     connect(m_startButton, &QPushButton::clicked, this, &ControlPanelWidget::startRequested);
     connect(m_stopButton, &QPushButton::clicked, this, &ControlPanelWidget::stopRequested);
+    connect(m_resetButton, &QPushButton::clicked, this, &ControlPanelWidget::resetRequested);
 
     connect(m_robotConnectButton, &QPushButton::clicked, this, &ControlPanelWidget::robotConnectRequested);
     connect(m_robotDisconnectButton, &QPushButton::clicked, this, &ControlPanelWidget::robotDisconnectRequested);

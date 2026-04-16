@@ -240,6 +240,25 @@ namespace touchpanel
         }
     }
 
+    void TouchBackend::reset()
+    {
+        stop();
+
+        if (m_impl->hasDevice)
+        {
+            hdDisableDevice(m_impl->deviceHandle);
+            m_impl->hasDevice = false;
+            m_impl->initialized.store(false, std::memory_order_relaxed);
+        }
+
+        m_impl->lastErrorCode.store(HD_SUCCESS, std::memory_order_relaxed);
+        m_impl->lastErrorText.clear();
+        m_impl->sampleCounter.store(0, std::memory_order_relaxed);
+        m_impl->x.store(0.0, std::memory_order_relaxed);
+        m_impl->y.store(0.0, std::memory_order_relaxed);
+        m_impl->z.store(0.0, std::memory_order_relaxed);
+    }
+
     DeviceState TouchBackend::latestState() const
     {
         DeviceState state;

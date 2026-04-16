@@ -93,6 +93,24 @@ void DeviceController::stopStreaming()
     emit backendMessageChanged("实时采集已停止。");
 }
 
+void DeviceController::resetBackend()
+{
+    if (m_backend == nullptr)
+    {
+        emit backendMessageChanged("后端对象为空，无法重置。");
+        return;
+    }
+
+    if (m_pollTimer.isActive())
+    {
+        m_pollTimer.stop();
+    }
+
+    m_backend->reset();
+    emit deviceStateUpdated(m_backend->latestState());
+    emit backendMessageChanged("连接已重置，错误与回复已清空。");
+}
+
 void DeviceController::pollDeviceState()
 {
     if (m_backend == nullptr)

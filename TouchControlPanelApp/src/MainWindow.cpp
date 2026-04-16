@@ -49,6 +49,8 @@ MainWindow::MainWindow(QWidget* parent)
         m_controller, &DeviceController::startStreaming);
     connect(m_controlPanel, &ControlPanelWidget::stopRequested,
         m_controller, &DeviceController::stopStreaming);
+    connect(m_controlPanel, &ControlPanelWidget::resetRequested,
+        m_controller, &DeviceController::resetBackend);
 
     connect(m_controller, &DeviceController::deviceStateUpdated, this,
         [this](const touchpanel::DeviceState& state)

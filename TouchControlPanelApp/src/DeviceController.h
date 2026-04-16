@@ -17,6 +17,7 @@ public slots:
     void initializeBackend();
     void startStreaming();
     void stopStreaming();
+    void resetBackend();
 
 signals:
     void deviceStateUpdated(const touchpanel::DeviceState& state);
