@@ -63,6 +63,18 @@ namespace touchpanel
             return text;
         }
 
+        std::string extractCommandName(const std::string& commandText)
+        {
+            const std::string trimmed = trimSpace(commandText);
+            const auto bracket = trimmed.find('(');
+            if (bracket == std::string::npos)
+            {
+                return trimmed;
+            }
+
+            return trimSpace(trimmed.substr(0, bracket));
+        }
+
         double clampValue(double value, double minValue, double maxValue)
         {
             return (value < minValue) ? minValue : ((value > maxValue) ? maxValue : value);
@@ -320,11 +332,28 @@ namespace touchpanel
                 return false;
             }
 
-            const int sent = ::send(socketHandle, payload.data(), static_cast<int>(payload.size()), 0);
-            if (sent == SOCKET_ERROR)
+            int totalSent = 0;
+            const int totalSize = static_cast<int>(payload.size());
+            while (totalSent < totalSize)
             {
-                emitMessage("发送失败：" + std::to_string(WSAGetLastError()));
-                return false;
+                const int sent = ::send(
+                    socketHandle,
+                    payload.data() + totalSent,
+                    totalSize - totalSent,
+                    0);
+                if (sent == SOCKET_ERROR)
+                {
+                    emitMessage("发送失败：" + std::to_string(WSAGetLastError()));
+                    return false;
+                }
+
+                if (sent == 0)
+                {
+                    emitMessage("发送失败：连接已关闭。");
+                    return false;
+                }
+
+                totalSent += sent;
             }
 
             if (reportTx)
@@ -463,16 +492,31 @@ namespace touchpanel
             }
 
             bool hasPending = false;
+            std::string pendingOperation;
+            std::string pendingCommand;
             {
                 std::lock_guard<std::mutex> lock(pendingMutex);
                 hasPending = pending.active;
+                if (hasPending)
+                {
+                    pendingOperation = pending.operation;
+                    pendingCommand = pending.command;
+                }
             }
 
             if (hasPending)
             {
+                const std::string expectedCommandName = extractCommandName(pendingCommand);
+
                 if (!parsed.valid)
                 {
-                    finishPendingByReplyObserved(false, "回包格式无法解析：" + (detail.empty() ? rawLine : detail));
+                    emitMessage("[OP] " + pendingOperation + " 收到未识别回包，继续等待：" + (detail.empty() ? rawLine : detail));
+                    return;
+                }
+
+                if (!expectedCommandName.empty() && parsed.commandName != expectedCommandName)
+                {
+                    emitMessage("[OP] " + pendingOperation + " 收到异步回包(" + parsed.commandName + ")，期望 " + expectedCommandName + "，继续等待。");
                     return;
                 }
 
@@ -716,7 +760,7 @@ namespace touchpanel
         const std::string host = ipOverride.empty() ? m_impl->defaultIp : ipOverride;
         const std::uint16_t port = (portOverride == 0) ? m_impl->defaultPort : portOverride;
 
-        disconnectTransit();
+        disconnectTransitInternal(true);
 
         m_impl->emitMessage("正在连接中转站 " + host + ":" + std::to_string(port) + " ...");
 
@@ -768,10 +812,18 @@ namespace touchpanel
 
     void CommunicationBackend::disconnectTransit()
     {
+        disconnectTransitInternal(false);
+    }
+
+    void CommunicationBackend::disconnectTransitInternal(bool silentIfNotConnected)
+    {
         const bool wasConnected = m_impl->connected.load(std::memory_order_relaxed);
         if (!wasConnected)
         {
-            m_impl->emitMessage("当前并未连接中转站。");
+            if (!silentIfNotConnected)
+            {
+                m_impl->emitMessage("当前并未连接中转站。");
+            }
             m_impl->finishPendingAsCanceled("连接未建立");
             return;
         }

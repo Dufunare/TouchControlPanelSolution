@@ -47,6 +47,8 @@ namespace touchpanel
         void stopDrag();
 
     private:
+        void disconnectTransitInternal(bool silentIfNotConnected);
+
         struct Impl;
         Impl* m_impl = nullptr;
     };
