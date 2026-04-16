@@ -12,6 +12,9 @@ namespace touchpanel
 {
     namespace
     {
+        constexpr std::uint16_t kTransitDefaultPort = 9000;
+        constexpr std::uint16_t kRobotControlPort = 29999;
+
         std::string trimCr(std::string line)
         {
             if (!line.empty() && line.back() == '\r')
@@ -54,12 +57,13 @@ namespace touchpanel
         std::thread timeoutThread;
 
         std::string defaultIp = "127.0.0.1";
-        std::uint16_t defaultPort = 9000;
+        std::uint16_t defaultPort = kTransitDefaultPort;
 
         struct PendingCommand
         {
             bool active = false;
             std::string operation;
+            std::string command;
             std::chrono::steady_clock::time_point deadline{};
         };
 
@@ -178,11 +182,12 @@ namespace touchpanel
                 return false;
             }
 
+            emitMessage("[TCP-TX] " + line);
             emitTx(line);
             return true;
         }
 
-        void finishPending(bool success, const std::string& detail)
+        void finishPendingTimeout()
         {
             std::string operation;
             {
@@ -196,19 +201,49 @@ namespace touchpanel
                 pending = {};
             }
 
-            emitOperation(operation, success, detail);
-            if (success)
+            emitOperation(operation, false, "timeout");
+            emitMessage("[OP] " + operation + " 超时：等待机械臂回复超时。");
+        }
+
+        void finishPendingByReplyObserved(const std::string& detail)
+        {
+            std::string operation;
             {
-                emitMessage(operation + " 执行成功：" + detail);
+                std::lock_guard<std::mutex> lock(pendingMutex);
+                if (!pending.active)
+                {
+                    return;
+                }
+
+                operation = pending.operation;
+                pending = {};
             }
-            else
+
+            emitOperation(operation, false, "got_reply");
+            emitMessage("[OP] " + operation + " 已收到回包，待规则确认：" + detail);
+        }
+
+        void finishPendingAsCanceled(const std::string& reason)
+        {
+            std::string operation;
             {
-                emitMessage(operation + " 执行失败：" + detail);
+                std::lock_guard<std::mutex> lock(pendingMutex);
+                if (!pending.active)
+                {
+                    return;
+                }
+
+                operation = pending.operation;
+                pending = {};
             }
+
+            emitOperation(operation, false, reason);
+            emitMessage("[OP] " + operation + " 已取消：" + reason);
         }
 
         void onLineReceived(const std::string& rawLine)
         {
+            emitMessage("[TCP-RX] " + rawLine);
             emitRx(rawLine);
 
             const std::string detail = extractPayload(rawLine);
@@ -221,7 +256,7 @@ namespace touchpanel
 
             if (hasPending)
             {
-                finishPending(true, detail.empty() ? rawLine : detail);
+                finishPendingByReplyObserved(detail.empty() ? rawLine : detail);
                 return;
             }
 
@@ -272,7 +307,7 @@ namespace touchpanel
                 connected.store(false, std::memory_order_relaxed);
                 emitConnection(false);
                 emitMessage("中转站连接已断开。");
-                finishPending(false, "连接断开，命令未完成。");
+                finishPendingAsCanceled("连接断开，命令未完成。");
             }
         }
 
@@ -293,7 +328,7 @@ namespace touchpanel
 
                 if (timeout)
                 {
-                    finishPending(false, "等待机械臂回复超时。");
+                    finishPendingTimeout();
                 }
             }
         }
@@ -343,13 +378,14 @@ namespace touchpanel
 
                 pending.active = true;
                 pending.operation = operation;
+                pending.command = command;
                 pending.deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
             }
 
-            const std::string packet = "29999|" + command;
+            const std::string packet = std::to_string(kRobotControlPort) + "|" + command;
             if (!sendLine(packet))
             {
-                finishPending(false, "发送失败");
+                finishPendingAsCanceled("发送失败");
                 return;
             }
 
@@ -472,20 +508,20 @@ namespace touchpanel
     void CommunicationBackend::disconnectTransit()
     {
         const bool wasConnected = m_impl->connected.load(std::memory_order_relaxed);
+        if (!wasConnected)
+        {
+            m_impl->emitMessage("当前并未连接中转站。");
+            m_impl->finishPendingAsCanceled("连接未建立");
+            return;
+        }
+
         m_impl->connected.store(false, std::memory_order_relaxed);
 
         m_impl->stopThreads();
 
-        if (wasConnected)
-        {
-            m_impl->emitConnection(false);
-            m_impl->emitMessage("中转站连接已断开。");
-            m_impl->finishPending(false, "连接断开，命令未完成。");
-        }
-        else
-        {
-            m_impl->emitMessage("当前并未连接设备。");
-        }
+        m_impl->emitConnection(false);
+        m_impl->emitMessage("中转站连接已断开。");
+        m_impl->finishPendingAsCanceled("连接断开，命令未完成。");
     }
 
     void CommunicationBackend::powerOn()
