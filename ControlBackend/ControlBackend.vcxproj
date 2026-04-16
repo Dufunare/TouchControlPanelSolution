@@ -181,15 +181,6 @@
   <ItemGroup>
     <ClInclude Include="framework.h" />
     <ClInclude Include="include\TouchBackend.h" />
-    <ClInclude Include="include\ICommunicationStrategy.h" />
-    <ClInclude Include="include\DobotDirectStrategy.h" />
-    <ClInclude Include="include\CommunicationThread.h" />
-    <ClInclude Include="include\dobot\BitConverter.h" />
-    <ClInclude Include="include\dobot\DescartesPoint.h" />
-    <ClInclude Include="include\dobot\DobotClient.h" />
-    <ClInclude Include="include\dobot\Dashboard.h" />
-    <ClInclude Include="include\dobot\Feedback.h" />
-    <ClInclude Include="include\dobot\FeedbackData.h" />
     <ClInclude Include="pch.h" />
   </ItemGroup>
   <ItemGroup>
@@ -200,12 +191,6 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="src\TouchBackend.cpp" />
-    <ClCompile Include="src\DobotDirectStrategy.cpp" />
-    <ClCompile Include="src\CommunicationThread.cpp" />
-    <ClCompile Include="src\dobot\BitConverter.cpp" />
-    <ClCompile Include="src\dobot\DobotClient.cpp" />
-    <ClCompile Include="src\dobot\Dashboard.cpp" />
-    <ClCompile Include="src\dobot\Feedback.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
