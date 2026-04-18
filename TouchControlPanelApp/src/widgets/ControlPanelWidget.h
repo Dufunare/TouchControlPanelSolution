@@ -6,6 +6,8 @@
 class QPushButton;
 class QLineEdit;
 class QSpinBox;
+class QComboBox;
+class QCheckBox;
 
 class ControlPanelWidget : public QWidget
 {
@@ -60,6 +62,15 @@ private:
     QPushButton* m_stopDragButton = nullptr;
     QPushButton* m_startTeleopButton = nullptr;
     QPushButton* m_stopTeleopButton = nullptr;
+
+    //视频控制占位
+    QComboBox* m_videoSourceCombo = nullptr;
+    QLineEdit* m_videoSourceEdit = nullptr;
+    QSpinBox* m_videoFpsSpin = nullptr;
+    QCheckBox* m_videoMirrorCheck = nullptr;
+    QPushButton* m_videoStartButton = nullptr;
+    QPushButton* m_videoStopButton = nullptr;
+    QPushButton* m_videoSnapshotButton = nullptr;
 
 
 };

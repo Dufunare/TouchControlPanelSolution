@@ -1,7 +1,11 @@
 ﻿#include "ControlPanelWidget.h"
 
+#include <QCheckBox>
+#include <QComboBox>
 #include <QGroupBox>
+#include <QGridLayout>
 #include <QFormLayout>
+#include <QHBoxLayout>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QSpinBox>
@@ -46,6 +50,43 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     TCPLayout->addLayout(endpointLayout);
     TCPLayout->addWidget(m_robotConnectButton);
     TCPLayout->addWidget(m_robotDisconnectButton);
+
+    auto* videoGroup = new QGroupBox("视频控制", this);
+    auto* videoRootLayout = new QVBoxLayout(videoGroup);
+    auto* videoFormLayout = new QFormLayout();
+
+    m_videoSourceCombo = new QComboBox(videoGroup);
+    m_videoSourceCombo->addItems({ "默认信号源（占位）", "USB Camera 0（占位）", "RTSP 流（占位）" });
+
+    m_videoSourceEdit = new QLineEdit(videoGroup);
+    m_videoSourceEdit->setPlaceholderText("rtsp://... 或 文件路径（占位）");
+
+    m_videoFpsSpin = new QSpinBox(videoGroup);
+    m_videoFpsSpin->setRange(1, 120);
+    m_videoFpsSpin->setValue(30);
+    m_videoFpsSpin->setSuffix(" FPS");
+
+    m_videoMirrorCheck = new QCheckBox("镜像显示", videoGroup);
+
+    videoFormLayout->addRow("信号源类型：", m_videoSourceCombo);
+    videoFormLayout->addRow("地址/设备：", m_videoSourceEdit);
+    videoFormLayout->addRow("采集帧率：", m_videoFpsSpin);
+    videoFormLayout->addRow(QString(), m_videoMirrorCheck);
+    videoRootLayout->addLayout(videoFormLayout);
+
+    auto* videoButtonLayout = new QHBoxLayout();
+    m_videoStartButton = new QPushButton("开始采集", videoGroup);
+    m_videoStopButton = new QPushButton("停止采集", videoGroup);
+    m_videoSnapshotButton = new QPushButton("抓拍", videoGroup);
+
+    m_videoStartButton->setToolTip("占位按钮：后续接入 VideoWidget/后端采集逻辑");
+    m_videoStopButton->setToolTip("占位按钮：后续接入 VideoWidget/后端采集逻辑");
+    m_videoSnapshotButton->setToolTip("占位按钮：后续接入截图/落盘逻辑");
+
+    videoButtonLayout->addWidget(m_videoStartButton);
+    videoButtonLayout->addWidget(m_videoStopButton);
+    videoButtonLayout->addWidget(m_videoSnapshotButton);
+    videoRootLayout->addLayout(videoButtonLayout);
 
 
     
@@ -93,6 +134,7 @@ mainVLayout->addLayout(teleopLayout);
 
     rootLayout->addWidget(touchGroup);
     rootLayout->addWidget(TCPGroup);
+    rootLayout->addWidget(videoGroup);
     rootLayout->addWidget(robotGroup);
     rootLayout->addStretch(1);
 
