@@ -68,13 +68,14 @@ void DeviceController::initializeBackend()
         emit backendMessageChanged("后端对象为空，无法初始化。");
         return;
     }
-
     if (m_backend->initialize())
     {
+        emit deviceStateUpdated(m_backend->latestState());
         emit backendMessageChanged("Touch 后端初始化成功。");
     }
     else
     {
+        emit deviceStateUpdated(m_backend->latestState());
         emit backendMessageChanged(decodeBackendText(m_backend->lastError()));
     }
 }
@@ -89,11 +90,8 @@ void DeviceController::startStreaming()
 
     if (!m_backend->isInitialized())
     {
-        initializeBackend();
-        if (!m_backend->isInitialized())
-        {
-            return;
-        }
+        emit backendMessageChanged("设备暂未初始化，请先初始化");
+        return;
     }
 
     if (m_backend->start())

@@ -130,8 +130,8 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     //加入跟布局
     rootLayout->addWidget(touchGroup);
     rootLayout->addWidget(TCPGroup);
-    rootLayout->addWidget(videoGroup);
     rootLayout->addWidget(robotGroup);
+    rootLayout->addWidget(videoGroup);
     rootLayout->addStretch(1);
 
     //信号与槽连线
