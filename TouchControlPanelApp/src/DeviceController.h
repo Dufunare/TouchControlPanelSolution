@@ -16,7 +16,7 @@ class DeviceController : public QObject
 public:
     explicit DeviceController(
         touchpanel::TouchBackend* backend,
-        touchpanel::CommunicationBackend& communicationBackend,
+        touchpanel::CommunicationBackend* communicationBackend,
         QObject* parent = nullptr);
 
 public slots:
@@ -52,7 +52,7 @@ private slots:
 
 private:
     touchpanel::TouchBackend* m_backend = nullptr;
-    touchpanel::CommunicationBackend& m_robotBackend;
+    touchpanel::CommunicationBackend* m_robotBackend = nullptr;
     QTimer m_pollTimer;
     QTimer m_motionTimer;
     bool m_lastButtonPressed = false;

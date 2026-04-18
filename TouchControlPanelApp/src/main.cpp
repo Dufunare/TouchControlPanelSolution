@@ -17,7 +17,7 @@ int main(int argc, char* argv[])
     format.setProfile(QSurfaceFormat::CoreProfile);
     format.setSwapBehavior(QSurfaceFormat::DoubleBuffer);
     QSurfaceFormat::setDefaultFormat(format);
-
+	// 上面的代码都是在为了确保 QOpenGLWidget 能够正确创建 OpenGL 3.3 的上下文，且具有 24 位深度缓冲区和双缓冲交换行为。
     MainWindow window;
     window.show();
 

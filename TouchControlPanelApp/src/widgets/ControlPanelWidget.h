@@ -15,13 +15,17 @@ public:
     explicit ControlPanelWidget(QWidget* parent = nullptr);
 
 signals:
+    //touch控制信号
     void initializeRequested();
     void startRequested();
     void stopRequested();
     void resetRequested();
 
+    //tcp连接管理信号
     void robotDisconnectRequested();
     void robotConnectRequested(const QString& ip, quint16 port);
+
+	//机械臂控制信号
     void powerOnRequested();
     void enableRobotRequested();
     void disableRobotRequested();
@@ -33,13 +37,20 @@ signals:
     void stopTeleopRequested();
 
 private:
+
+	//touch控制按钮
     QPushButton* m_initializeButton = nullptr;
     QPushButton* m_startButton = nullptr;
     QPushButton* m_stopButton = nullptr;
     QPushButton* m_resetButton = nullptr;
 
+	//tcp连接管理
     QPushButton* m_robotConnectButton = nullptr;
     QPushButton* m_robotDisconnectButton = nullptr;
+    QLineEdit* m_transitIpEdit = nullptr;
+    QSpinBox* m_transitPortSpin = nullptr;
+
+	//机械臂控制按钮
     QPushButton* m_powerOnButton = nullptr;
     QPushButton* m_enableRobotButton = nullptr;
     QPushButton* m_disableRobotButton = nullptr;
@@ -50,6 +61,5 @@ private:
     QPushButton* m_startTeleopButton = nullptr;
     QPushButton* m_stopTeleopButton = nullptr;
 
-    QLineEdit* m_transitIpEdit = nullptr;
-    QSpinBox* m_transitPortSpin = nullptr;
+
 };

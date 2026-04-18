@@ -23,7 +23,7 @@ namespace
 
 DeviceController::DeviceController(
     touchpanel::TouchBackend* backend,
-    touchpanel::CommunicationBackend& communicationBackend,
+    touchpanel::CommunicationBackend* communicationBackend,
     QObject* parent)
     : QObject(parent), m_backend(backend), m_robotBackend(communicationBackend)
 {
@@ -35,27 +35,27 @@ DeviceController::DeviceController(
     connect(&m_pollTimer, &QTimer::timeout, this, &DeviceController::pollDeviceState);
     connect(&m_motionTimer, &QTimer::timeout, this, &DeviceController::onMotionTick);
 
-    m_robotBackend.setMessageCallback([this](const std::string& text)
+    m_robotBackend->setMessageCallback([this](const std::string& text)
         {
             emit backendMessageChanged(decodeBackendText(text));
         });
 
-    m_robotBackend.setConnectionCallback([this](bool connected)
+    m_robotBackend->setConnectionCallback([this](bool connected)
         {
             emit tcpConnectionChanged(connected);
         });
 
-    m_robotBackend.setRobotStatusCallback([this](const std::string& text)
+    m_robotBackend->setRobotStatusCallback([this](const std::string& text)
         {
             emit robotStatusChanged(decodeBackendText(text));
         });
 
-    m_robotBackend.setTcpTxCallback([this](const std::string& text)
+    m_robotBackend->setTcpTxCallback([this](const std::string& text)
         {
             emit tcpTxMessage(decodeBackendText(text));
         });
 
-    m_robotBackend.setTcpRxCallback([this](const std::string& text)
+    m_robotBackend->setTcpRxCallback([this](const std::string& text)
         {
             emit tcpRxMessage(decodeBackendText(text));
         });
@@ -180,7 +180,7 @@ void DeviceController::pollDeviceState()
 
 void DeviceController::connectTransit(const QString& ipOverride, quint16 portOverride)
 {
-    m_robotBackend.connectTransit(ipOverride.toStdString(), portOverride);
+    m_robotBackend->connectTransit(ipOverride.toStdString(), portOverride);
 }
 
 void DeviceController::disconnectTransit()
@@ -190,42 +190,42 @@ void DeviceController::disconnectTransit()
         stopTeleop();
     }
 
-    m_robotBackend.disconnectTransit();
+    m_robotBackend->disconnectTransit();
 }
 
 void DeviceController::powerOnRobot()
 {
-    m_robotBackend.powerOn();
+    m_robotBackend->powerOn();
 }
 
 void DeviceController::enableRobot()
 {
-    m_robotBackend.enableRobot();
+    m_robotBackend->enableRobot();
 }
 
 void DeviceController::disableRobot()
 {
-    m_robotBackend.disableRobot();
+    m_robotBackend->disableRobot();
 }
 
 void DeviceController::clearRobotError()
 {
-    m_robotBackend.clearError();
+    m_robotBackend->clearError();
 }
 
 void DeviceController::emergencyStopRobot()
 {
-    m_robotBackend.emergencyStop();
+    m_robotBackend->emergencyStop();
 }
 
 void DeviceController::startDragRobot()
 {
-    m_robotBackend.startDrag();
+    m_robotBackend->startDrag();
 }
 
 void DeviceController::stopDragRobot()
 {
-    m_robotBackend.stopDrag();
+    m_robotBackend->stopDrag();
 }
 
 void DeviceController::startTeleop()
@@ -242,7 +242,7 @@ void DeviceController::startTeleop()
         return;
     }
 
-    if (!m_robotBackend.isTransitConnected())
+    if (!m_robotBackend->isTransitConnected())
     {
         emit backendMessageChanged("开始控制失败：中转站 TCP 未连接。");
         return;
@@ -282,7 +282,7 @@ void DeviceController::onMotionTick()
         return;
     }
 
-    if (!m_backend->isRunning() || !m_robotBackend.isTransitConnected())
+    if (!m_backend->isRunning() || !m_robotBackend->isTransitConnected())
     {
         return;
     }
@@ -303,19 +303,19 @@ void DeviceController::onMotionTick()
 
     if (!m_lastButtonPressed)
     {
-        m_robotBackend.requestRobotMode();
-        m_robotBackend.requestCurrentPose();
+        m_robotBackend->requestRobotMode();
+        m_robotBackend->requestCurrentPose();
         m_modeQueryCooldownTicks = 10;
         m_poseQueryCooldownTicks = 10;
         emit backendMessageChanged("检测到按钮按下，正在同步 RobotMode 和 GetPose 基准...");
     }
     m_lastButtonPressed = true;
 
-    if (!m_robotBackend.isRobotModeReady())
+    if (!m_robotBackend->isRobotModeReady())
     {
         if (m_modeQueryCooldownTicks <= 0)
         {
-            m_robotBackend.requestRobotMode();
+            m_robotBackend->requestRobotMode();
             m_modeQueryCooldownTicks = 10;
         }
         else
@@ -329,11 +329,11 @@ void DeviceController::onMotionTick()
     {
         std::array<double, 6> pose{};
 
-        if (!m_robotBackend.tryGetLastPose(pose))
+        if (!m_robotBackend->tryGetLastPose(pose))
         {
             if (m_poseQueryCooldownTicks <= 0)
             {
-                m_robotBackend.requestCurrentPose();
+                m_robotBackend->requestCurrentPose();
                 m_poseQueryCooldownTicks = 10;
             }
             else
@@ -379,7 +379,7 @@ void DeviceController::onMotionTick()
         }
     }
 
-    m_robotBackend.sendMotion(x, y, z);
+    m_robotBackend->sendMotion(x, y, z);
     m_lastSent = { x, y, z };
     m_hasLastSent = true;
 }

@@ -13,15 +13,18 @@
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
 {
-    setWindowTitle("OpenHaptics + Qt Touch 控制面板（阶段 1 骨架）");
+    //窗口设置
+    setWindowTitle("TouchControlPanel(阶段二)");
     resize(1440, 860);
 
-    m_controller = new DeviceController(&m_backend, m_communicationBackend, this);
+	//组件初始化
+    m_controller = new DeviceController(&m_backend, &m_communicationBackend, this);
     m_controlPanel = new ControlPanelWidget(this);
     m_videoWidget = new VideoWidget(this);
     m_glWidget = new GLCoordinateWidget(this);
     m_statusPanel = new StatusPanelWidget(this);
 
+	//布局设置
     auto* leftSplitter = new QSplitter(Qt::Vertical, this);
     leftSplitter->addWidget(m_videoWidget);
     leftSplitter->addWidget(m_glWidget);
@@ -38,11 +41,12 @@ MainWindow::MainWindow(QWidget* parent)
     splitter->setStretchFactor(1, 4);
     splitter->setStretchFactor(2, 2);
     splitter->setChildrenCollapsible(false);
-    splitter->setSizes(QList<int>{ 280, 820, 420 });
+    splitter->setSizes({ 280, 820, 420 });
 
     setCentralWidget(splitter);
     statusBar()->showMessage("准备就绪：请先初始化设备。");
 
+	//信号与槽连接
     connect(m_controlPanel, &ControlPanelWidget::initializeRequested,
         m_controller, &DeviceController::initializeBackend);
     connect(m_controlPanel, &ControlPanelWidget::startRequested,

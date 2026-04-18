@@ -17,55 +17,82 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     auto *touchGroup = new QGroupBox("Touch 控制", this);
     auto *touchLayout = new QVBoxLayout(touchGroup);
 
-    m_initializeButton = new QPushButton("1. 初始化设备", touchGroup);
-    m_startButton = new QPushButton("2. 开始采集", touchGroup);
-    m_stopButton = new QPushButton("3. 停止采集", touchGroup);
-    m_resetButton = new QPushButton("4. 重置连接", touchGroup);
+    m_initializeButton = new QPushButton("初始化设备", touchGroup);
+    m_startButton = new QPushButton("开始采集", touchGroup);
+    m_stopButton = new QPushButton("停止采集", touchGroup);
+    m_resetButton = new QPushButton("重置连接", touchGroup);
 
     touchLayout->addWidget(m_initializeButton);
     touchLayout->addWidget(m_startButton);
     touchLayout->addWidget(m_stopButton);
     touchLayout->addWidget(m_resetButton);
 
-    auto *robotGroup = new QGroupBox("中转站与机械臂控制", this);
-    auto *robotLayout = new QVBoxLayout(robotGroup);
+    auto *TCPGroup = new QGroupBox("中转站控制", this);
+    auto *TCPLayout = new QVBoxLayout(TCPGroup);
 
     auto* endpointLayout = new QFormLayout();
-    m_transitIpEdit = new QLineEdit(robotGroup);
+    m_transitIpEdit = new QLineEdit(TCPGroup);
     m_transitIpEdit->setPlaceholderText("留空使用默认 IP");
-    m_transitPortSpin = new QSpinBox(robotGroup);
+    m_transitPortSpin = new QSpinBox(TCPGroup);
     m_transitPortSpin->setRange(0, 65535);
     m_transitPortSpin->setValue(0);
     m_transitPortSpin->setToolTip("0 表示使用默认端口");
     endpointLayout->addRow("中转站 IP：", m_transitIpEdit);
     endpointLayout->addRow("中转站端口：", m_transitPortSpin);
 
-    m_robotConnectButton = new QPushButton("建立 TCP 连接", robotGroup);
-    m_robotDisconnectButton = new QPushButton("断开 TCP 连接", robotGroup);
-    m_powerOnButton = new QPushButton("PowerOn()", robotGroup);
-    m_enableRobotButton = new QPushButton("EnableRobot()", robotGroup);
-    m_disableRobotButton = new QPushButton("DisableRobot()", robotGroup);
-    m_clearErrorButton = new QPushButton("ClearError()", robotGroup);
-    m_emergencyStopButton = new QPushButton("EmergencyStop()", robotGroup);
-    m_startDragButton = new QPushButton("StartDrag()", robotGroup);
-    m_stopDragButton = new QPushButton("StopDrag()", robotGroup);
-    m_startTeleopButton = new QPushButton("开始控制（按住按钮跟随）", robotGroup);
-    m_stopTeleopButton = new QPushButton("停止控制", robotGroup);
+    m_robotConnectButton = new QPushButton("建立 TCP 连接", TCPGroup);
+    m_robotDisconnectButton = new QPushButton("断开 TCP 连接", TCPGroup);
 
-    robotLayout->addLayout(endpointLayout);
-    robotLayout->addWidget(m_robotConnectButton);
-    robotLayout->addWidget(m_robotDisconnectButton);
-    robotLayout->addWidget(m_powerOnButton);
-    robotLayout->addWidget(m_enableRobotButton);
-    robotLayout->addWidget(m_disableRobotButton);
-    robotLayout->addWidget(m_clearErrorButton);
-    robotLayout->addWidget(m_emergencyStopButton);
-    robotLayout->addWidget(m_startDragButton);
-    robotLayout->addWidget(m_stopDragButton);
-    robotLayout->addWidget(m_startTeleopButton);
-    robotLayout->addWidget(m_stopTeleopButton);
+    TCPLayout->addLayout(endpointLayout);
+    TCPLayout->addWidget(m_robotConnectButton);
+    TCPLayout->addWidget(m_robotDisconnectButton);
+
+
+    
+QGroupBox *robotGroup = new QGroupBox("机械臂控制");
+QVBoxLayout *mainVLayout = new QVBoxLayout(robotGroup);
+m_emergencyStopButton = new QPushButton("急停");
+m_emergencyStopButton->setStyleSheet("background-color: red; color: white; font-weight: bold; height: 50px;");
+mainVLayout->addWidget(m_emergencyStopButton);
+mainVLayout->addSpacing(10); 
+
+
+    m_powerOnButton = new QPushButton("上电", robotGroup);
+    m_enableRobotButton = new QPushButton("使能", robotGroup);
+    m_disableRobotButton = new QPushButton("下使能", robotGroup);
+    m_clearErrorButton = new QPushButton("清除错误码", robotGroup);
+
+QGridLayout *stateGridLayout = new QGridLayout();
+stateGridLayout->addWidget(m_powerOnButton, 0, 0);
+stateGridLayout->addWidget(m_enableRobotButton, 1, 0);
+stateGridLayout->addWidget(m_disableRobotButton, 1, 1);
+stateGridLayout->addWidget(m_clearErrorButton, 0, 1);
+mainVLayout->addLayout(stateGridLayout); // 将网格布局塞入主垂直布局
+
+// 4. 模式控制 (水平布局)
+    m_startDragButton = new QPushButton("启动拖拽", robotGroup);
+    m_stopDragButton = new QPushButton("停止拖拽", robotGroup);
+QHBoxLayout *modeHLayout = new QHBoxLayout();
+modeHLayout->addWidget(m_startDragButton);
+modeHLayout->addWidget(m_stopDragButton); // 把按钮挤到左边，或者填满其他模式按钮
+mainVLayout->addLayout(modeHLayout);
+
+
+m_startTeleopButton = new QPushButton("开始控制（按住按钮跟随）", robotGroup);
+m_stopTeleopButton = new QPushButton("停止控制", robotGroup);
+QVBoxLayout* teleopLayout = new QVBoxLayout();
+teleopLayout->addWidget(m_startTeleopButton);
+teleopLayout->addWidget(m_stopTeleopButton);
+mainVLayout->addLayout(teleopLayout);
+
+
+
+
+
+
 
     rootLayout->addWidget(touchGroup);
+    rootLayout->addWidget(TCPGroup);
     rootLayout->addWidget(robotGroup);
     rootLayout->addStretch(1);
 
