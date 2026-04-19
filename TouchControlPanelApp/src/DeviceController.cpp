@@ -27,9 +27,9 @@ DeviceController::DeviceController(
     QObject* parent)
     : QObject(parent), m_backend(backend), m_robotBackend(communicationBackend)
 {
-    m_pollTimer.setInterval(8); // 约 125 FPS 的前端刷新频率
+    m_pollTimer.setInterval(DEVICE_CONTROLLER_MOTION_INTERVAL_MS); 
     m_pollTimer.setTimerType(Qt::PreciseTimer);
-    m_motionTimer.setInterval(33);
+    m_motionTimer.setInterval(DEVICE_CONTROLLER_MOTION_INTERVAL_MS);
     m_motionTimer.setTimerType(Qt::PreciseTimer);
 
     connect(&m_pollTimer, &QTimer::timeout, this, &DeviceController::pollDeviceState);
@@ -228,7 +228,7 @@ void DeviceController::stopDragRobot()
 
 void DeviceController::startTeleop()
 {
-    if (m_backend == nullptr)
+    if (m_backend == nullptr || m_robotBackend == nullptr)
     {
         emit backendMessageChanged("后端对象为空，无法开始控制。");
         return;

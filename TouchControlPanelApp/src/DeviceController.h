@@ -9,6 +9,9 @@
 #include "CommunicationBackend.h"
 #include "TouchBackend.h"
 
+#define DEVICE_CONTROLLER_POLL_INTERVAL_MS 8 // 约 125 FPS 的前端刷新频率
+#define DEVICE_CONTROLLER_MOTION_INTERVAL_MS 33 // 33ms 为机械臂官方文档推荐的远程控制发送频率
+
 class DeviceController : public QObject
 {
     Q_OBJECT
