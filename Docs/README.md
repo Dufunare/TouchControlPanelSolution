@@ -29,6 +29,13 @@
 4.  在右方 **ControlPanelWidget** 修改 IP 并连接机械臂，初始化设备并操作。
 5.  在右侧 **StatusPanelWidget** 监控网络指令与 TX/RX 吞吐率。
 
+## 下一步实现
+1. 完善机械臂状态监控和异常处理机制
+2. 统一消息格式，增加 RequestId 以匹配请求与响应
+3. 接入视频流显示，设计 `VideoWidget`.
+
+
+
 ## 详细架构参见 Doc 文件夹
 - ARCHITECTURE.md
 - DEVELOPER_GUIDE.md

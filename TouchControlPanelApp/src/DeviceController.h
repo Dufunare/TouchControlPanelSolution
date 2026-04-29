@@ -23,13 +23,17 @@ public:
         QObject* parent = nullptr);
 
 public slots:
+    // touch设备管理
     void initializeBackend();
     void startStreaming();
     void stopStreaming();
     void resetBackend();
 
+    // tcp连接管理
     void connectTransit(const QString& ipOverride = QString(), quint16 portOverride = 0);
     void disconnectTransit();
+
+    //机械比状态控制
     void powerOnRobot();
     void enableRobot();
     void disableRobot();
