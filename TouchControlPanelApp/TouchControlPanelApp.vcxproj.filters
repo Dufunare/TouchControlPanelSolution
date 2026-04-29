@@ -63,6 +63,9 @@
     <ClInclude Include="src\widgets\VideoWidget.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="resource.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <QtUic Include="src\TouchControlPanelApp.ui">
@@ -81,8 +84,8 @@
     </QtMoc>
   </ItemGroup>
   <ItemGroup>
-    <Image Include="app.ico">
+    <ResourceCompile Include="Resource.rc">
       <Filter>Resource Files</Filter>
-    </Image>
+    </ResourceCompile>
   </ItemGroup>
 </Project>
