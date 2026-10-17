@@ -42,6 +42,7 @@ signals:
     void videoStartRequested(const QString& relayIp, quint16 port);
     void videoStopRequested();
     void videoSnapshotRequested();
+    void videoMirrorChanged(bool mirrored);
 
 public:
     void setVideoState(bool active, bool receiving, const QString& detail);
