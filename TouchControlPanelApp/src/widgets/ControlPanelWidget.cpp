@@ -7,6 +7,7 @@
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QLineEdit>
+#include <QLabel>
 #include <QPushButton>
 #include <QSpinBox>
 #include <QVBoxLayout>
@@ -95,21 +96,28 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     auto* videoFormLayout = new QFormLayout();
 
     m_videoSourceCombo = new QComboBox(videoGroup);
-    m_videoSourceCombo->addItems({ "默认信号源（占位）", "USB Camera 0（占位）", "RTSP 流（占位）" });
+    m_videoSourceCombo->addItem("中转站 UVC 摄像头 (JPEG/UDP)");
 
     m_videoSourceEdit = new QLineEdit(videoGroup);
-    m_videoSourceEdit->setPlaceholderText("rtsp://... 或 文件路径（占位）");
+    m_videoSourceEdit->setPlaceholderText("192.168.100.194 (中转站 IPv4)");
+    m_videoPortSpin = new QSpinBox(videoGroup);
+    m_videoPortSpin->setRange(1, 65535);
+    m_videoPortSpin->setValue(8886);
+    m_videoPortSpin->setToolTip("中转站视频控制监听端口，默认 8886");
 
     m_videoFpsSpin = new QSpinBox(videoGroup);
     m_videoFpsSpin->setRange(1, 120);
     m_videoFpsSpin->setValue(30);
     m_videoFpsSpin->setSuffix(" FPS");
+    m_videoFpsSpin->setEnabled(false);
+    m_videoFpsSpin->setToolTip("当前帧率由中转站摄像头决定，暂不支持远程设置");
 
     m_videoMirrorCheck = new QCheckBox("镜像显示", videoGroup);
 
-    videoFormLayout->addRow("信号源类型：", m_videoSourceCombo);
-    videoFormLayout->addRow("地址/设备：", m_videoSourceEdit);
-    videoFormLayout->addRow("采集帧率：", m_videoFpsSpin);
+    videoFormLayout->addRow("视频来源：", m_videoSourceCombo);
+    videoFormLayout->addRow("中转站 IPv4：", m_videoSourceEdit);
+    videoFormLayout->addRow("视频 UDP 端口：", m_videoPortSpin);
+    videoFormLayout->addRow("采集帧率（远端）：", m_videoFpsSpin);
     videoFormLayout->addRow(QString(), m_videoMirrorCheck);
     videoRootLayout->addLayout(videoFormLayout);
 
@@ -120,12 +128,17 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
 
     m_videoStartButton->setToolTip("占位按钮：后续接入 VideoWidget/后端采集逻辑");
     m_videoStopButton->setToolTip("占位按钮：后续接入 VideoWidget/后端采集逻辑");
-    m_videoSnapshotButton->setToolTip("占位按钮：后续接入截图/落盘逻辑");
+    m_videoStartButton->setToolTip("订阅中转站通过 UDP 8886 发送的 UVC 摄像头 JPEG 画面");
+    m_videoStopButton->setToolTip("发送 VIDEO_STOP 并停止接收");
+    m_videoSnapshotButton->setToolTip("将当前画面保存为 PNG");
+    m_videoStatusLabel = new QLabel("已停止", videoGroup);
+    m_videoStatusLabel->setWordWrap(true);
 
     videoButtonLayout->addWidget(m_videoStartButton);
     videoButtonLayout->addWidget(m_videoStopButton);
     videoButtonLayout->addWidget(m_videoSnapshotButton);
     videoRootLayout->addLayout(videoButtonLayout);
+    videoRootLayout->addWidget(m_videoStatusLabel);
     
     //加入跟布局
     rootLayout->addWidget(touchGroup);
@@ -135,6 +148,7 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     rootLayout->addStretch(1);
 
     //信号与槽连线
+    setVideoState(false, false, QStringLiteral("已停止"));
     connect(m_initializeButton, &QPushButton::clicked, this, &ControlPanelWidget::initializeRequested);
     connect(m_startButton, &QPushButton::clicked, this, &ControlPanelWidget::startRequested);
     connect(m_stopButton, &QPushButton::clicked, this, &ControlPanelWidget::stopRequested);
@@ -155,4 +169,20 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     connect(m_stopDragButton, &QPushButton::clicked, this, &ControlPanelWidget::stopDragRequested);
     connect(m_startTeleopButton, &QPushButton::clicked, this, &ControlPanelWidget::startTeleopRequested);
     connect(m_stopTeleopButton, &QPushButton::clicked, this, &ControlPanelWidget::stopTeleopRequested);
+    connect(m_videoStartButton, &QPushButton::clicked, this, [this] {
+        const QString ip = m_videoSourceEdit->text().trimmed().isEmpty()
+            ? m_transitIpEdit->text().trimmed() : m_videoSourceEdit->text().trimmed();
+        emit videoStartRequested(ip.isEmpty() ? QStringLiteral("192.168.100.194") : ip,
+                                 static_cast<quint16>(m_videoPortSpin->value()));
+    });
+    connect(m_videoStopButton, &QPushButton::clicked, this, &ControlPanelWidget::videoStopRequested);
+    connect(m_videoSnapshotButton, &QPushButton::clicked, this, &ControlPanelWidget::videoSnapshotRequested);
+}
+
+void ControlPanelWidget::setVideoState(bool active, bool receiving, const QString& detail)
+{
+    m_videoStartButton->setEnabled(!active);
+    m_videoStopButton->setEnabled(active);
+    m_videoSnapshotButton->setEnabled(receiving);
+    m_videoStatusLabel->setText(detail);
 }
