@@ -88,6 +88,8 @@ MainWindow::MainWindow(QWidget* parent)
         m_videoClient, &RelayVideoClient::stop);
     connect(m_videoClient, &RelayVideoClient::frameReady,
         m_videoWidget, &VideoWidget::setFrame);
+    connect(m_controlPanel, &ControlPanelWidget::videoMirrorChanged,
+        m_videoWidget, &VideoWidget::setMirrored);
     connect(m_videoClient, &RelayVideoClient::frameLost,
         m_videoWidget, &VideoWidget::showNoSignal);
     connect(m_videoClient, &RelayVideoClient::stateChanged,
