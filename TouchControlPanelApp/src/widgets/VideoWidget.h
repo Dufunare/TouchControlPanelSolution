@@ -25,6 +25,7 @@ public:
     void showNoSignal();
     void clearFrame();
     bool hasSignal() const;
+    bool saveFrame(const QString& path) const;
     void updateFrame();
 
 protected:
