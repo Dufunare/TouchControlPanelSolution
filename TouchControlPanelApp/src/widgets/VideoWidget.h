@@ -26,12 +26,14 @@ public:
     void clearFrame();
     bool hasSignal() const;
     bool saveFrame(const QString& path) const;
+    void setMirrored(bool mirrored);
     void updateFrame();
 
 protected:
     void resizeEvent(QResizeEvent* event) override;
 
 private:
+    bool m_mirrored = false;
     QLabel* m_videoLabel = nullptr;
     QLabel* m_noSignalLabel = nullptr;
 
