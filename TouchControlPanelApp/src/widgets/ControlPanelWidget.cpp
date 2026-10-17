@@ -177,6 +177,7 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     });
     connect(m_videoStopButton, &QPushButton::clicked, this, &ControlPanelWidget::videoStopRequested);
     connect(m_videoSnapshotButton, &QPushButton::clicked, this, &ControlPanelWidget::videoSnapshotRequested);
+    connect(m_videoMirrorCheck, &QCheckBox::toggled, this, &ControlPanelWidget::videoMirrorChanged);
 }
 
 void ControlPanelWidget::setVideoState(bool active, bool receiving, const QString& detail)
