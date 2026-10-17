@@ -140,3 +140,9 @@ void VideoWidget::resizeEvent(QResizeEvent* event)
     QWidget::resizeEvent(event);
     updateFrame();
 }
+
+bool VideoWidget::saveFrame(const QString& path) const
+{
+    std::lock_guard<std::mutex> lock(m_frameMutex);
+    return !m_currentFrame.isNull() && m_currentFrame.save(path, "PNG");
+}
