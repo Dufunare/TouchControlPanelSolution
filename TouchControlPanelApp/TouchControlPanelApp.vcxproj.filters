@@ -34,6 +34,7 @@
     <ClCompile Include="src\MainWindow.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\RelayVideoClient.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="src\DeviceController.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -73,6 +74,7 @@
     </QtUic>
   </ItemGroup>
   <ItemGroup>
+    <QtMoc Include="src\RelayVideoClient.h"><Filter>Header Files</Filter></QtMoc>
     <QtMoc Include="src\DeviceController.h">
       <Filter>Header Files</Filter>
     </QtMoc>

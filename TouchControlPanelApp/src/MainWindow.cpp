@@ -3,6 +3,9 @@
 #include <QSplitter>
 #include <QStatusBar>
 #include <QList>
+#include <QFileDialog>
+#include <QDateTime>
+#include <QStandardPaths>
 
 #include "DeviceController.h"
 #include "widgets/ControlPanelWidget.h"
@@ -21,6 +24,7 @@ MainWindow::MainWindow(QWidget* parent)
     m_controller = new DeviceController(&m_backend, &m_communicationBackend, this);
     m_controlPanel = new ControlPanelWidget(this);
     m_videoWidget = new VideoWidget(this);
+    m_videoClient = new RelayVideoClient(this);
     m_glWidget = new GLCoordinateWidget(this);
     m_statusPanel = new StatusPanelWidget(this);
 
@@ -77,6 +81,36 @@ MainWindow::MainWindow(QWidget* parent)
         m_controller, &DeviceController::startTeleop);
     connect(m_controlPanel, &ControlPanelWidget::stopTeleopRequested,
         m_controller, &DeviceController::stopTeleop);
+
+    connect(m_controlPanel, &ControlPanelWidget::videoStartRequested,
+        m_videoClient, &RelayVideoClient::start);
+    connect(m_controlPanel, &ControlPanelWidget::videoStopRequested,
+        m_videoClient, &RelayVideoClient::stop);
+    connect(m_videoClient, &RelayVideoClient::frameReady,
+        m_videoWidget, &VideoWidget::setFrame);
+    connect(m_controlPanel, &ControlPanelWidget::videoMirrorChanged,
+        m_videoWidget, &VideoWidget::setMirrored);
+    connect(m_videoClient, &RelayVideoClient::frameLost,
+        m_videoWidget, &VideoWidget::showNoSignal);
+    connect(m_videoClient, &RelayVideoClient::stateChanged,
+        m_controlPanel, &ControlPanelWidget::setVideoState);
+    connect(m_videoClient, &RelayVideoClient::message, this, [this](const QString& text) {
+        statusBar()->showMessage(text, 6000);
+        m_statusPanel->setBackendMessage(text);
+    });
+    connect(m_controlPanel, &ControlPanelWidget::videoSnapshotRequested, this, [this] {
+        const QString folder = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
+        const QString proposed = folder + QStringLiteral("/TouchVideo_") +
+            QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss")) + QStringLiteral(".png");
+        const QString path = QFileDialog::getSaveFileName(this, QStringLiteral("保存视频截图"), proposed,
+                                                           QStringLiteral("PNG 图片 (*.png)"));
+        if (path.isEmpty()) return;
+        if (!m_videoWidget->saveFrame(path)) {
+            statusBar()->showMessage(QStringLiteral("截图失败：无有效画面或无法写入文件"), 6000);
+        } else {
+            statusBar()->showMessage(QStringLiteral("截图已保存：%1").arg(path), 6000);
+        }
+    });
 
     connect(m_controller, &DeviceController::deviceStateUpdated, this,
         [this](const touchpanel::DeviceState& state)

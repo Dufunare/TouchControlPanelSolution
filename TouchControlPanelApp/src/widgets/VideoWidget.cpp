@@ -129,7 +129,7 @@ void VideoWidget::updateFrame()
         return;
     }
 
-    const QPixmap pix = QPixmap::fromImage(frameCopy);
+    const QPixmap pix = QPixmap::fromImage(m_mirrored ? frameCopy.mirrored(true, false) : frameCopy);
     const QSize targetSize = m_videoLabel->size();
     m_videoLabel->setPixmap(pix.scaled(targetSize, Qt::KeepAspectRatio, Qt::SmoothTransformation));
     m_noSignalLabel->hide();
@@ -138,5 +138,18 @@ void VideoWidget::updateFrame()
 void VideoWidget::resizeEvent(QResizeEvent* event)
 {
     QWidget::resizeEvent(event);
+    updateFrame();
+}
+
+bool VideoWidget::saveFrame(const QString& path) const
+{
+    std::lock_guard<std::mutex> lock(m_frameMutex);
+    return !m_currentFrame.isNull() && m_currentFrame.save(path, "PNG");
+}
+
+void VideoWidget::setMirrored(bool mirrored)
+{
+    if (m_mirrored == mirrored) return;
+    m_mirrored = mirrored;
     updateFrame();
 }
