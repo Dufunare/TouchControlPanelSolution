@@ -4,6 +4,7 @@
 
 #include "CommunicationBackend.h"
 #include "TouchBackend.h"
+#include "RelayVideoClient.h"
 
 class DeviceController;
 class ControlPanelWidget;
@@ -23,6 +24,7 @@ private:
     DeviceController* m_controller = nullptr;
     ControlPanelWidget* m_controlPanel = nullptr;
     VideoWidget* m_videoWidget = nullptr;
+    RelayVideoClient* m_videoClient = nullptr;
     GLCoordinateWidget* m_glWidget = nullptr;
     StatusPanelWidget* m_statusPanel = nullptr;
 };
