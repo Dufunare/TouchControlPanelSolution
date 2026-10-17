@@ -2,6 +2,7 @@
 
 #include <QWidget>
 #include <QtGlobal>
+#include <QString>
 
 class QPushButton;
 class QLineEdit;
@@ -38,6 +39,13 @@ signals:
     void startTeleopRequested();
     void stopTeleopRequested();
 
+    void videoStartRequested(const QString& relayIp, quint16 port);
+    void videoStopRequested();
+    void videoSnapshotRequested();
+
+public:
+    void setVideoState(bool active, bool receiving, const QString& detail);
+
 private:
 
 	//touch控制按钮
@@ -66,6 +74,8 @@ private:
     //视频控制占位
     QComboBox* m_videoSourceCombo = nullptr;
     QLineEdit* m_videoSourceEdit = nullptr;
+    QSpinBox* m_videoPortSpin = nullptr;
+    class QLabel* m_videoStatusLabel = nullptr;
     QSpinBox* m_videoFpsSpin = nullptr;
     QCheckBox* m_videoMirrorCheck = nullptr;
     QPushButton* m_videoStartButton = nullptr;
