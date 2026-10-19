@@ -51,12 +51,14 @@ void RelayStateClient::disconnectRelay() {
 void RelayStateClient::invalidate(const QString& why) {
     const bool wasValid=m_valid||m_ready||m_handshaken;
     m_valid=false;m_ready=false;m_handshaken=false;m_session.clear();
-    m_sequence=0;m_stateAge.invalidate();m_codec.reset();
+    m_sequence=0;m_stateAge.invalidate();m_relayAge.invalidate();m_codec.reset();
+    m_snapshot=touchpanel::RobotSnapshot{};
     if(m_status!=why){m_status=why;emit statusChanged(m_status);}
     if(wasValid)emit stateInvalidated();
 }
 void RelayStateClient::sendHello() {
     m_codec.reset();m_session.clear();m_handshaken=false;m_ready=false;m_valid=false;
+    m_snapshot=touchpanel::RobotSnapshot{};m_stateAge.invalidate();m_relayAge.invalidate();
     const QJsonObject hello{{"v",2},{"type","hello"},{"request_id","1"},
         {"session_id",""},{"client","touchvla_windows"},
         {"capabilities",QJsonArray{QStringLiteral("robot_state"),QStringLiteral("relay_status")}}};
@@ -98,7 +100,8 @@ void RelayStateClient::handleFrame(const QByteArray& bytes) {
         if(type!="hello_ack"||o.value("request_id").toString()!="1"||session.isEmpty()) {
             invalidate(QStringLiteral("v2 握手响应不符"));m_socket.abort();return;
         }
-        m_handshaken=true;m_session=session;
+        m_handshaken=true;m_session=session;++m_sessionEpoch;
+        m_snapshot.sessionEstablished=true;m_snapshot.sessionEpoch=m_sessionEpoch;
         m_status=QStringLiteral("v2 握手完成；等待机器人状态");
         emit statusChanged(m_status);return;
     }
@@ -116,6 +119,12 @@ void RelayStateClient::handleFrame(const QByteArray& bytes) {
             o.value("port_30004_connected").toBool();
         if(m_ready&&!ready) {m_valid=false;emit stateInvalidated();}
         m_ready=ready;
+        m_relayAge.restart();
+        m_snapshot.relayStatusSeen=true;
+        m_snapshot.relayReady=ready;
+        m_snapshot.port29999Connected=o.value("port_29999_connected").toBool();
+        m_snapshot.port30003Connected=o.value("port_30003_connected").toBool();
+        m_snapshot.port30004Connected=o.value("port_30004_connected").toBool();
         refreshStatus();return;
     }
     if(type=="robot_state") {
@@ -134,6 +143,27 @@ void RelayStateClient::handleFrame(const QByteArray& bytes) {
         if(seq<=m_sequence)return;
         m_sequence=seq;
         m_pose=pose;m_joints=joints;
+        auto velocity=std::array<double,6>{},tcpVelocity=std::array<double,6>{},target=std::array<double,6>{};
+        const auto uv=o.value("user"),tv=o.value("tool");
+        if(!six(o.value("qd_actual"),velocity)||!six(o.value("tcp_speed_actual"),tcpVelocity)||
+           !six(o.value("q_target"),target)||!uv.isDouble()||!tv.isDouble()||
+           !o.value("running_status").isBool()||!o.value("jog_status").isBool()||
+           !o.value("pause_cmd_flag").isBool()||!o.value("run_queued_cmd").isBool()) {
+            m_valid=false;emit stateInvalidated();refreshStatus();return;
+        }
+        m_snapshot.feedbackSeen=true;m_snapshot.feedbackValid=true;
+        m_snapshot.stateSeq=seq;m_snapshot.robotMode=rv.toInt(-1);
+        m_snapshot.tcpPose=pose;m_snapshot.jointPosition=joints;
+        m_snapshot.jointVelocity=velocity;m_snapshot.tcpVelocity=tcpVelocity;
+        m_snapshot.jointTarget=target;
+        m_snapshot.userIndex=uv.toInt(-1);m_snapshot.toolIndex=tv.toInt(-1);
+        m_snapshot.enabled=o.value("enable_status").toBool();
+        m_snapshot.dragging=o.value("drag_status").toBool();
+        m_snapshot.error=o.value("error_status").toBool();
+        m_snapshot.running=o.value("running_status").toBool();
+        m_snapshot.jogging=o.value("jog_status").toBool();
+        m_snapshot.paused=o.value("pause_cmd_flag").toBool();
+        m_snapshot.queuedMotion=o.value("run_queued_cmd").toBool();
         // Motion permission remains separately disabled: this is observation only.
         m_valid=true;m_stateAge.restart();
         refreshStatus();return;
@@ -144,12 +174,21 @@ void RelayStateClient::handleFrame(const QByteArray& bytes) {
     }
 }
 bool RelayStateClient::hasFreshState() const {
-    return m_socket.state()==QAbstractSocket::ConnectedState&&m_handshaken&&m_ready&&
-           m_valid&&m_stateAge.isValid()&&m_stateAge.elapsed()<=kFreshMs;
+    const auto state=snapshot();
+    return state.sessionEstablished &&
+           touchpanel::evaluateRobotGate(state,false).canCaptureCalibration;
 }
 bool RelayStateClient::tryGetFreshPose(std::array<double,6>& pose) const {
     if(!hasFreshState())return false;
     pose=m_pose;return true;
+}
+touchpanel::RobotSnapshot RelayStateClient::snapshot() const {
+    auto result=m_snapshot;
+    result.sessionEstablished=m_handshaken&&m_socket.state()==QAbstractSocket::ConnectedState;
+    result.relayStatusAgeMs=m_relayAge.isValid()?static_cast<int>(m_relayAge.elapsed()):-1;
+    result.feedbackAgeMs=m_stateAge.isValid()?static_cast<int>(m_stateAge.elapsed()):-1;
+    result.feedbackValid=m_valid;
+    return result;
 }
 QString RelayStateClient::statusDescription() const {return m_status;}
 void RelayStateClient::refreshStatus() {
