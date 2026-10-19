@@ -353,6 +353,8 @@ namespace touchpanel
         m_impl->button1Pressed.store(false, std::memory_order_relaxed);
         m_impl->orientationValid.store(false, std::memory_order_relaxed);
         m_impl->calibrated.store(false, std::memory_order_relaxed);
+        m_impl->calibrationStatus.store(TouchCalibrationStatus::NotChecked,std::memory_order_relaxed);
+        m_impl->calibrationCheckRequested.store(false,std::memory_order_relaxed);
         m_impl->calibrationEpoch.fetch_add(1,std::memory_order_relaxed);
     }
 
@@ -378,7 +380,6 @@ namespace touchpanel
                 state.initialized=m_impl->initialized.load(std::memory_order_relaxed);
                 state.schedulerRunning=m_impl->running.load(std::memory_order_relaxed);
                 state.deviceCalibrated=m_impl->calibrated.load(std::memory_order_relaxed);
-        state.calibrationStatus=m_impl->calibrationStatus.load(std::memory_order_relaxed);
                 state.calibrationStatus=m_impl->calibrationStatus.load(std::memory_order_relaxed);
                 state.calibrationNeedsManualInput=m_impl->calibrationNeedsManual.load(std::memory_order_relaxed);
                 state.calibrationEpoch=m_impl->calibrationEpoch.load(std::memory_order_relaxed);
@@ -396,6 +397,7 @@ namespace touchpanel
         state.schedulerRunning=m_impl->running.load(std::memory_order_relaxed);
         state.sampleCounter=m_impl->sampleCounter.load(std::memory_order_relaxed);
         state.deviceCalibrated=m_impl->calibrated.load(std::memory_order_relaxed);
+        state.calibrationStatus=m_impl->calibrationStatus.load(std::memory_order_relaxed);
         state.calibrationNeedsManualInput=m_impl->calibrationNeedsManual.load(std::memory_order_relaxed);
         state.calibrationEpoch=m_impl->calibrationEpoch.load(std::memory_order_relaxed);
         return state;
