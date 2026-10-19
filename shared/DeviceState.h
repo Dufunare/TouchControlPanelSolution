@@ -5,6 +5,11 @@
 
 namespace touchpanel
 {
+    // Explicit HDAPI read-only status query; no automatic calibration update.
+    enum class TouchCalibrationStatus : int {
+        NotChecked = 0, Ok, NeedsUpdate, NeedsManualInput, CheckError
+    };
+
     struct DeviceState
     {
         std::array<double, 3> positionMm{ 0.0, 0.0, 0.0 };
@@ -13,6 +18,7 @@ namespace touchpanel
         std::array<double, 9> rotationMatrix{ 1,0,0,0,1,0,0,0,1 };
         bool orientationValid = false;
         bool deviceCalibrated = false;
+        TouchCalibrationStatus calibrationStatus = TouchCalibrationStatus::NotChecked;
         bool calibrationNeedsManualInput = false;
         std::uint64_t calibrationEpoch = 0;
         bool initialized = false;
