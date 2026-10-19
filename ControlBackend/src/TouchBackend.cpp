@@ -409,7 +409,18 @@ namespace touchpanel
                 return state;
             }
         }
+        // Retry exhaustion means ONLY that this particular multi-atomic sample
+        // was incoherent, not that the OpenHaptics scheduler stopped. Always
+        // load lifecycle flags independently of the versioned sample. A default
+        // DeviceState would report schedulerRunning=false and cause Qt to stop
+        // polling despite a healthy 1 kHz servo thread.
         state.valid=false;
+        state.initialized=m_impl->initialized.load(std::memory_order_relaxed);
+        state.schedulerRunning=m_impl->running.load(std::memory_order_relaxed);
+        state.sampleCounter=m_impl->sampleCounter.load(std::memory_order_relaxed);
+        state.deviceCalibrated=m_impl->calibrated.load(std::memory_order_relaxed);
+        state.calibrationNeedsManualInput=m_impl->calibrationNeedsManual.load(std::memory_order_relaxed);
+        state.calibrationEpoch=m_impl->calibrationEpoch.load(std::memory_order_relaxed);
         return state;
     }
 
