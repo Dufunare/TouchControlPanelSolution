@@ -295,8 +295,8 @@ void DeviceController::startTeleop()
     const auto decision=touchpanel::evaluateRobotGate(m_relayStateClient->snapshot(),
         m_calibrationApplied,m_calibrationUser,m_calibrationTool);
     if(!decision.canPreview) {
-        emit backendMessageChanged(QStringLiteral("六维预览未启用：8891 状态门禁 %1；%2")
-            .arg(static_cast<int>(decision.reason))
+        emit backendMessageChanged(QStringLiteral("六维预览未启用：%1；%2")
+            .arg(QString::fromUtf8(touchpanel::gateReasonChinese(decision.reason)))
             .arg(m_relayStateClient->statusDescription()));
         return;
     }
