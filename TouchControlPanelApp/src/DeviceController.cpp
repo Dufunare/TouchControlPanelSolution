@@ -68,6 +68,22 @@ void DeviceController::setRelayStateClient(RelayStateClient* client)
     m_relayStateClient = client;
 }
 
+bool DeviceController::getTouchSnapshot(touchpanel::DeviceState& state) const
+{
+    if(!m_backend)return false;
+    state=m_backend->latestState();
+    return state.valid&&state.schedulerRunning;
+}
+
+void DeviceController::applyPreviewCalibration(const touchpanel::teleop::Calibration& calibration,int user,int tool)
+{
+    invalidateTeleopBaseline();
+    m_calibration=calibration;
+    m_calibrationApplied=calibration.measured;
+    m_calibrationUser=user;m_calibrationTool=tool;
+    emit backendMessageChanged(QStringLiteral("已启用仅预览的临时坐标标定；不会启用实体运动"));
+}
+
 void DeviceController::invalidateTeleopBaseline()
 {
     m_lastButtonPressed = false;
@@ -256,7 +272,8 @@ void DeviceController::startTeleop()
     }
 
     if (!m_robotBackend->isTransitConnected() || m_relayStateClient == nullptr ||
-        !m_relayStateClient->hasFreshState())
+        !touchpanel::evaluateRobotGate(m_relayStateClient->snapshot(),m_calibrationApplied,
+            m_calibrationUser,m_calibrationTool).canPreview)
     {
         emit backendMessageChanged("六维预览需要 Legacy 8888 与新鲜的 v2 8891 实时状态。");
         return;
@@ -325,7 +342,10 @@ void DeviceController::onMotionTick()
     anchor.touchPosition = m_touchOrigin;
     anchor.touchRotation = m_touchRotationOrigin;
     anchor.robotPose = m_robotPoseOrigin;
-    touchpanel::teleop::Calibration calibration; // unmeasured; preview only
+    const auto gate=touchpanel::evaluateRobotGate(m_relayStateClient->snapshot(),
+        m_calibrationApplied,m_calibrationUser,m_calibrationTool);
+    if(!gate.canPreview) {invalidateTeleopBaseline();return;}
+    const auto& calibration=m_calibration;
     touchpanel::teleop::Pose6 requested{};
     if (!touchpanel::teleop::mapClutchedPose(calibration,anchor,
                                              st.positionMm,st.rotationMatrix,requested)) {
