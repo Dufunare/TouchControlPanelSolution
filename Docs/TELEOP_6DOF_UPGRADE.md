@@ -59,3 +59,22 @@ R_r = (A R_h R_h0^-1 A^-1) R_r0
 - OpenHaptics Toolkit API Reference Guide 3.5.0：`HD_CURRENT_TRANSFORM`、`HD_CURRENT_GIMBAL_ANGLES`、`hdCheckCalibration`、`hdUpdateCalibration`。
 - Dobot TCP/IP 远程控制接口 V3：`MovL`、`ServoJ`、`InverseSolution`、`RobotMode` 及 30004 实时反馈。
 - Dobot CR 系列使用手册 V1.8：具体 CR 型号的轴运动范围、奇异位置与安装注意事项。
+
+## 阶段 B 增量：8891 只读状态链路与 Legacy 分帧（2026-10-19）
+
+本次已添加以下代码，但 **Windows Qt 真正构建、8891 真实链路联调及物理设备标定尚未完成**：
+
+- `shared/RelayV2Frame.h`：长度前缀的有界 TCP 流分帧 + Legacy 分号/换行边界解析；禁止零长度、超出 1 MiB 的 v2 JSON 报文，出现非法帧立即锁死解析器，直到显式 reset。
+- `TouchControlPanelApp/src/RelayStateClient.{h,cpp}`：独立 `QTcpSocket` 连接中转站 8891；采用 `touchvla_windows` client / `hello` / session UUID；订阅 `robot_state`、`relay_status`，严格校验字段、六元素有限值、递增状态序号、端口及 relay_ready。
+- 在上位机单调时钟上保存最近有效反馈时间（400ms 本地时效门槛），不依赖跨设备时钟比较；断开、错误、状态过期时清除预览基准。
+- `DeviceController` 捕获 Button1 时使用 8891 实时 `tool_vector_actual` 替换无时戳的 Legacy `GetPose` 缓存；本次修复了先前阶段 A 临时实现中每 Tick 可能重读和偏移位姿的问题，锁定按下时原始 TCP 基准；绝不发送运动命令。
+- Legacy 8888 接收的 CR3 分号结束回复改为渐进累积完整报文才解析，不再错误吞掉 TCP 半包；断线/新建连接清空 `GetPose/RobotMode` 缓存。
+- 软件急停调用时首先取消本地单槽等待，避免因其他普通命令占用请求槽而直接拒绝；这不保证硬件急停成功，不提供已进入机器人命令队列的取消保障。
+- Linux CI `.github/workflows/teleop-offline.yml` 运行无硬件依赖的 `teleop_geometry_tests.cpp` / `relay_v2_frame_tests.cpp`；Windows Qt/HDAPI 构建和端到端模拟设备测试仍需单独实施。
+
+### 下一步技术债
+
+1. 彻底重构旧 8888 请求队列与回包关联，明确迟到应答的孤儿回复处理；软件急停需要单独独立高优先级机制，普通 `PendingCommand` 抢占并不保证指令先于底层排队命令执行。
+2. `RelayStateClient` 当前仅向控制层暴露新鲜六维 TCP 位姿，尚未将 `q_actual`、速度、时间序列和校验过的机器人运行状态以独立 `RobotSnapshot` API 输出；后续增加完整不可变快照及控制许可状态机。
+3. OpenHaptics servo 回调中的位姿由独立原子字段采样，本分支还需对齐时间戳和一致性序号，避免多字段跨样本混读；应将标定状态接入设备生命周期。
+4. 未验证越疆 Rx/Ry/Rz 欧拉角约定、CR 型号关节上下限、工具/用户坐标系；绝不解锁 ServoJ/MovL。
