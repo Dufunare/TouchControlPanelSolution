@@ -844,7 +844,13 @@ namespace touchpanel
 
     void CommunicationBackend::sendMotion(double x, double y, double z)
     {
-        m_impl->sendMotionCommand(x, y, z);
+        // Deliberately disable the former ServoP production entrypoint.
+        // A future physical motion API must require validated calibration,
+        // fresh robot feedback, joint constraints, and explicit authorization.
+        (void)x;
+        (void)y;
+        (void)z;
+        m_impl->emitMessage("ServoP 已禁用：当前版本仅允许六维遥操作预览。");
     }
 
     void CommunicationBackend::requestRobotMode()
