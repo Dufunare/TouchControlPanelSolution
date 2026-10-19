@@ -22,6 +22,11 @@ int main() {
     assert(evaluateRobotGate(s,true,0,0).reason==GateReason::RobotNotIdle);
     assert(idleGateDiagnostics(s).find("Jog=yes")!=std::string::npos);
     s.jogging=false;
+    s.queuedMotion=true;
+    assert(evaluateRobotGate(s,true,0,0).canPreview);
+    assert(!evaluateRobotGate(s,true,0,0).canSendRobotMotion);
+    assert(evaluateRobotGate(s).reason==GateReason::NoVerifiedCalibration);
+    s.queuedMotion=false;
     assert(std::string(gateReasonChinese(GateReason::RobotDragging)).find("拖拽")!=std::string::npos);
     assert(evaluateRobotGate(s).reason==GateReason::NoVerifiedCalibration);
     s.error=true;
