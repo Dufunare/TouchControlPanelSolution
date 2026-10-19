@@ -65,8 +65,8 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     m_clearErrorButton = new QPushButton("清除错误码", robotGroup);
     m_startDragButton = new QPushButton("启动拖拽", robotGroup);
     m_stopDragButton = new QPushButton("停止拖拽", robotGroup);
-    m_startTeleopButton = new QPushButton("开始控制（按住按钮跟随）", robotGroup);
-    m_stopTeleopButton = new QPushButton("停止控制", robotGroup);
+    m_startTeleopButton = new QPushButton("六维预览（按住 Touch 按钮）", robotGroup);
+    m_stopTeleopButton = new QPushButton("停止六维预览", robotGroup);
 
     m_emergencyStopButton->setStyleSheet("background-color: red; color: white; font-weight: bold; height: 50px;");
     mainVLayout->addWidget(m_emergencyStopButton);
