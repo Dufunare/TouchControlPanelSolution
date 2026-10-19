@@ -191,7 +191,8 @@ void DeviceController::pollDeviceState()
     const auto state = m_backend->latestState();
     emit deviceStateUpdated(state);
 
-    if (!state.schedulerRunning && m_pollTimer.isActive())
+    // Snapshot coherence failure must not stop the UI polling timer.
+    if (!m_backend->isRunning() && m_pollTimer.isActive())
     {
         m_pollTimer.stop();
 
