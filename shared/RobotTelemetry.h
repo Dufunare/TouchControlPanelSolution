@@ -63,6 +63,26 @@ struct GateDecision {
     bool canSendRobotMotion = false; // NO physical motion path in this phase.
 };
 
+inline const char* gateReasonChinese(GateReason reason) {
+    switch(reason) {
+        case GateReason::Ok:return "条件满足（仅预览）";
+        case GateReason::NoSession:return "8891 未建立会话";
+        case GateReason::NoRelayStatus:return "尚未收到中转站状态";
+        case GateReason::RelayStatusStale:return "中转站状态已过期";
+        case GateReason::RelayNotReady:return "中转站或机器人端口未就绪";
+        case GateReason::NoRobotFeedback:return "尚未收到机器人反馈";
+        case GateReason::RobotFeedbackStale:return "机器人反馈已过期";
+        case GateReason::InvalidFeedback:return "机器人反馈字段无效";
+        case GateReason::RobotError:return "机器人报告错误";
+        case GateReason::RobotDisabled:return "机器人未使能";
+        case GateReason::RobotDragging:return "机器人处于拖拽模式，请安全退出拖拽后再试";
+        case GateReason::RobotNotIdle:return "机器人非空闲状态";
+        case GateReason::CoordinateMismatch:return "User/Tool 与标定不一致";
+        case GateReason::NoVerifiedCalibration:return "尚未在本次会话应用空间标定（只读预览）";
+    }
+    return "未知状态";
+}
+
 inline bool finiteSix(const std::array<double,6>& a) {
     for(double x:a)if(!std::isfinite(x))return false;
     return true;
