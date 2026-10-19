@@ -296,7 +296,8 @@ void DeviceController::startTeleop()
         m_calibrationApplied,m_calibrationUser,m_calibrationTool);
     if(!decision.canPreview) {
         emit backendMessageChanged(QStringLiteral("六维预览未启用：%1；%2")
-            .arg(QString::fromUtf8(touchpanel::gateReasonChinese(decision.reason)))
+            .arg(QString::fromUtf8(touchpanel::gateReasonChinese(decision.reason)) +
+                 QStringLiteral(" [") + QString::fromStdString(touchpanel::idleGateDiagnostics(m_relayStateClient->snapshot())) + QStringLiteral("]"))
             .arg(m_relayStateClient->statusDescription()));
         return;
     }
