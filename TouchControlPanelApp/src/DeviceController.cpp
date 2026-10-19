@@ -281,11 +281,23 @@ void DeviceController::startTeleop()
         return;
     }
 
-    if (!m_robotBackend->isTransitConnected() || m_relayStateClient == nullptr ||
-        !touchpanel::evaluateRobotGate(m_relayStateClient->snapshot(),m_calibrationApplied,
-            m_calibrationUser,m_calibrationTool).canPreview)
-    {
-        emit backendMessageChanged("六维预览需要 Legacy 8888 与新鲜的 v2 8891 实时状态。");
+    // Preview is read-only: relay 8891 feedback is sufficient. Do not force
+    // legacy 8888 connectivity merely to perform a local pose calculation.
+    if(m_relayStateClient==nullptr) {
+        emit backendMessageChanged(QStringLiteral("六维预览失败：8891 遥测客户端未初始化"));
+        return;
+    }
+    const auto touch=m_backend->latestState();
+    if(!touch.valid || !touch.orientationValid || !touch.deviceCalibrated) {
+        emit backendMessageChanged(QStringLiteral("六维预览失败：需要 Touch 有效六维采样与 HDAPI 已确认校准"));
+        return;
+    }
+    const auto decision=touchpanel::evaluateRobotGate(m_relayStateClient->snapshot(),
+        m_calibrationApplied,m_calibrationUser,m_calibrationTool);
+    if(!decision.canPreview) {
+        emit backendMessageChanged(QStringLiteral("六维预览未启用：8891 状态门禁 %1；%2")
+            .arg(static_cast<int>(decision.reason))
+            .arg(m_relayStateClient->statusDescription()));
         return;
     }
 
@@ -320,9 +332,8 @@ void DeviceController::stopTeleop()
 
 void DeviceController::onMotionTick()
 {
-    if (!m_backend || !m_robotBackend || !m_relayStateClient ||
-        !m_backend->isRunning() || !m_robotBackend->isTransitConnected() ||
-        !m_relayStateClient->hasFreshState()) {
+    if (!m_backend || !m_relayStateClient ||
+        !m_backend->isRunning() || !m_relayStateClient->hasFreshState()) {
         invalidateTeleopBaseline();
         return;
     }
