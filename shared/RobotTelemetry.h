@@ -32,6 +32,8 @@ struct RobotSnapshot {
     bool error = false;
     bool jogging = false;
     bool paused = false;
+    // Dobot RunQueuedCmd: algorithm queue execution flag. Does NOT by itself
+    // establish pending motion or a non-idle physical robot state.
     bool queuedMotion = false;
     std::array<double,6> tcpPose{};
     std::array<double,6> jointPosition{};
@@ -133,7 +135,13 @@ inline GateDecision evaluateRobotGate(const RobotSnapshot& s,
     if(s.error) {result.reason=GateReason::RobotError;return result;}
     if(!s.enabled) {result.reason=GateReason::RobotDisabled;return result;}
     if(s.dragging) {result.reason=GateReason::RobotDragging;return result;}
-    if(s.robotMode!=5 || s.running || s.jogging || s.paused || s.queuedMotion) {
+    // This gate is for read-only Dry Run ONLY. RunQueuedCmd (queuedMotion)
+    // is defined by Dobot as the algorithm queue execution flag, not as a
+    // count of pending robot motions. It may stay true with RobotMode=5 and
+    // RunningStatus=0. Do not disqualify the preview on that flag alone.
+    // Actual robot motion remains HARD DISABLED (canSendRobotMotion=false)
+    // and requires a separate, validated movement safety policy.
+    if(s.robotMode!=5 || s.running || s.jogging || s.paused) {
         result.reason=GateReason::RobotNotIdle;return result;
     }
     if(calibrationApplied && (s.userIndex!=calibrationUser || s.toolIndex!=calibrationTool)) {
