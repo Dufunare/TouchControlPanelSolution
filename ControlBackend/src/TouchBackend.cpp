@@ -46,6 +46,8 @@ namespace touchpanel
         std::atomic<bool> orientationValid{false};
         std::atomic<std::uint64_t> frameVersion{0}; // odd=writer in progress
         std::atomic<bool> calibrated{false};
+        std::atomic<TouchCalibrationStatus> calibrationStatus{TouchCalibrationStatus::NotChecked};
+        std::atomic<bool> calibrationCheckRequested{false};
         std::atomic<bool> calibrationNeedsManual{true};
         std::atomic<std::uint64_t> calibrationEpoch{0};
         HDint calibrationStyle = 0;
@@ -86,6 +88,11 @@ namespace touchpanel
             hdGetDoublev(HD_CURRENT_POSITION, position);
             hdGetIntegerv(HD_CURRENT_BUTTONS, &currentButtons);
             hdGetDoublev(HD_CURRENT_TRANSFORM, transform);
+            // Execute only on an explicit UI request; share the existing
+            // single device frame, never call hdUpdateCalibration here.
+            const bool checkRequested=self->calibrationCheckRequested.exchange(false,std::memory_order_acq_rel);
+            HDenum calibrationResult=HD_CALIBRATION_NEEDS_MANUAL_INPUT;
+            if(checkRequested)calibrationResult=hdCheckCalibration();
             hdEndFrame(self->deviceHandle);
             const HDErrorInfo error=hdGetError();
             if(HD_DEVICE_ERROR(error)) {
@@ -95,6 +102,18 @@ namespace touchpanel
                 self->valid.store(false,std::memory_order_relaxed);
                 self->running.store(false,std::memory_order_relaxed);
                 return HD_CALLBACK_DONE;
+            }
+            if(checkRequested) {
+                TouchCalibrationStatus status=TouchCalibrationStatus::NotChecked;
+                if(calibrationResult==HD_CALIBRATION_OK)status=TouchCalibrationStatus::Ok;
+                else if(calibrationResult==HD_CALIBRATION_NEEDS_UPDATE)status=TouchCalibrationStatus::NeedsUpdate;
+                else if(calibrationResult==HD_CALIBRATION_NEEDS_MANUAL_INPUT)status=TouchCalibrationStatus::NeedsManualInput;
+                else status=TouchCalibrationStatus::CheckError;
+                self->calibrationStatus.store(status,std::memory_order_relaxed);
+                const bool ready=status==TouchCalibrationStatus::Ok;
+                const bool wasReady=self->calibrated.exchange(ready,std::memory_order_relaxed);
+                self->calibrationNeedsManual.store(status==TouchCalibrationStatus::NeedsManualInput,std::memory_order_relaxed);
+                if(ready!=wasReady)self->calibrationEpoch.fetch_add(1,std::memory_order_relaxed);
             }
             self->frameVersion.fetch_add(1,std::memory_order_release);
             self->x.store(position[0], std::memory_order_relaxed);
@@ -199,6 +218,8 @@ namespace touchpanel
         else if(styles & HD_CALIBRATION_AUTO) m_impl->calibrationStyle=HD_CALIBRATION_AUTO;
         else if(styles & HD_CALIBRATION_ENCODER_RESET) m_impl->calibrationStyle=HD_CALIBRATION_ENCODER_RESET;
         m_impl->calibrated.store(false,std::memory_order_relaxed);
+        m_impl->calibrationStatus.store(TouchCalibrationStatus::NotChecked,std::memory_order_relaxed);
+        m_impl->calibrationCheckRequested.store(false,std::memory_order_relaxed);
         m_impl->calibrationNeedsManual.store(true,std::memory_order_relaxed);
         // 某些设备和驱动组合下，正式项目还需要加上校准流程。
         // 这一版骨架先聚焦“取坐标 + 前端显示”，你可以后续按官方示例补充校准逻辑。
@@ -236,8 +257,10 @@ namespace touchpanel
         m_impl->diagnosticUpdates.store(0,std::memory_order_relaxed);
         m_impl->failureStage.store(0,std::memory_order_relaxed);
         m_impl->failureCode.store(HD_SUCCESS,std::memory_order_relaxed);
-        m_impl->calibrated.store(false, std::memory_order_relaxed);
-        m_impl->valid.store(false, std::memory_order_relaxed);
+        m_impl->calibrated.store(false,std::memory_order_relaxed);
+        m_impl->calibrationStatus.store(TouchCalibrationStatus::NotChecked,std::memory_order_relaxed);
+        m_impl->calibrationCheckRequested.store(false,std::memory_order_relaxed);
+        m_impl->valid.store(false,std::memory_order_relaxed);
 
         m_impl->schedulerHandle =
             hdScheduleAsynchronous(&Impl::servoCallback, m_impl.get(), HD_DEFAULT_SCHEDULER_PRIORITY);
@@ -303,8 +326,10 @@ namespace touchpanel
             hdUnschedule(m_impl->schedulerHandle);
             m_impl->hasCallback = false;
         }
-        m_impl->calibrated.store(false, std::memory_order_relaxed);
-        m_impl->calibrationNeedsManual.store(true, std::memory_order_relaxed);
+        m_impl->calibrated.store(false,std::memory_order_relaxed);
+        m_impl->calibrationStatus.store(TouchCalibrationStatus::NotChecked,std::memory_order_relaxed);
+        m_impl->calibrationCheckRequested.store(false,std::memory_order_relaxed);
+        m_impl->calibrationNeedsManual.store(true,std::memory_order_relaxed);
         m_impl->calibrationEpoch.fetch_add(1, std::memory_order_relaxed);
     }
 
@@ -353,6 +378,8 @@ namespace touchpanel
                 state.initialized=m_impl->initialized.load(std::memory_order_relaxed);
                 state.schedulerRunning=m_impl->running.load(std::memory_order_relaxed);
                 state.deviceCalibrated=m_impl->calibrated.load(std::memory_order_relaxed);
+        state.calibrationStatus=m_impl->calibrationStatus.load(std::memory_order_relaxed);
+                state.calibrationStatus=m_impl->calibrationStatus.load(std::memory_order_relaxed);
                 state.calibrationNeedsManualInput=m_impl->calibrationNeedsManual.load(std::memory_order_relaxed);
                 state.calibrationEpoch=m_impl->calibrationEpoch.load(std::memory_order_relaxed);
                 state.valid=state.valid && state.schedulerRunning;
@@ -372,6 +399,13 @@ namespace touchpanel
         state.calibrationNeedsManualInput=m_impl->calibrationNeedsManual.load(std::memory_order_relaxed);
         state.calibrationEpoch=m_impl->calibrationEpoch.load(std::memory_order_relaxed);
         return state;
+    }
+
+    bool TouchBackend::requestCalibrationCheck()
+    {
+        if(!isInitialized()||!isRunning())return false;
+        m_impl->calibrationCheckRequested.store(true,std::memory_order_release);
+        return true;
     }
 
     bool TouchBackend::isInitialized() const
