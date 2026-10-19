@@ -12,6 +12,8 @@
 #define DEVICE_CONTROLLER_POLL_INTERVAL_MS 8 // 约 125 FPS 的前端刷新频率
 #define DEVICE_CONTROLLER_MOTION_INTERVAL_MS 33 // 33ms 为机械臂官方文档推荐的远程控制发送频率
 
+class RelayStateClient;
+
 class DeviceController : public QObject
 {
     Q_OBJECT
@@ -22,7 +24,10 @@ public:
         touchpanel::CommunicationBackend* communicationBackend,
         QObject* parent = nullptr);
 
+    void setRelayStateClient(RelayStateClient* client);
+
 public slots:
+    void invalidateTeleopBaseline();
     // touch设备管理
     void initializeBackend();
     void startStreaming();
@@ -58,6 +63,7 @@ private slots:
     void onMotionTick();
 
 private:
+    RelayStateClient* m_relayStateClient = nullptr;
     touchpanel::TouchBackend* m_backend = nullptr;
     touchpanel::CommunicationBackend* m_robotBackend = nullptr;
     QTimer m_pollTimer;
@@ -68,6 +74,7 @@ private:
     int m_poseQueryCooldownTicks = 0;
     std::array<double, 3> m_touchOrigin{ 0.0, 0.0, 0.0 };
     std::array<double, 9> m_touchRotationOrigin{ 1,0,0,0,1,0,0,0,1 };
+    std::array<double, 6> m_robotPoseOrigin{};
     std::array<double, 6> m_previewLast{};
     bool m_previewLastValid = false;
     std::array<double, 3> m_robotOrigin{ 0.0, 0.0, 0.0 };
