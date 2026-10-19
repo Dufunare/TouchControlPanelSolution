@@ -26,6 +26,8 @@ signals:
     //tcp连接管理信号
     void robotDisconnectRequested();
     void robotConnectRequested(const QString& ip, quint16 port);
+    void relayV2ConnectRequested(const QString& ip);
+    void relayV2DisconnectRequested();
 
 	//机械臂控制信号
     void powerOnRequested();
@@ -49,6 +51,8 @@ private:
 	//tcp连接管理
     QPushButton* m_robotConnectButton = nullptr;
     QPushButton* m_robotDisconnectButton = nullptr;
+    QPushButton* m_relayV2ConnectButton = nullptr;
+    QPushButton* m_relayV2DisconnectButton = nullptr;
     QLineEdit* m_transitIpEdit = nullptr;
     QSpinBox* m_transitPortSpin = nullptr;
 
