@@ -54,6 +54,7 @@ StatusPanelWidget::StatusPanelWidget(QWidget* parent)
 
     m_messageValue = new QPlainTextEdit(messageGroup);
     m_messageValue->setReadOnly(true);
+    m_messageValue->setMinimumHeight(150);
     m_messageValue->setMaximumBlockCount(500);
     m_messageValue->setLineWrapMode(QPlainTextEdit::WidgetWidth);
     m_messageValue->setWordWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
@@ -77,6 +78,7 @@ StatusPanelWidget::StatusPanelWidget(QWidget* parent)
     auto* txLayout = new QVBoxLayout(txGroup);
     m_txValue = new QPlainTextEdit(txGroup);
     m_txValue->setReadOnly(true);
+    m_txValue->setMinimumHeight(135);
     m_txValue->setMaximumBlockCount(500);
     m_txValue->setPlaceholderText("发送报文将显示在这里...");
     txLayout->addWidget(m_txValue);
@@ -85,6 +87,7 @@ StatusPanelWidget::StatusPanelWidget(QWidget* parent)
     auto* rxLayout = new QVBoxLayout(rxGroup);
     m_rxValue = new QPlainTextEdit(rxGroup);
     m_rxValue->setReadOnly(true);
+    m_rxValue->setMinimumHeight(135);
     m_rxValue->setMaximumBlockCount(500);
     m_rxValue->setPlaceholderText("接收报文将显示在这里...");
     rxLayout->addWidget(m_rxValue);
@@ -109,7 +112,6 @@ StatusPanelWidget::StatusPanelWidget(QWidget* parent)
     rootLayout->addWidget(commStateGroup);
     rootLayout->addWidget(txGroup);
     rootLayout->addWidget(rxGroup);
-    rootLayout->addStretch(1);
     rootLayout->addWidget(messageGroup);
 }
 
