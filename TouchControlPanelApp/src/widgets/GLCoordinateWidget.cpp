@@ -1,5 +1,6 @@
 #include "GLCoordinateWidget.h"
 #include "GlPoseMath.h"
+#include "TeleopGeometry.h"
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
@@ -290,19 +291,36 @@ void GLCoordinateWidget::paintGL() {
                      QStringLiteral("RAW FRAME  ·  POSITION + ORIENTATION"));
     const auto p=m_origin.render(m_state.positionMm);
     painter.setPen(fg);
-    painter.drawText(QRect(18,height()-76,width()-36,22),Qt::AlignLeft,
-        QStringLiteral("X %1   Y %2   Z %3 mm")
-           .arg(p[0],0,'f',2).arg(p[1],0,'f',2).arg(p[2],0,'f',2));
+    const auto raw=m_state.positionMm;
+    painter.drawText(QRect(18,height()-119,width()-36,21),Qt::AlignLeft,
+        QStringLiteral("RAW     X %1    Y %2    Z %3 mm")
+            .arg(raw[0],0,'f',2).arg(raw[1],0,'f',2).arg(raw[2],0,'f',2));
     painter.setPen(muted);
-    const QString left=m_origin.active()?
-        QStringLiteral("DISPLAY-RELATIVE  ·  RAW VALUES UNCHANGED"):
-        QStringLiteral("RAW COORDINATES  ·  USE DISPLAY ORIGIN TO REBASE");
-    painter.drawText(QRect(18,height()-54,width()-36,20),Qt::AlignLeft,left);
-    const QString state=m_state.valid ?
-        (m_state.orientationValid?QStringLiteral("● 6DOF LIVE"):QStringLiteral("● POSITION ONLY")):
-        QStringLiteral("○ NO VALID FRAME");
-    painter.setPen(m_state.valid?accent:muted);
-    painter.drawText(QRect(18,height()-29,width()-36,20),Qt::AlignLeft,state);
+    painter.drawText(QRect(18,height()-97,width()-36,20),Qt::AlignLeft,
+        QStringLiteral("VIEW    X %1    Y %2    Z %3 mm")
+            .arg(p[0],0,'f',2).arg(p[1],0,'f',2).arg(p[2],0,'f',2));
+    if(m_state.orientationValid) {
+        touchpanel::teleop::Vec3 angles{};
+        const bool hasAngles=touchpanel::teleop::matrixToRpy(
+            m_state.rotationMatrix,{0,0,0},angles);
+        if(hasAngles) {
+            painter.setPen(fg);
+            painter.drawText(QRect(18,height()-75,width()-36,20),Qt::AlignLeft,
+                QStringLiteral("RPY*   %1°   %2°   %3°")
+                    .arg(angles[0],0,'f',1).arg(angles[1],0,'f',1)
+                    .arg(angles[2],0,'f',1));
+        } else {
+            painter.setPen(muted);
+            painter.drawText(QRect(18,height()-75,width()-36,20),Qt::AlignLeft,
+                QStringLiteral("RPY* unavailable near Euler singularity"));
+        }
+    }
+    painter.setPen(muted);
+    painter.drawText(QRect(18,height()-53,width()-36,20),Qt::AlignLeft,
+        QStringLiteral("RPY* ZYX view estimate, not verified robot Rx/Ry/Rz"));
+    painter.drawText(QRect(18,height()-30,width()-36,20),Qt::AlignLeft,
+        m_state.valid ? QStringLiteral("● 6DOF LIVE    ·    C clear trail    R reset") :
+                        QStringLiteral("○ NO VALID FRAME"));
     painter.setPen(muted);
     painter.drawText(QRect(18,68,width()-36,18),Qt::AlignLeft,
         QStringLiteral("DRAG orbit  ·  SHIFT+DRAG pan  ·  WHEEL zoom  ·  DOUBLE CLICK focus"));
