@@ -127,3 +127,9 @@ R_r = (A R_h R_h0^-1 A^-1) R_r0
 - 仍由硬件确认 inkwell/auto/encoder reset 的真实支持方式；校准会导致坐标突变，前端 clutch 只在设备校准后恢复。
 
 **待验证**：此 Hotfix 未在 Windows/实体 Touch 设备上编译、运行，属于基于现场错误和 OpenHaptics 3.5 参考文档的修复。请重新生成 ControlBackend 及主程序，测试首次启动、短时间停止再启动、未完成设备归位、点击重置再初始化及连跑数分钟稳定性。若仍出现 `HD_ILLEGAL_BEGIN`，需要采集失败时的 HDAPI 错误码和调度器日志，在驱动和其它注册回调层进一步排查。
+
+## 2026-10-19 follow-up: scheduler runs briefly and stops
+
+The earlier hotfix did not fully isolate calibration checks: `hdCheckCalibration()` still ran in the ordinary sampling tick and there was no cooldown for repeated updates. Reworked the callback into a three-phase scheduler policy (`shared/HapticCalibrationPolicy.h`): a dedicated status-check tick (single HDAPI frame), a separate `hdUpdateCalibration` tick without an extra frame, and normal position/rotation acquisition tick (single frame). A requested update is rate-limited to at most once every 2000 servo ticks and status checks occur approximately every 500 servo ticks. The existing one-frame-per-device limit remains enabled.
+
+Added atomic diagnostic counters and failure-stage logging: `calibration-check`, `calibration-update`, or `sample-frame`, HDAPI numeric code, ticks, update count. On callback failure the UI should report the stage and code via `TouchBackend::lastError()`; an unexpected process-level crash is outside this handler. Linux offline policy tests verify isolation and cooldown, but do not exercise real HDAPI; run Windows/OpenHaptics hardware validation before treating the issue as resolved. The root cause is not conclusively established without the user's new error log.
