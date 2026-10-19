@@ -33,7 +33,9 @@ TeleopCalibrationDialog::TeleopCalibrationDialog(DeviceController* touch,RelaySt
     layout->addWidget(new QLabel(QStringLiteral(
         "需要在安全条件下采集至少 8 组、覆盖三维空间的 Touch/机器人对应点。\n"
         "本界面只读取当前位置，不会控制机械臂移动。"
-        "机器人用户/工具坐标系不可在标定过程中改变。"),this));
+        "每组数据必须对应同一个实体基准点（Touch 笔尖与机器人 TCP 对准同一已知点）。\n"
+        "单纯同时读取两个无关位置，不能形成有效空间标定。\n"
+        "机器人必须通过独立的安全示教手段调整；此窗口绝不发送运动命令。"),this));
     layout->addWidget(m_status);
     m_capture=new QPushButton(QStringLiteral("捕获当前对应点"),this);
     m_solve=new QPushButton(QStringLiteral("计算并保存（只读预览）"),this);
@@ -72,10 +74,18 @@ void TeleopCalibrationDialog::capture() {
         showStatus(QStringLiteral("会话或用户/工具坐标已变更；请重新采样"));return;
     }
     if(m_count>=32)return;
+    // Duplicate correspondences add no geometric information and can bias the fit.
+    const touchpanel::teleop::Vec3 robotPoint={robot.tcpPose[0],robot.tcpPose[1],robot.tcpPose[2]};
+    for(const auto& previous:m_samples) {
+        if(touchpanel::teleop::norm(touchpanel::teleop::sub(previous.touch,touch.positionMm))<5.0 ||
+           touchpanel::teleop::norm(touchpanel::teleop::sub(previous.robot,robotPoint))<5.0) {
+            showStatus(QStringLiteral("采点拒绝：与已有样本过近（Touch 或 TCP 距离小于 5 mm）；请选择另一个对应基准点。"));
+            return;
+        }
+    }
     if(m_count==0) {m_epoch=robot.sessionEpoch;m_user=robot.userIndex;m_tool=robot.toolIndex;
         m_touchCalibrationEpoch=touch.calibrationEpoch;}
-    m_samples.push_back({touch.positionMm,
-        {robot.tcpPose[0],robot.tcpPose[1],robot.tcpPose[2]}});
+    m_samples.push_back({touch.positionMm,robotPoint});
     ++m_count;
     m_solve->setEnabled(m_count>=8);
     showStatus(QStringLiteral("已采集 %1/32 对（至少 8 对），User=%2 Tool=%3；请调整到下一个明显不同的位置。")
