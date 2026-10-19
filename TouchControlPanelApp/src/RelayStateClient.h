@@ -7,6 +7,7 @@
 #include <QTimer>
 #include <array>
 #include "RelayV2Frame.h"
+#include "RobotTelemetry.h"
 
 class RelayStateClient final : public QObject {
     Q_OBJECT
@@ -16,6 +17,7 @@ public:
     void disconnectRelay();
     bool hasFreshState() const;
     bool tryGetFreshPose(std::array<double,6>& pose) const;
+    touchpanel::RobotSnapshot snapshot() const;
     QString statusDescription() const;
 signals:
     void statusChanged(const QString& description);
@@ -33,6 +35,9 @@ private:
     QString m_session;
     QString m_host;
     bool m_handshaken=false, m_ready=false, m_valid=false;
+    quint64 m_sessionEpoch=0;
+    QElapsedTimer m_relayAge;
+    touchpanel::RobotSnapshot m_snapshot;
     quint64 m_sequence=0;
     std::array<double,6> m_pose{},m_joints{};
     QString m_status=QStringLiteral("未连接 v2 遥测");
