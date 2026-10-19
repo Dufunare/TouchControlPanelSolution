@@ -194,3 +194,11 @@ Verify on Windows after rebuild: Connect TCP, watch 8891 handshake then LIVE seq
 ## Dobot RunQueuedCmd flag and Dry Run gate
 
 Hardware observation: with fresh 8891 feedback, `RobotMode=5`, `EnableStatus=1`, `DragStatus=0`, `RunningStatus=0`, `JogStatus=0`, `PauseCmdFlag=0`, the controller may report `RunQueuedCmd=1`. The Dobot TCP/IP V3 reference calls this **algorithm queue running flag** (byte 1014), not "pending command count". Do **not** send Stop, ClearError or other robot-changing commands merely to force it to zero. The **read-only** Dry Run preview no longer treats this flag alone as non-idle; RobotMode=5, !running, !dragging, !jogging, !paused, fresh session and calibration are still required. `canSendRobotMotion` stays false unconditionally. Real physical motion safety cannot inherit this permissive read-only gate; it needs separate verified queue and command acknowledgement policy.
+
+## Calibration plan selection / stability preflight
+
+The current `mapClutchedPose()` requires a rotation and scale for **relative Touch motion**, not an absolute translation. Existing UI `fitSimilarity()` is appropriate only if all paired positions refer to corresponding physical reference locations, e.g. shared fixtures, or a rigorously designed paired motion trajectory. Unrelated simultaneous Touch / robot positions MUST NOT be paired and fitted.
+
+Two distinct onsite routes remain open: (A) shared physical fiducials -> 8+ non-coplanar absolute point pairs and held-out verification; (B) workspaces do not overlap -> relative displacement direction/scale calibration with an independent safe teaching procedure and dedicated solver/UI still to be implemented. Do not use the existing absolute-pair dialog for B.
+
+Added pure C++ preflight helpers `shared/CalibrationCaptureQuality.h` and offline tests for joint/TCP stationary thresholds, short temporal-window repeatability, duplicate rejection and independent holdout residual. They are not yet wired into the Qt dialog; instantaneous capture is unchanged until the appropriate calibration mode is chosen. These tests do not authorize motion.
