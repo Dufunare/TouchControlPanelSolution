@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "CommunicationBackend.h"
+#include "RelayV2Frame.h"
 
 #include <atomic>
 #include <array>
@@ -396,6 +397,14 @@ namespace touchpanel
             }
         }
 
+        void invalidateRobotSnapshot()
+        {
+            std::lock_guard<std::mutex> lock(robotStateMutex);
+            lastRobotMode = -1;
+            hasLastPose = false;
+            lastPose.fill(0.0);
+        }
+
         void updateRobotSnapshot(const ParsedReply& parsed)
         {
             if (parsed.errorId != 0)
@@ -539,7 +548,7 @@ namespace touchpanel
 
         void recvLoop()
         {
-            std::string buffer;
+            touchpanel::protocol::LegacyReplyFramer framer;
             std::vector<char> recvBuffer(4096);
 
             while (!stopRequested.load(std::memory_order_relaxed))
@@ -563,53 +572,19 @@ namespace touchpanel
                     break;
                 }
 
-                buffer.append(recvBuffer.data(), static_cast<size_t>(received));
-
-                while (true)
+                std::vector<std::string> frames;
+                if (!framer.feed(recvBuffer.data(), static_cast<size_t>(received), frames))
                 {
-                    const auto lineEnd = buffer.find_first_of("\r\n\0");
-                    if (lineEnd == std::string::npos)
-                    {
-                        break;
-                    }
-
-                    std::string line = buffer.substr(0, lineEnd);
-
-                    size_t eraseCount = lineEnd + 1;
-                    while (eraseCount < buffer.size() && (buffer[eraseCount] == '\r' || buffer[eraseCount] == '\n' || buffer[eraseCount] == '\0'))
-                    {
-                        ++eraseCount;
-                    }
-
-                    buffer.erase(0, eraseCount);
-
-                    line = trimCr(line);
-                    if (!line.empty())
-                    {
-                        onLineReceived(line);
-                    }
+                    emitMessage("TCP 回复超出缓存限制或分帧失败，断开连接。");
+                    break;
                 }
-
-                bool hasPending = false;
-                {
-                    std::lock_guard<std::mutex> lock(pendingMutex);
-                    hasPending = pending.active;
-                }
-
-                if (hasPending && !buffer.empty())
-                {
-                    std::string line = trimCr(buffer);
-                    buffer.clear();
-                    if (!line.empty())
-                    {
-                        onLineReceived(line);
-                    }
-                }
+                for (const auto& frame : frames) onLineReceived(frame);
             }
 
             if (!stopRequested.load(std::memory_order_relaxed))
             {
                 connected.store(false, std::memory_order_relaxed);
+                invalidateRobotSnapshot();
                 emitConnection(false);
                 emitMessage("中转站连接已断开。");
                 finishPendingAsCanceled("连接断开，命令未完成。");
@@ -761,6 +736,7 @@ namespace touchpanel
         const std::uint16_t port = (portOverride == 0) ? m_impl->defaultPort : portOverride;
 
         disconnectTransitInternal(true);
+        m_impl->invalidateRobotSnapshot();
 
         m_impl->emitMessage("正在连接中转站 " + host + ":" + std::to_string(port) + " ...");
 
@@ -829,6 +805,7 @@ namespace touchpanel
         }
 
         m_impl->connected.store(false, std::memory_order_relaxed);
+        m_impl->invalidateRobotSnapshot();
 
         m_impl->stopThreads();
 
@@ -903,6 +880,9 @@ namespace touchpanel
 
     void CommunicationBackend::emergencyStop()
     {
+        // Prevent the old single-slot pending request from silently rejecting Stop.
+        // This is still a software command, NOT a replacement for physical E-stop.
+        m_impl->finishPendingAsCanceled("被软件急停抢占");
         m_impl->sendRobotCommand("EmergencyStop", "EmergencyStop()", 5000);
     }
 
