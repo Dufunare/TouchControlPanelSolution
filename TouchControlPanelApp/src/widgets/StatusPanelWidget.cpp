@@ -34,11 +34,13 @@ StatusPanelWidget::StatusPanelWidget(QWidget* parent)
     m_schedulerValue = createValueLabel("未启动");
     m_validValue = createValueLabel("无效");
     m_counterValue = createValueLabel("0");
+    m_touchCalibrationValue = createValueLabel("待确认");
 
     stateLayout->addRow("是否初始化：", m_initializedValue);
     stateLayout->addRow("采样循环：", m_schedulerValue);
     stateLayout->addRow("数据有效性：", m_validValue);
     stateLayout->addRow("采样计数：", m_counterValue);
+    stateLayout->addRow("设备自身校准：", m_touchCalibrationValue);
 
     auto* messageGroup = new QGroupBox("消息输出", this);
     auto* messageLayout = new QVBoxLayout(messageGroup);
@@ -117,6 +119,8 @@ void StatusPanelWidget::setDeviceState(const touchpanel::DeviceState& state)
     m_schedulerValue->setText(state.schedulerRunning ? "运行中" : "已停止");
     m_validValue->setText(state.valid ? "有效" : "无效");
     m_counterValue->setText(QString::number(state.sampleCounter));
+    m_touchCalibrationValue->setText(state.deviceCalibrated ? QStringLiteral("已校准") :
+        state.calibrationNeedsManualInput ? QStringLiteral("需将笔归位/手动校准") : QStringLiteral("校准中或未完成"));
 }
 
 void StatusPanelWidget::setBackendMessage(const QString& text)
