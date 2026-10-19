@@ -152,3 +152,11 @@ The GL widget has been rewritten for read-only visualization:
 - Display origin and scene camera/trail are visualization only, never used by robot calibration or motion. Changing the GL display origin resets trail and camera target, while the original Touch raw XYZ remains untouched.
 - All hardware motion remains disabled in this Draft PR. Only the GL display and independent pose math test have changed, not the validated stable OpenHaptics sample callback.
 - Linux CI covers `gl_pose_tests.cpp` and checks multiplication order, rebase and invalid orientation. Windows Qt/OpenGL 3.3 and real stylus orientation require local acceptance testing.
+
+## GL render and sidebar usability follow-up
+
+- Fixed dynamic GL upload lifecycle: `upload()` no longer releases the shader program during `paintGL()`, which previously made the following solid pen and pose-axis draws unreliable/invisible. Shader remains bound until all GL primitives have rendered.
+- If XYZ is valid but the orientation flag is unavailable, the stylus uses a **visualization-only identity fallback**, rather than disappearing. This does not validate or alter raw HDAPI orientation.
+- Simplified the GL overlay to compact title + status, one XYZ line and one RPY line using 8-9 pt fonts. Deleted verbose shortcuts, redundant raw/view labels and multi-line warning. RPY remains diagnostic ZYX only.
+- Added independent vertical QScrollArea wrappers for left control panel and right status/log panel. Center video/GL splitter keeps its own size. The right log edits retain useful minimum heights.
+- Requires Windows Qt/OpenGL hands-on check for solid pen visibility, camera geometry, resizing scrollbars, actual RPY orientation and device sampling. Robot motion remains disabled.
