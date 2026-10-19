@@ -79,7 +79,7 @@ inline bool calibrateThreePairs(const std::array<Pair,3>& points,Calibration& ou
     Vec3 ht2=sub(points[2].touch,points[0].touch),rt2=sub(points[2].robot,points[0].robot);
     double a=norm(rt)/norm(ht),b=norm(rt2)/norm(ht2);
     if(!std::isfinite(a)||!std::isfinite(b)||a<0.05||a>20.0||
-       std::abs(a-b)>0.15*std::max(a,b))return false;
+       std::abs(a-b)>0.15*std::max<double>(a,b))return false;
     Calibration c;c.touchToBase=mul(r,transpose(h));c.scale=(a+b)/2.0;c.measured=true;
     if(!properRotation(c.touchToBase))return false;
     out=c;return true;
