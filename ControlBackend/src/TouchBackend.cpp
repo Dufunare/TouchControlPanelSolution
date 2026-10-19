@@ -51,6 +51,8 @@ namespace touchpanel
         HDint calibrationStyle = 0;
         // Only touched by the OpenHaptics scheduler thread, never by Qt.
         haptics::CalibrationTickPolicy calibrationPolicy;
+        std::atomic<std::uint64_t> diagnosticTicks{0};
+        std::atomic<std::uint64_t> diagnosticUpdates{0};
         std::atomic<int> failureStage{0};
         std::atomic<int> failureCode{HD_SUCCESS};
         bool schedulerStarted = false;  // owned by the UI thread
@@ -72,6 +74,7 @@ namespace touchpanel
             using haptics::CalibrationAction;
             using haptics::CalibrationCondition;
             const auto action=self->calibrationPolicy.next();
+            self->diagnosticTicks.store(self->calibrationPolicy.ticks(),std::memory_order_relaxed);
             if(action==CalibrationAction::CheckOnly) {
                 hdMakeCurrentDevice(self->deviceHandle);
                 const HDenum status=hdCheckCalibration();
@@ -110,6 +113,7 @@ namespace touchpanel
                     return HD_CALLBACK_DONE;
                 }
                 self->calibrationPolicy.updated();
+                self->diagnosticUpdates.store(self->calibrationPolicy.updateCount(),std::memory_order_relaxed);
                 self->calibrated.store(false,std::memory_order_relaxed);
                 self->calibrationEpoch.fetch_add(1,std::memory_order_relaxed);
                 self->valid.store(false,std::memory_order_relaxed);
@@ -277,6 +281,8 @@ namespace touchpanel
         m_impl->lastErrorCode.store(HD_SUCCESS, std::memory_order_relaxed);
         m_impl->sampleCounter.store(0, std::memory_order_relaxed);
         m_impl->calibrationPolicy.reset();
+        m_impl->diagnosticTicks.store(0,std::memory_order_relaxed);
+        m_impl->diagnosticUpdates.store(0,std::memory_order_relaxed);
         m_impl->failureStage.store(0,std::memory_order_relaxed);
         m_impl->failureCode.store(HD_SUCCESS,std::memory_order_relaxed);
         m_impl->calibrated.store(false, std::memory_order_relaxed);
@@ -439,8 +445,8 @@ namespace touchpanel
         }
 
         return std::string("HDAPI stage=")+stageName+" code="+std::to_string(errorCode)+
-               " ticks="+std::to_string(m_impl->calibrationPolicy.ticks())+
-               " updates="+std::to_string(m_impl->calibrationPolicy.updateCount())+
+               " ticks="+std::to_string(m_impl->diagnosticTicks.load(std::memory_order_relaxed))+
+               " updates="+std::to_string(m_impl->diagnosticUpdates.load(std::memory_order_relaxed))+
                ": "+errorText;
     }
 } // namespace touchpanel
