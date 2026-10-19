@@ -11,6 +11,7 @@
 #include <QPoint>
 
 #include "DeviceState.h"
+#include "DisplayOrigin.h"
 
 class QMouseEvent;
 class QWheelEvent;
@@ -33,6 +34,8 @@ public:
     ~GLCoordinateWidget() override;
 
     void setDeviceState(const touchpanel::DeviceState& state);
+    bool captureDisplayOrigin();
+    void clearDisplayOrigin();
 
 protected:
     void initializeGL() override;
@@ -68,6 +71,7 @@ private:
 
 private:
     touchpanel::DeviceState m_state{};
+    touchpanel::visualization::DisplayOrigin m_displayOrigin;
 
     QMatrix4x4 m_projection;
     std::unique_ptr<QOpenGLShaderProgram> m_program;
