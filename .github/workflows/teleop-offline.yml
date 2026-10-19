@@ -1,0 +1,23 @@
+name: Teleop Offline Tests
+on:
+  push:
+    branches: [feat/teleop-6dof-calibration-safe-movl]
+  pull_request:
+    paths:
+      - 'shared/TeleopGeometry.h'
+      - 'shared/RelayV2Frame.h'
+      - 'tests/*'
+      - '.github/workflows/teleop-offline.yml'
+jobs:
+  cpp17-offline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build geometry test
+        run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/teleop_geometry_tests.cpp -o /tmp/teleop_geometry_test
+      - name: Build protocol test
+        run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/relay_v2_frame_tests.cpp -o /tmp/relay_v2_test
+      - name: Run tests
+        run: |
+          /tmp/teleop_geometry_test
+          /tmp/relay_v2_test
