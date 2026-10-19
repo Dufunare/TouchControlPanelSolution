@@ -71,55 +71,11 @@ namespace touchpanel
                 return HD_CALLBACK_DONE;
             }
 
-            using haptics::CalibrationAction;
-            using haptics::CalibrationCondition;
-            const auto action=self->calibrationPolicy.next();
-            self->diagnosticTicks.store(self->calibrationPolicy.ticks(),std::memory_order_relaxed);
-            if(action==CalibrationAction::CheckOnly) {
-                hdBeginFrame(self->deviceHandle);
-                const HDenum status=hdCheckCalibration();
-                hdEndFrame(self->deviceHandle);
-                const HDErrorInfo error=hdGetError();
-                if(HD_DEVICE_ERROR(error)) {
-                    self->failureStage.store(1,std::memory_order_relaxed);
-                    self->failureCode.store(static_cast<int>(error.errorCode),std::memory_order_relaxed);
-                    self->lastErrorCode.store(static_cast<int>(error.errorCode),std::memory_order_relaxed);
-                    self->valid.store(false,std::memory_order_relaxed);
-                    self->running.store(false,std::memory_order_relaxed);
-                    return HD_CALLBACK_DONE;
-                }
-                const bool ready=status==HD_CALIBRATION_OK;
-                const bool previouslyReady=self->calibrated.exchange(ready,std::memory_order_relaxed);
-                self->calibrationNeedsManual.store(status==HD_CALIBRATION_NEEDS_MANUAL_INPUT,std::memory_order_relaxed);
-                if(ready!=previouslyReady)
-                    self->calibrationEpoch.fetch_add(1,std::memory_order_relaxed);
-                self->calibrationPolicy.checked(
-                    status==HD_CALIBRATION_NEEDS_UPDATE?CalibrationCondition::NeedsUpdate:
-                    status==HD_CALIBRATION_NEEDS_MANUAL_INPUT?CalibrationCondition::ManualInput:
-                    ready?CalibrationCondition::Good:CalibrationCondition::Unsupported,
-                    self->calibrationStyle!=0);
-                if(!ready)self->valid.store(false,std::memory_order_relaxed);
-                return HD_CALLBACK_CONTINUE;
-            }
-            if(action==CalibrationAction::UpdateOnly) {
-                hdMakeCurrentDevice(self->deviceHandle);
-                hdUpdateCalibration(self->calibrationStyle);
-                const HDErrorInfo error=hdGetError();
-                if(HD_DEVICE_ERROR(error)) {
-                    self->failureStage.store(2,std::memory_order_relaxed);
-                    self->failureCode.store(static_cast<int>(error.errorCode),std::memory_order_relaxed);
-                    self->lastErrorCode.store(static_cast<int>(error.errorCode),std::memory_order_relaxed);
-                    self->valid.store(false,std::memory_order_relaxed);
-                    self->running.store(false,std::memory_order_relaxed);
-                    return HD_CALLBACK_DONE;
-                }
-                self->calibrationPolicy.updated();
-                self->diagnosticUpdates.store(self->calibrationPolicy.updateCount(),std::memory_order_relaxed);
-                self->calibrated.store(false,std::memory_order_relaxed);
-                self->calibrationEpoch.fetch_add(1,std::memory_order_relaxed);
-                self->valid.store(false,std::memory_order_relaxed);
-                return HD_CALLBACK_CONTINUE;
-            }
+            // Stability regression isolation: no automatic HDAPI calibration
+            // check/update in the high-frequency acquisition callback.
+            // Inkwell placement is NOT proof of HD_CALIBRATION_OK. Calibration
+            // must be implemented as an explicit, separately validated workflow.
+            self->diagnosticTicks.fetch_add(1,std::memory_order_relaxed);
 
             // A normal tick contains exactly one begin/end pair. Calibration
             // check frames and updates execute in distinct scheduler ticks.
@@ -140,11 +96,6 @@ namespace touchpanel
                 self->running.store(false,std::memory_order_relaxed);
                 return HD_CALLBACK_DONE;
             }
-            if(!self->calibrated.load(std::memory_order_relaxed)) {
-                self->valid.store(false,std::memory_order_relaxed);
-                return HD_CALLBACK_CONTINUE;
-            }
-
             self->frameVersion.fetch_add(1,std::memory_order_release);
             self->x.store(position[0], std::memory_order_relaxed);
             self->y.store(position[1], std::memory_order_relaxed);
@@ -157,8 +108,7 @@ namespace touchpanel
             self->orientationValid.store(orientationOk,std::memory_order_relaxed);
             self->button1Pressed.store((currentButtons & HD_DEVICE_BUTTON_1) != 0, std::memory_order_relaxed);
             self->sampleCounter.fetch_add(1, std::memory_order_relaxed);
-            self->valid.store(self->calibrated.load(std::memory_order_relaxed) && orientationOk,
-                std::memory_order_relaxed);
+            self->valid.store(orientationOk,std::memory_order_relaxed);
             self->frameVersion.fetch_add(1,std::memory_order_release);
 
             return HD_CALLBACK_CONTINUE;
@@ -405,7 +355,7 @@ namespace touchpanel
                 state.deviceCalibrated=m_impl->calibrated.load(std::memory_order_relaxed);
                 state.calibrationNeedsManualInput=m_impl->calibrationNeedsManual.load(std::memory_order_relaxed);
                 state.calibrationEpoch=m_impl->calibrationEpoch.load(std::memory_order_relaxed);
-                state.valid=state.valid && state.deviceCalibrated && state.schedulerRunning;
+                state.valid=state.valid && state.schedulerRunning;
                 return state;
             }
         }
