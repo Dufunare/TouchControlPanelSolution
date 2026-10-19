@@ -190,6 +190,38 @@ touchpanel::RobotSnapshot RelayStateClient::snapshot() const {
     result.feedbackValid=m_valid;
     return result;
 }
+
+QString RelayStateClient::buildTelemetrySummary() const {
+    const auto s=snapshot();
+    if(!s.sessionEstablished)
+        return QStringLiteral("8891 未连接");
+    if(!s.feedbackSeen)
+        return QStringLiteral("等待首个有效 robot_state…");
+    const QString freshness=(!s.feedbackValid||s.feedbackAgeMs<0||s.feedbackAgeMs>400)
+        ? QStringLiteral("STALE") : QStringLiteral("LIVE");
+    const auto& p=s.tcpPose;
+    const auto& q=s.jointPosition;
+    const auto& v=s.jointVelocity;
+    return QStringLiteral(
+        "%1 · age %2 ms · seq %3\n"
+        "TCP mm/deg  X %4  Y %5  Z %6  Rx %7  Ry %8  Rz %9\n"
+        "Joints deg  J1 %10  J2 %11  J3 %12  J4 %13  J5 %14  J6 %15\n"
+        "qd deg/s    %16  %17  %18  %19  %20  %21\n"
+        "Mode %22 · Enabled %23 · Drag %24 · Running %25 · Error %26 · User %27 / Tool %28")
+        .arg(freshness).arg(s.feedbackAgeMs).arg(s.stateSeq)
+        .arg(p[0],0,'f',1).arg(p[1],0,'f',1).arg(p[2],0,'f',1)
+        .arg(p[3],0,'f',1).arg(p[4],0,'f',1).arg(p[5],0,'f',1)
+        .arg(q[0],0,'f',1).arg(q[1],0,'f',1).arg(q[2],0,'f',1)
+        .arg(q[3],0,'f',1).arg(q[4],0,'f',1).arg(q[5],0,'f',1)
+        .arg(v[0],0,'f',1).arg(v[1],0,'f',1).arg(v[2],0,'f',1)
+        .arg(v[3],0,'f',1).arg(v[4],0,'f',1).arg(v[5],0,'f',1)
+        .arg(s.robotMode).arg(s.enabled?QStringLiteral("yes"):QStringLiteral("no"))
+        .arg(s.dragging?QStringLiteral("yes"):QStringLiteral("no"))
+        .arg(s.running?QStringLiteral("yes"):QStringLiteral("no"))
+        .arg(s.error?QStringLiteral("YES"):QStringLiteral("no"))
+        .arg(s.userIndex).arg(s.toolIndex);
+}
+
 QString RelayStateClient::statusDescription() const {return m_status;}
 void RelayStateClient::refreshStatus() {
     if(m_valid&&m_stateAge.isValid()&&m_stateAge.elapsed()>kFreshMs) {
@@ -201,4 +233,12 @@ void RelayStateClient::refreshStatus() {
           (!m_ready ? QStringLiteral("v2 在线；中转站未就绪")
                     : QStringLiteral("v2 无有效新鲜机器人状态")));
     if(newStatus!=m_status) {m_status=newStatus;emit statusChanged(m_status);}
+    if(!m_summaryEmitAge.isValid()||m_summaryEmitAge.elapsed()>=200) {
+        const QString summary=buildTelemetrySummary();
+        if(summary!=m_lastTelemetrySummary) {
+            m_lastTelemetrySummary=summary;
+            emit telemetryUpdated(summary);
+        }
+        m_summaryEmitAge.restart();
+    }
 }
