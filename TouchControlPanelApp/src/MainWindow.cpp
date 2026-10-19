@@ -30,6 +30,10 @@ MainWindow::MainWindow(QWidget* parent)
     m_controller = new DeviceController(&m_backend, &m_communicationBackend, this);
     m_controller->setRelayStateClient(m_relayStateClient);
     m_controlPanel = new ControlPanelWidget(this);
+    auto* calibrationCheckButton=new QPushButton(QStringLiteral("检查 Touch 校准状态（只读）"),m_controlPanel);
+    if(auto* layout=qobject_cast<QVBoxLayout*>(m_controlPanel->layout()))
+        layout->insertWidget(3,calibrationCheckButton);
+    connect(calibrationCheckButton,&QPushButton::clicked,m_controller,&DeviceController::checkTouchCalibration);
     auto* calibrationButton=new QPushButton(QStringLiteral("空间标定（仅采样）"),m_controlPanel);
     if(auto* layout=qobject_cast<QVBoxLayout*>(m_controlPanel->layout()))layout->insertWidget(3,calibrationButton);
     connect(calibrationButton,&QPushButton::clicked,this,[this] {
