@@ -31,6 +31,7 @@ public:
 
 public slots:
     void invalidateTeleopBaseline();
+    void checkTouchCalibration();
     // touch设备管理
     void initializeBackend();
     void startStreaming();
