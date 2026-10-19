@@ -182,3 +182,11 @@ Onsite progression:
 4. For spatial calibration choose 8-20 independent **physical** reference locations well spread across the intended workspace, with Touch nib and robot TCP accurately brought to the *same location* for each pair via external safe teaching. Do not capture while either is moving. If this is not feasible, stop: simultaneous unrelated positions must not be paired.
 5. Inspect scale (unit-ratio expected near 1 for matching mm coordinates), RMS, max residual, and repeat an unused reference location for an independent check. A mathematically low residual is not motion certification.
 6. Only after a successful calibration and fresh robot states consider on-screen Dry Run. Real control remains disabled.
+
+## 8891 v2 direct TCP proxy fix (live integration)
+
+On Windows with HTTP/system proxy configuration, Qt's `QTcpSocket` for 8891 inherited an incompatible proxy and returned `The proxy type is invalid for this operation`. The control app now sets **per-socket** `QNetworkProxy::NoProxy` in `RelayStateClient` (not a global proxy change); the relay_station/master also explicitly uses NoProxy for robot sockets. Error messages include requested host, port, socket code and reason. This is a direct LAN 8891 connection and should never be sent through the OS web proxy.
+
+Read-only six-DoF preview no longer requires legacy 8888 to be connected: it requires healthy fresh v2 feedback, the saved preview-only mapping applied in the **current** session, verified Touch calibration, enabled idle robot and matching User/Tool. The old generic 8888-or-8891 error is now a diagnostic gate code and v2 status. Physical robot movement remains permanently locked in this branch. If v2 connects but lacks fresh robot status, inspect robot port 30004 feedback and relay readiness; do not bypass the freshness gate.
+
+Verify on Windows after rebuild: Connect TCP, watch 8891 handshake then LIVE sequence and age in the status sidebar; use a PowerShell `Test-NetConnection <relay-ip> -Port 8891` only if TCP connection still fails. Do not interpret a connected socket alone as ready robot feedback.
