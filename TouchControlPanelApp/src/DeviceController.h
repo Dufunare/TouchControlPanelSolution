@@ -76,6 +76,7 @@ private:
     QTimer m_motionTimer;
     bool m_lastButtonPressed = false;
     bool m_motionBaselineReady = false;
+    std::uint64_t m_clutchCalibrationEpoch=0;
     int m_modeQueryCooldownTicks = 0;
     int m_poseQueryCooldownTicks = 0;
     std::array<double, 3> m_touchOrigin{ 0.0, 0.0, 0.0 };
