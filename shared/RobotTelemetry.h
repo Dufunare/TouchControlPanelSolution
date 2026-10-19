@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <string>
 
 namespace touchpanel {
 
@@ -81,6 +82,18 @@ inline const char* gateReasonChinese(GateReason reason) {
         case GateReason::NoVerifiedCalibration:return "尚未在本次会话应用空间标定（只读预览）";
     }
     return "未知状态";
+}
+
+// Diagnostics only: show the exact flags responsible for the idle gate.
+// This must NEVER replace evaluateRobotGate or authorize robot movement.
+inline std::string idleGateDiagnostics(const RobotSnapshot& s) {
+    const auto flag=[](bool b){return b?"yes":"no";};
+    return std::string("Mode=")+std::to_string(s.robotMode)+
+        " Running="+flag(s.running)+
+        " Jog="+flag(s.jogging)+
+        " Pause="+flag(s.paused)+
+        " Queued="+flag(s.queuedMotion)+
+        " Drag="+flag(s.dragging);
 }
 
 inline bool finiteSix(const std::array<double,6>& a) {
