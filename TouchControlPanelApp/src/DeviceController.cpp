@@ -331,6 +331,7 @@ void DeviceController::onMotionTick()
     if (!m_lastButtonPressed) {
         // Re-capture after each release or invalidation. Never use legacy GetPose cache.
         if (!m_relayStateClient->tryGetFreshPose(m_robotPoseOrigin)) return;
+        m_clutchCalibrationEpoch=st.calibrationEpoch;
         m_touchOrigin = st.positionMm;
         m_touchRotationOrigin = st.rotationMatrix;
         m_motionBaselineReady = true;
@@ -339,7 +340,8 @@ void DeviceController::onMotionTick()
         emit backendMessageChanged(QStringLiteral("[DRY RUN] 已使用新鲜 8891 机器人位姿捕获六维基准"));
         return;
     }
-    if (!m_motionBaselineReady) return;
+    if (!m_motionBaselineReady || st.calibrationEpoch!=m_clutchCalibrationEpoch ||
+        !st.deviceCalibrated) {invalidateTeleopBaseline();return;}
     touchpanel::teleop::Clutch anchor;
     anchor.valid = true;
     anchor.touchPosition = m_touchOrigin;
