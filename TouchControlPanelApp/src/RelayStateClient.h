@@ -22,12 +22,14 @@ public:
 signals:
     void statusChanged(const QString& description);
     void stateInvalidated();
+    void telemetryUpdated(const QString& summary);
 private:
     void readIncoming();
     void handleFrame(const QByteArray& bytes);
     void invalidate(const QString& reason);
     void sendHello();
     void refreshStatus();
+    QString buildTelemetrySummary() const;
     QTcpSocket m_socket;
     QTimer m_watchdog;
     QElapsedTimer m_stateAge;
@@ -37,6 +39,8 @@ private:
     bool m_handshaken=false, m_ready=false, m_valid=false;
     quint64 m_sessionEpoch=0;
     QElapsedTimer m_relayAge;
+    QElapsedTimer m_summaryEmitAge;
+    QString m_lastTelemetrySummary;
     touchpanel::RobotSnapshot m_snapshot;
     quint64 m_sequence=0;
     std::array<double,6> m_pose{},m_joints{};
