@@ -149,6 +149,7 @@ void GLCoordinateWidget::upload(QOpenGLVertexArrayObject& vao,QOpenGLBuffer& vbo
                                 const std::vector<Vertex>& verts) {
     if(!vao.isCreated())vao.create();
     if(!vbo.isCreated())vbo.create();
+    m_shader->bind();
     vao.bind();vbo.bind();
     vbo.setUsagePattern(QOpenGLBuffer::DynamicDraw);
     if(!verts.empty())vbo.allocate(verts.data(),int(verts.size()*sizeof(Vertex)));
@@ -156,7 +157,7 @@ void GLCoordinateWidget::upload(QOpenGLVertexArrayObject& vao,QOpenGLBuffer& vbo
     m_shader->enableAttributeArray(0);m_shader->enableAttributeArray(1);
     m_shader->setAttributeBuffer(0,GL_FLOAT,offsetof(Vertex,x),3,sizeof(Vertex));
     m_shader->setAttributeBuffer(1,GL_FLOAT,offsetof(Vertex,r),3,sizeof(Vertex));
-    vbo.release();vao.release();
+    vbo.release();vao.release();m_shader->release();
 }
 void GLCoordinateWidget::draw(QOpenGLVertexArrayObject& vao,int count,
                               unsigned mode,float width) {
