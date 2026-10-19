@@ -12,6 +12,7 @@ on:
       - 'shared/HapticCalibrationPolicy.h'
       - 'shared/DisplayOrigin.h'
       - 'shared/GlPoseMath.h'
+      - 'shared/CalibrationCaptureQuality.h'
       - '.github/workflows/teleop-offline.yml'
 jobs:
   cpp17-offline:
@@ -32,6 +33,8 @@ jobs:
         run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/display_origin_tests.cpp -o /tmp/display_origin_test
       - name: Build 6DOF GL pose test
         run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/gl_pose_tests.cpp -o /tmp/gl_pose_test
+      - name: Build calibration capture quality test
+        run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/calibration_capture_quality_tests.cpp -o /tmp/cal_capture_test
       - name: Run tests
         run: |
           /tmp/teleop_geometry_test
@@ -41,3 +44,4 @@ jobs:
           /tmp/haptic_policy_test
           /tmp/display_origin_test
           /tmp/gl_pose_test
+          /tmp/cal_capture_test
