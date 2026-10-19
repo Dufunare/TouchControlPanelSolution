@@ -121,8 +121,17 @@ void StatusPanelWidget::setDeviceState(const touchpanel::DeviceState& state)
     m_schedulerValue->setText(state.schedulerRunning ? "运行中" : "已停止");
     m_validValue->setText(state.valid ? "有效" : "无效");
     m_counterValue->setText(QString::number(state.sampleCounter));
-    m_touchCalibrationValue->setText(state.deviceCalibrated ? QStringLiteral("已校准") :
-        state.calibrationNeedsManualInput ? QStringLiteral("未验证（自动校准已暂停）") : QStringLiteral("未验证（自动校准已暂停）"));
+    switch(state.calibrationStatus) {
+    case touchpanel::TouchCalibrationStatus::Ok:
+        m_touchCalibrationValue->setText(QStringLiteral("HDAPI 已确认校准")); break;
+    case touchpanel::TouchCalibrationStatus::NeedsUpdate:
+        m_touchCalibrationValue->setText(QStringLiteral("需更新校准（未执行）")); break;
+    case touchpanel::TouchCalibrationStatus::NeedsManualInput:
+        m_touchCalibrationValue->setText(QStringLiteral("需要笔筒/手动操作")); break;
+    case touchpanel::TouchCalibrationStatus::CheckError:
+        m_touchCalibrationValue->setText(QStringLiteral("校准查询失败")); break;
+    default: m_touchCalibrationValue->setText(QStringLiteral("尚未检查（自动更新关闭）")); break;
+    }
 }
 
 void StatusPanelWidget::setBackendMessage(const QString& text)
