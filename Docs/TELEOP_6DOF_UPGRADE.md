@@ -95,3 +95,20 @@ R_r = (A R_h R_h0^-1 A^-1) R_r0
 - Touch 自身 OpenHaptics `hdCheckCalibration`、`hdUpdateCalibration` 的生命周期尚待接入；控制器的 RPY 分支约定和 robot 底座安装姿态同样待验证。
 - 当前没有 Windows / Qt / OpenHaptics 端到端构建验证。必须先验证此构建、无真实运动的 8891 mock 和现场标定采样，才进一步开发离散 MovL 或受控 ServoJ。
 - 当前两个仓库主分支仍保持原有行为；此文档对应 Draft PR，不能将“只读状态许可”理解为能进行机械臂实体运动。
+
+
+## 阶段 D：多点配准、OpenHaptics 校准状态和采样一致性
+
+- 新增无 Qt 依赖的 `shared/MultiPointCalibration.h`：基于 3D 刚体旋转 + 统一比例 + 平移的多点最小二乘配准。要求至少 8 组、最多 64 组输入；用户界面限定最多 32 组。拒绝三维分布退化（共线或共面近似）、位移不足、比例异常、非有限数值；汇报 RMS / 最大残差及对应最差点位。**目前是带尺度的配准，并非严格刚体 1:1 配准，实际缩放系数需经现场验证。**
+- `TeleopCalibrationDialog` 允许捕获 8–32 组手动对应点，同一 8891 session、Robot User/Tool 和 Touch 校准纪元须保持不变。保存 JSON schema v2，附带 `rms_mm`、`max_residual_mm`、`sample_count`。老 schema v1 不自动加载；保存仍明确 `verified_for_motion=false`，仅供当前会话的 Dry Run 预览。
+- `TouchBackend` 的 OpenHaptics 设备线程检查 `hdCheckCalibration` 并按返回值决定是否调用 `hdUpdateCalibration`（优先 inkwell、其次 auto/encoder reset）。未获得设备校准成功状态时 `DeviceState.valid=false`。UI 单独显示 Touch 自身校准状态。
+- 同一 servo 回调提交 XYZ、矩阵、按键及有效标志时使用原子版本标记，Qt 的 latestState() 通过有限次数的版本前后检查避免混合两个采样周期的数据。注意该策略限制的是**同一帧一致性**，不代表跨网络的 Touch 与机器人采样完全同步。
+- 预览中若 `calibrationEpoch` 发生变化，立即废弃旧的按键起点，避免设备校准造成坐标跳跃。
+- 离线 CI 新增 `tests/multipoint_calibration_tests.cpp`：测试带噪声的旋转/尺度/平移拟合、误差与非有限点、共线与共面拒绝。
+
+### 仍然要求现场验证
+
+1. OpenHaptics SDK 设备支持何种校准风格、是否要求 inkwell，必须由实际 Touch 硬件及驱动确认；自动轮询校准状态不会替代用户的归位动作。设备校准时没有主动输出力，但仍需检查任何未来力反馈环路的安全性。
+2. 目前多点拟合没有独立验证集、置信区间或强鲁棒剔除算法；现场采样应在稳定静止姿态下进行，检查对应点同步误差和关节是否在安全工况。
+3. `RobotTelemetry` 的运动许可始终关闭；拟合 RMS 达标**不等于**真实机器人运动被认证或允许。
+4. 当前 GitHub Actions 只构建无硬件 C++17 测试。Windows Qt 工程/OpenHaptics SDK 的完整构建及实际 8891/Touch 设备验收仍未完成。
