@@ -18,6 +18,7 @@ public:
     void setBackendMessage(const QString& text);
     void setTcpConnected(bool connected);
     void setRobotStatusText(const QString& text);
+    void setRobotTelemetryText(const QString& text);
     void appendTcpTxMessage(const QString& text);
     void appendTcpRxMessage(const QString& text);
 
@@ -30,6 +31,7 @@ private:
 
     QLabel* m_tcpStateValue = nullptr;
     QLabel* m_robotStateValue = nullptr;
+    QLabel* m_robotTelemetryValue = nullptr;
 
     QPlainTextEdit* m_messageValue = nullptr;
     QPlainTextEdit* m_txValue = nullptr;
