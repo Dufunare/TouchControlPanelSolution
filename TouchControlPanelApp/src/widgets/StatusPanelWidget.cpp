@@ -8,6 +8,7 @@
 #include <QVBoxLayout>
 #include <QDateTime>
 #include <QTextOption>
+#include <QFont>
 
 namespace
 {
@@ -51,6 +52,16 @@ StatusPanelWidget::StatusPanelWidget(QWidget* parent)
     m_robotStateValue = createValueLabel("未知");
     commStateLayout->addRow("TCP 状态：", m_tcpStateValue);
     commStateLayout->addRow("机械臂状态：", m_robotStateValue);
+
+    auto* telemetryGroup = new QGroupBox("机器人实时反馈（8891，只读）", this);
+    auto* telemetryLayout = new QVBoxLayout(telemetryGroup);
+    m_robotTelemetryValue = createValueLabel("等待 8891 遥测…");
+    m_robotTelemetryValue->setMinimumWidth(0);
+    m_robotTelemetryValue->setWordWrap(true);
+    m_robotTelemetryValue->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    QFont telemetryFont(QStringLiteral("Consolas")); telemetryFont.setPointSize(8);
+    m_robotTelemetryValue->setFont(telemetryFont);
+    telemetryLayout->addWidget(m_robotTelemetryValue);
 
     m_messageValue = new QPlainTextEdit(messageGroup);
     m_messageValue->setReadOnly(true);
@@ -110,6 +121,7 @@ StatusPanelWidget::StatusPanelWidget(QWidget* parent)
 
     rootLayout->addWidget(stateGroup);
     rootLayout->addWidget(commStateGroup);
+    rootLayout->addWidget(telemetryGroup);
     rootLayout->addWidget(txGroup);
     rootLayout->addWidget(rxGroup);
     rootLayout->addWidget(messageGroup);
@@ -148,6 +160,11 @@ void StatusPanelWidget::setTcpConnected(bool connected)
 void StatusPanelWidget::setRobotStatusText(const QString& text)
 {
     m_robotStateValue->setText(text);
+}
+
+void StatusPanelWidget::setRobotTelemetryText(const QString& text)
+{
+    m_robotTelemetryValue->setText(text);
 }
 
 void StatusPanelWidget::appendTcpTxMessage(const QString& text)
