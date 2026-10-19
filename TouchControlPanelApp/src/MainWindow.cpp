@@ -143,6 +143,8 @@ MainWindow::MainWindow(QWidget* parent)
     connect(m_controlPanel, &ControlPanelWidget::stopTeleopRequested,
         m_controller, &DeviceController::stopTeleop);
 
+    connect(m_relayStateClient, &RelayStateClient::telemetryUpdated,
+        m_statusPanel, &StatusPanelWidget::setRobotTelemetryText);
     connect(m_relayStateClient, &RelayStateClient::statusChanged, this,
         [this](const QString& status) {m_statusPanel->setRobotStatusText(status);});
     connect(m_relayStateClient, &RelayStateClient::stateInvalidated, m_controller,
