@@ -42,11 +42,11 @@ int main() {
     assert(replies.size()==2 && replies[0]=="0,{5},RobotMode();" &&
            replies[1]=="0,{1,2,3,4,5,6},GetPose();");
     replies.clear();
-    assert(legacy.feed("ERROR|robot_reply_timeout|x;",28,replies));
+    assert(legacy.feed("ERROR|robot_reply_timeout|x;",sizeof("ERROR|robot_reply_timeout|x;")-1,replies));
     assert(replies.size()==1 && replies[0]=="ERROR|robot_reply_timeout|x;");
     replies.clear();
     legacy.reset();
-    assert(legacy.feed("0,{5},RobotMode();\r\n",19,replies));
+    assert(legacy.feed("0,{5},RobotMode();\r\n",sizeof("0,{5},RobotMode();\r\n")-1,replies));
     assert(replies.size()==1 && replies[0]=="0,{5},RobotMode();");
     std::cout<<"V2/Legacy frame codec checks passed\n";
 }
