@@ -1,6 +1,7 @@
 #include "../shared/RobotTelemetry.h"
 #include <cassert>
 #include <iostream>
+#include <string>
 
 using namespace touchpanel;
 static RobotSnapshot healthy() {
@@ -17,6 +18,7 @@ int main() {
     auto d=evaluateRobotGate(s,true,0,0);
     assert(d.reason==GateReason::Ok && d.canPreview && d.canCaptureCalibration);
     assert(!d.canSendRobotMotion);
+    assert(std::string(gateReasonChinese(GateReason::RobotDragging)).find("拖拽")!=std::string::npos);
     assert(evaluateRobotGate(s).reason==GateReason::NoVerifiedCalibration);
     s.error=true;
     assert(evaluateRobotGate(s,true,0,0).reason==GateReason::RobotError);
