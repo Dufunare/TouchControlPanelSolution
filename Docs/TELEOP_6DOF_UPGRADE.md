@@ -141,3 +141,14 @@ Compared `master` with PR #3. The new `latestState()` coherence loop can fail af
 For reproducible comparison with the older working master, the high-rate Touch servo callback no longer invokes `hdCheckCalibration()` or `hdUpdateCalibration()` automatically. It reads XYZ, buttons, and the orientation transform in one frame; normal acquisition no longer depends on a guessed calibration flag. `deviceCalibrated` remains **false/unknown**, so preview-only calibration capture and robot motion must remain unavailable until a separately validated explicit OpenHaptics calibration path is introduced. Do not interpret placing the stylus in the inkwell as proof of a successful HDAPI calibration. The added orientation transform is still a difference from master and requires Windows/hardware validation.
 
 Acceptance: clean rebuild on the branch; only Touch connected, leave stylus docked then move it, verify sample counter stays increasing for several minutes, repeated start-stop and reset, and whether `采集循环已停止` is accompanied by HDAPI error. UI snapshot retry exhaustion must not stop polling. CI only checks pure C++ parts and is not an HDAPI regression test.
+
+
+## Modern 6DoF GL visualization
+
+The GL widget has been rewritten for read-only visualization:
+- Dark background and hierarchical spatial reference grid, RGB world axes, track trail (last 250 points), on-canvas status and raw/display-relative XYZ.
+- Procedural solid stylus mesh (nib, tip, body, grip rings) at the **HD_CURRENT_POSITION point**. Its local +Z shaft follows the row-major rotation extracted from HD_CURRENT_TRANSFORM, as do RGB local pose axes. The **local +Z shaft direction is an initial visualization convention** and must be checked against the physical Touch stylus in an actual device rotation test.
+- Mouse left-drag orbit, Shift+drag pan, wheel zoom, double-click focus. R resets view, F follows/focuses stylus, C clears trail.
+- Display origin and scene camera/trail are visualization only, never used by robot calibration or motion. Changing the GL display origin resets trail and camera target, while the original Touch raw XYZ remains untouched.
+- All hardware motion remains disabled in this Draft PR. Only the GL display and independent pose math test have changed, not the validated stable OpenHaptics sample callback.
+- Linux CI covers `gl_pose_tests.cpp` and checks multiplication order, rebase and invalid orientation. Windows Qt/OpenGL 3.3 and real stylus orientation require local acceptance testing.
