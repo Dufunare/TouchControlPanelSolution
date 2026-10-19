@@ -78,3 +78,20 @@ R_r = (A R_h R_h0^-1 A^-1) R_r0
 2. `RelayStateClient` 当前仅向控制层暴露新鲜六维 TCP 位姿，尚未将 `q_actual`、速度、时间序列和校验过的机器人运行状态以独立 `RobotSnapshot` API 输出；后续增加完整不可变快照及控制许可状态机。
 3. OpenHaptics servo 回调中的位姿由独立原子字段采样，本分支还需对齐时间戳和一致性序号，避免多字段跨样本混读；应将标定状态接入设备生命周期。
 4. 未验证越疆 Rx/Ry/Rz 欧拉角约定、CR 型号关节上下限、工具/用户坐标系；绝不解锁 ServoJ/MovL。
+
+
+## 阶段 C 增量（仅预览）：完整遥测门禁 + 三点标定界面
+
+- 新增 `shared/RobotTelemetry.h`：按值复制 `RobotSnapshot`，包含 8891 session epoch、状态序号与本机年龄、29999/30003/30004 连接、RobotMode、六轴角度与速度、关节目标、工具六维位姿与速度、User/Tool 索引、拖拽/使能/错误/暂停/队列等标志。
+- `evaluateRobotGate()` 对会话、relay_status 新鲜度（750 ms）、机器人状态新鲜度（400 ms）、数据有限性、工作模式、使能、故障、坐标 User/Tool 与已应用标定进行 fail-closed 判断。仅控制 `canCaptureCalibration` 和 `canPreview`；`canSendRobotMotion` 永远是 false（甚至 GateReason::Ok 时）。
+- `RelayStateClient::snapshot()` 返回完整只读快照。若 8891 重连、session 不匹配、序号倒退/重复或反馈失效，不重用原有六维预览基准。
+- 新增 `TeleopCalibrationDialog`：人工调整到三个位置并分别捕获同一时刻的 Touch/robot XYZ，对共线/小位移、尺度偏差和坐标系变动拒绝。保存 `AppConfigLocation/touch_robot_calibration_v1.json`，使用 `QSaveFile` 原子更新，并注明 `verified_for_motion: false`。现有配置只告知存在，不会自动启用标定。
+- 每次点击保存只将标定应用至当前会话的 **Dry Run 预览**；历史持久化配置不可跨启动自动授权。变更标定导致 clutch 基准清空。
+- 补充 `tests/robot_telemetry_tests.cpp` 及 GitHub Actions 离线测试。
+
+### 未完成与限制
+
+- 本三点标定仅产生近似旋转/位移比例；不是多点最小二乘拟合，不估计残差与不确定度；未做稳定采集平均、操作指导动图、校准配置与真实设备唯一 ID 绑定。标定完成后不应该用于自动控制机械臂。
+- Touch 自身 OpenHaptics `hdCheckCalibration`、`hdUpdateCalibration` 的生命周期尚待接入；控制器的 RPY 分支约定和 robot 底座安装姿态同样待验证。
+- 当前没有 Windows / Qt / OpenHaptics 端到端构建验证。必须先验证此构建、无真实运动的 8891 mock 和现场标定采样，才进一步开发离散 MovL 或受控 ServoJ。
+- 当前两个仓库主分支仍保持原有行为；此文档对应 Draft PR，不能将“只读状态许可”理解为能进行机械臂实体运动。
