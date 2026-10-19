@@ -8,6 +8,7 @@
 #include "DeviceStateQt.h"
 #include "CommunicationBackend.h"
 #include "TouchBackend.h"
+#include "TeleopGeometry.h"
 
 #define DEVICE_CONTROLLER_POLL_INTERVAL_MS 8 // 约 125 FPS 的前端刷新频率
 #define DEVICE_CONTROLLER_MOTION_INTERVAL_MS 33 // 33ms 为机械臂官方文档推荐的远程控制发送频率
@@ -25,6 +26,8 @@ public:
         QObject* parent = nullptr);
 
     void setRelayStateClient(RelayStateClient* client);
+    bool getTouchSnapshot(touchpanel::DeviceState& state) const;
+    void applyPreviewCalibration(const touchpanel::teleop::Calibration& calibration,int user,int tool);
 
 public slots:
     void invalidateTeleopBaseline();
@@ -64,6 +67,9 @@ private slots:
 
 private:
     RelayStateClient* m_relayStateClient = nullptr;
+    touchpanel::teleop::Calibration m_calibration{};
+    bool m_calibrationApplied=false;
+    int m_calibrationUser=-1,m_calibrationTool=-1;
     touchpanel::TouchBackend* m_backend = nullptr;
     touchpanel::CommunicationBackend* m_robotBackend = nullptr;
     QTimer m_pollTimer;
