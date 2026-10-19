@@ -31,7 +31,7 @@ TeleopCalibrationDialog::TeleopCalibrationDialog(DeviceController* touch,RelaySt
     auto* layout=new QVBoxLayout(this);
     m_status=new QLabel(this);m_status->setWordWrap(true);
     layout->addWidget(new QLabel(QStringLiteral(
-        "需要在安全条件下分别采集 3 组 Touch/机器人对应点。\n"
+        "需要在安全条件下采集至少 8 组、覆盖三维空间的 Touch/机器人对应点。\n"
         "本界面只读取当前位置，不会控制机械臂移动。"
         "机器人用户/工具坐标系不可在标定过程中改变。"),this));
     layout->addWidget(m_status);
@@ -48,15 +48,17 @@ TeleopCalibrationDialog::TeleopCalibrationDialog(DeviceController* touch,RelaySt
 }
 void TeleopCalibrationDialog::showStatus(const QString& info) {m_status->setText(info);}
 void TeleopCalibrationDialog::resetSamples() {
-    m_count=0;m_user=-1;m_tool=-1;m_epoch=0;
+    m_count=0;m_user=-1;m_tool=-1;m_epoch=0;m_touchCalibrationEpoch=0;
+    m_samples.clear();
     m_solve->setEnabled(false);
-    showStatus(QStringLiteral("尚未采样。需采集三对不共线的对应点。"));
+    showStatus(QStringLiteral("尚未采样。至少 8 对，建议采集 12–20 对分散的空间点。"));
 }
 void TeleopCalibrationDialog::capture() {
     if(!m_touch||!m_robot)return;
     touchpanel::DeviceState touch;
     if(!m_touch->getTouchSnapshot(touch)||!touch.valid||!touch.orientationValid||
-       !touch.schedulerRunning||!touchpanel::teleop::finite(touch.positionMm)) {
+       !touch.schedulerRunning||!touch.deviceCalibrated||
+       !touchpanel::teleop::finite(touch.positionMm)) {
         showStatus(QStringLiteral("Touch 数据不可用，无法采样"));return;
     }
     const auto robot=m_robot->snapshot();
@@ -65,32 +67,44 @@ void TeleopCalibrationDialog::capture() {
         showStatus(QStringLiteral("机器人反馈过期或不可用，无法采样"));return;
     }
     if(m_count>0&&(robot.sessionEpoch!=m_epoch||robot.userIndex!=m_user||
-                   robot.toolIndex!=m_tool)) {
+                   robot.toolIndex!=m_tool||touch.calibrationEpoch!=m_touchCalibrationEpoch)) {
         resetSamples();
         showStatus(QStringLiteral("会话或用户/工具坐标已变更；请重新采样"));return;
     }
-    if(m_count>=3)return;
-    if(m_count==0) {m_epoch=robot.sessionEpoch;m_user=robot.userIndex;m_tool=robot.toolIndex;}
-    m_samples[m_count++]={touch.positionMm,
-        {robot.tcpPose[0],robot.tcpPose[1],robot.tcpPose[2]}};
-    m_solve->setEnabled(m_count==3);
-    showStatus(QStringLiteral("已采集 %1/3 对，User=%2 Tool=%3；请调整到下一个明显不同的位置。")
+    if(m_count>=32)return;
+    if(m_count==0) {m_epoch=robot.sessionEpoch;m_user=robot.userIndex;m_tool=robot.toolIndex;
+        m_touchCalibrationEpoch=touch.calibrationEpoch;}
+    m_samples.push_back({touch.positionMm,
+        {robot.tcpPose[0],robot.tcpPose[1],robot.tcpPose[2]}});
+    ++m_count;
+    m_solve->setEnabled(m_count>=8);
+    showStatus(QStringLiteral("已采集 %1/32 对（至少 8 对），User=%2 Tool=%3；请调整到下一个明显不同的位置。")
         .arg(m_count).arg(m_user).arg(m_tool));
 }
 void TeleopCalibrationDialog::solveAndSave() {
-    if(m_count!=3)return;
+    if(m_count<8)return;
     const auto robot=m_robot->snapshot();
     if(!touchpanel::evaluateRobotGate(robot).canCaptureCalibration ||
        robot.sessionEpoch!=m_epoch || robot.userIndex!=m_user ||robot.toolIndex!=m_tool) {
         showStatus(QStringLiteral("机器人状态/坐标系已变化，拒绝保存"));return;
     }
-    touchpanel::teleop::Calibration calibration;
-    if(!touchpanel::teleop::calibrateThreePairs(m_samples,calibration)) {
-        showStatus(QStringLiteral("标定失败：三点共线、位移过小或尺度不一致"));return;
+    touchpanel::DeviceState touch;
+    if(!m_touch->getTouchSnapshot(touch)||!touch.deviceCalibrated||
+       touch.calibrationEpoch!=m_touchCalibrationEpoch) {
+        showStatus(QStringLiteral("Touch 校准状态已改变，拒绝保存"));return;
     }
-    QJsonObject object{{"schema",1},{"user",m_user},{"tool",m_tool},
+    const auto fit=touchpanel::teleop::fitSimilarity(m_samples);
+    if(!fit.accepted()) {
+        showStatus(QStringLiteral("多点配准拒绝：错误类型 %1，RMS=%2 mm，最大误差=%3 mm")
+            .arg(static_cast<int>(fit.issue)).arg(fit.rmsMm,0,'f',2)
+            .arg(fit.maxResidualMm,0,'f',2));return;
+    }
+    const auto calibration=fit.calibration;
+    QJsonObject object{{"schema",2},{"user",m_user},{"tool",m_tool},
         {"verified_for_motion",false},{"scale",calibration.scale},
-        {"rotation",numbers(calibration.touchToBase)}};
+        {"rotation",numbers(calibration.touchToBase)},
+        {"rms_mm",fit.rmsMm},{"max_residual_mm",fit.maxResidualMm},
+        {"sample_count",m_count}};
     QSaveFile file(settingsPath());
     if(!file.open(QIODevice::WriteOnly)||
        file.write(QJsonDocument(object).toJson(QJsonDocument::Indented))<0||
@@ -98,15 +112,16 @@ void TeleopCalibrationDialog::solveAndSave() {
         showStatus(QStringLiteral("写入标定配置失败"));return;
     }
     emit calibrationSaved(calibration,m_user,m_tool);
-    showStatus(QStringLiteral("已保存三点映射（仅预览），scale=%1。此标定不是机器人运动安全认证。")
-        .arg(calibration.scale,0,'f',4));
+    showStatus(QStringLiteral("已保存多点映射（仅预览），scale=%1，RMS=%2 mm，最大误差=%3 mm。不是运动安全认证。")
+        .arg(calibration.scale,0,'f',4).arg(fit.rmsMm,0,'f',2)
+        .arg(fit.maxResidualMm,0,'f',2));
 }
 void TeleopCalibrationDialog::loadSaved() {
     QFile file(settingsPath());
     if(!file.open(QIODevice::ReadOnly))return;
     const auto doc=QJsonDocument::fromJson(file.readAll());
     const auto o=doc.object();
-    if(o.value("schema").toInt()!=1||o.value("verified_for_motion").toBool(true))return;
+    if(o.value("schema").toInt()!=2||o.value("verified_for_motion").toBool(true))return;
     const auto matrix=o.value("rotation").toArray();
     if(matrix.size()!=9)return;
     touchpanel::teleop::Calibration c;
