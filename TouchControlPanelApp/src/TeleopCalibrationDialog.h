@@ -2,6 +2,8 @@
 #include <QDialog>
 #include <array>
 #include "TeleopGeometry.h"
+#include "MultiPointCalibration.h"
+#include <vector>
 class QLabel;
 class QPushButton;
 class DeviceController;
@@ -25,7 +27,8 @@ private:
     QLabel* m_status=nullptr;
     QPushButton* m_capture=nullptr;
     QPushButton* m_solve=nullptr;
-    std::array<touchpanel::teleop::Pair,3> m_samples{};
+    std::vector<touchpanel::teleop::Pair> m_samples;
+    quint64 m_touchCalibrationEpoch=0;
     int m_count=0;
     int m_user=-1,m_tool=-1;
     quint64 m_epoch=0;
