@@ -5,6 +5,7 @@
 #include "framework.h"
 
 #include "TouchBackend.h"
+#include "TeleopGeometry.h"
 
 
 
@@ -39,6 +40,8 @@ namespace touchpanel
         std::atomic<double> x{ 0.0 };
         std::atomic<double> y{ 0.0 };
         std::atomic<double> z{ 0.0 };
+        std::array<std::atomic<double>, 9> rotation{};
+        std::atomic<bool> orientationValid{false};
         std::atomic<bool> button1Pressed{ false };
 
         std::atomic<std::uint64_t> sampleCounter{ 0 };
@@ -59,8 +62,10 @@ namespace touchpanel
 
             HDdouble position[3] = { 0.0, 0.0, 0.0 };
             HDint currentButtons = 0;
+            HDdouble transform[16]{};
             hdGetDoublev(HD_CURRENT_POSITION, position);
             hdGetIntegerv(HD_CURRENT_BUTTONS, &currentButtons);
+            hdGetDoublev(HD_CURRENT_TRANSFORM, transform);
 
             const HDErrorInfo error = hdGetError();
             hdEndFrame(self->deviceHandle);
@@ -76,6 +81,12 @@ namespace touchpanel
             self->x.store(position[0], std::memory_order_relaxed);
             self->y.store(position[1], std::memory_order_relaxed);
             self->z.store(position[2], std::memory_order_relaxed);
+            std::array<double,16> matrix{};
+            for(int i=0;i<16;++i)matrix[i]=transform[i];
+            const auto orientation=teleop::openHapticsRotation(matrix);
+            const bool orientationOk=teleop::properRotation(orientation);
+            if(orientationOk)for(int i=0;i<9;++i)self->rotation[i].store(orientation[i],std::memory_order_relaxed);
+            self->orientationValid.store(orientationOk,std::memory_order_relaxed);
             self->button1Pressed.store((currentButtons & HD_DEVICE_BUTTON_1) != 0, std::memory_order_relaxed);
             self->sampleCounter.fetch_add(1, std::memory_order_relaxed);
             self->valid.store(true, std::memory_order_relaxed);
@@ -262,6 +273,7 @@ namespace touchpanel
         m_impl->y.store(0.0, std::memory_order_relaxed);
         m_impl->z.store(0.0, std::memory_order_relaxed);
         m_impl->button1Pressed.store(false, std::memory_order_relaxed);
+        m_impl->orientationValid.store(false, std::memory_order_relaxed);
     }
 
     DeviceState TouchBackend::latestState() const
@@ -270,6 +282,8 @@ namespace touchpanel
         state.positionMm[0] = m_impl->x.load(std::memory_order_relaxed);
         state.positionMm[1] = m_impl->y.load(std::memory_order_relaxed);
         state.positionMm[2] = m_impl->z.load(std::memory_order_relaxed);
+        for(int i=0;i<9;++i)state.rotationMatrix[i]=m_impl->rotation[i].load(std::memory_order_relaxed);
+        state.orientationValid=m_impl->orientationValid.load(std::memory_order_relaxed);
         state.initialized = m_impl->initialized.load(std::memory_order_relaxed);
         state.valid = m_impl->valid.load(std::memory_order_relaxed);
         state.schedulerRunning = m_impl->running.load(std::memory_order_relaxed);
