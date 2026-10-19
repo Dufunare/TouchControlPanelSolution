@@ -112,3 +112,18 @@ R_r = (A R_h R_h0^-1 A^-1) R_r0
 2. 目前多点拟合没有独立验证集、置信区间或强鲁棒剔除算法；现场采样应在稳定静止姿态下进行，检查对应点同步误差和关节是否在安全工况。
 3. `RobotTelemetry` 的运动许可始终关闭；拟合 RMS 达标**不等于**真实机器人运动被认证或允许。
 4. 当前 GitHub Actions 只构建无硬件 C++17 测试。Windows Qt 工程/OpenHaptics SDK 的完整构建及实际 8891/Touch 设备验收仍未完成。
+
+## 2026-10-19 Hotfix：Touch 启动后立刻停止 / HD_ILLEGAL_BEGIN
+
+**复现（Windows 现场日志）**：初始化成功，开始采集后立即退出；再次尝试可能出现 `hdScheduleAsynchronous` 失败（HD_INVALID_OPERATION）；设备错误 `hdBeginFrame for a device was called when already in that device's frame, or more than once during a single servoloop tick`。
+
+**静态代码诊断**：上个版本的采样回调在每个 100 次采样检查时直接调用 `hdCheckCalibration` / `hdUpdateCalibration`，随后在**同一 servo tick** 调用 `hdBeginFrame`。这可能违反设备默认的 `HD_ONE_FRAME_LIMIT`，而且 `hdGetError` 在 `hdEndFrame` 之前读取，可能漏掉结束帧产生的错误。原有错误终止路径回调结束后，UI 没有清理旧注册句柄和已启动的调度器就可能重试注册。
+
+**修复**：
+- 检查校准状态的普通 tick 只打开/关闭一次帧；检测到 `HD_CALIBRATION_NEEDS_UPDATE` 后将更新延期至**下一个独立 tick**，该更新 tick 不进入正常采样帧。
+- 更新后重新检查校准，校准未完成不发布有效位置；不禁用 `HD_ONE_FRAME_LIMIT`。
+- 在 `hdEndFrame` 之后读取 HDAPI 错误。异常退出/再次启动时，先 `hdStopScheduler`、再 `hdUnschedule` 旧回调，清理旧错误后重新调度，避免旧回调残留。
+- `calibrationPollTicks` 不再依赖只有有效采样才增加的 `sampleCounter`，防止未校准时每个 tick 都重复触发检查。
+- 仍由硬件确认 inkwell/auto/encoder reset 的真实支持方式；校准会导致坐标突变，前端 clutch 只在设备校准后恢复。
+
+**待验证**：此 Hotfix 未在 Windows/实体 Touch 设备上编译、运行，属于基于现场错误和 OpenHaptics 3.5 参考文档的修复。请重新生成 ControlBackend 及主程序，测试首次启动、短时间停止再启动、未完成设备归位、点击重置再初始化及连跑数分钟稳定性。若仍出现 `HD_ILLEGAL_BEGIN`，需要采集失败时的 HDAPI 错误码和调度器日志，在驱动和其它注册回调层进一步排查。
