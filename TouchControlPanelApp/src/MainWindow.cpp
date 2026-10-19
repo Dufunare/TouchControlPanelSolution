@@ -1,6 +1,10 @@
 ﻿#include "MainWindow.h"
 
 #include <QSplitter>
+#include <QScrollArea>
+#include <QFrame>
+#include <QLayout>
+#include <QSizePolicy>
 #include <QStatusBar>
 #include <QList>
 
@@ -54,15 +58,39 @@ MainWindow::MainWindow(QWidget* parent)
     auto* leftSplitter = new QSplitter(Qt::Vertical, this);
     leftSplitter->addWidget(m_videoWidget);
     leftSplitter->addWidget(m_glWidget);
-    leftSplitter->setStretchFactor(0, 2);
+    leftSplitter->setStretchFactor(0, 1);
     leftSplitter->setStretchFactor(1, 1);
     leftSplitter->setChildrenCollapsible(false);
-    leftSplitter->setSizes({ 520, 260 });
+    leftSplitter->setSizes({ 380, 400 });
+
+    // The two sidebars grow vertically as controls and logs are added.
+    // Independent scroll areas keep the center video/GL splitter visible
+    // even when the main window becomes short. Existing widget pointers and
+    // signal connections remain unchanged after setWidget() reparents them.
+    auto* controlsScroll = new QScrollArea(this);
+    controlsScroll->setObjectName(QStringLiteral("controlsScroll"));
+    controlsScroll->setFrameShape(QFrame::NoFrame);
+    controlsScroll->setWidgetResizable(true);
+    controlsScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    controlsScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    controlsScroll->setMinimumWidth(220);
+    m_controlPanel->layout()->setSizeConstraint(QLayout::SetMinimumSize);
+    controlsScroll->setWidget(m_controlPanel);
+
+    auto* statusScroll = new QScrollArea(this);
+    statusScroll->setObjectName(QStringLiteral("statusScroll"));
+    statusScroll->setFrameShape(QFrame::NoFrame);
+    statusScroll->setWidgetResizable(true);
+    statusScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    statusScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    statusScroll->setMinimumWidth(255);
+    m_statusPanel->layout()->setSizeConstraint(QLayout::SetMinimumSize);
+    statusScroll->setWidget(m_statusPanel);
 
     auto* splitter = new QSplitter(Qt::Horizontal, this);
-    splitter->addWidget(m_controlPanel);
+    splitter->addWidget(controlsScroll);
     splitter->addWidget(leftSplitter);
-    splitter->addWidget(m_statusPanel);
+    splitter->addWidget(statusScroll);
     splitter->setStretchFactor(0, 1);
     splitter->setStretchFactor(1, 4);
     splitter->setStretchFactor(2, 2);
