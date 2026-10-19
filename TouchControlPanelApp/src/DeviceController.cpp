@@ -91,6 +91,15 @@ void DeviceController::invalidateTeleopBaseline()
     m_previewLastValid = false;
 }
 
+void DeviceController::checkTouchCalibration()
+{
+    if(!m_backend || !m_backend->requestCalibrationCheck()) {
+        emit backendMessageChanged(QStringLiteral("请先初始化并开始 Touch 采集，再检查校准状态。"));
+        return;
+    }
+    emit backendMessageChanged(QStringLiteral("已请求只读 HDAPI 校准检查；不会自动更新校准。"));
+}
+
 void DeviceController::initializeBackend()
 {
     if (m_backend == nullptr)
