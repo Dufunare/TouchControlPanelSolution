@@ -120,6 +120,10 @@ MainWindow::MainWindow(QWidget* parent)
             m_relayStateClient->connectToRelay(ip.trimmed().isEmpty() ?
                 QStringLiteral("192.168.100.194") : ip.trimmed(), 8891);
         });
+    connect(m_controlPanel,&ControlPanelWidget::relayV2ConnectRequested,this,[this](const QString& ip){
+        m_relayStateClient->connectToRelay(ip.trimmed().isEmpty()?QStringLiteral("192.168.100.194"):ip.trimmed(),8891);
+    });
+    connect(m_controlPanel,&ControlPanelWidget::relayV2DisconnectRequested,m_relayStateClient,&RelayStateClient::disconnectRelay);
     connect(m_controlPanel, &ControlPanelWidget::robotDisconnectRequested,
         m_controller, &DeviceController::disconnectTransit);
     connect(m_controlPanel, &ControlPanelWidget::robotDisconnectRequested,
