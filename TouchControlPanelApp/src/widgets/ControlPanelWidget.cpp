@@ -54,6 +54,11 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     TCPLayout->addWidget(m_robotConnectButton);
     TCPLayout->addWidget(m_robotDisconnectButton);
 
+    m_relayV2ConnectButton=new QPushButton(QStringLiteral("单独连接 8891 遥测（只读）"),TCPGroup);
+    m_relayV2DisconnectButton=new QPushButton(QStringLiteral("单独断开 8891 遥测"),TCPGroup);
+    TCPLayout->addWidget(m_relayV2ConnectButton);
+    TCPLayout->addWidget(m_relayV2DisconnectButton);
+
     //机械臂控制区
     QGroupBox* robotGroup = new QGroupBox("机械臂控制");
     QVBoxLayout* mainVLayout = new QVBoxLayout(robotGroup);
@@ -146,6 +151,10 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
             emit robotConnectRequested(m_transitIpEdit->text(), static_cast<quint16>(m_transitPortSpin->value()));
         });
     connect(m_robotDisconnectButton, &QPushButton::clicked, this, &ControlPanelWidget::robotDisconnectRequested);
+    connect(m_relayV2ConnectButton,&QPushButton::clicked,this,[this]{
+        emit relayV2ConnectRequested(m_transitIpEdit->text());
+    });
+    connect(m_relayV2DisconnectButton,&QPushButton::clicked,this,&ControlPanelWidget::relayV2DisconnectRequested);
     connect(m_powerOnButton, &QPushButton::clicked, this, &ControlPanelWidget::powerOnRequested);
     connect(m_enableRobotButton, &QPushButton::clicked, this, &ControlPanelWidget::enableRobotRequested);
     connect(m_disableRobotButton, &QPushButton::clicked, this, &ControlPanelWidget::disableRobotRequested);
