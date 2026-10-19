@@ -6,6 +6,9 @@
 
 #include "DeviceController.h"
 #include "RelayStateClient.h"
+#include "TeleopCalibrationDialog.h"
+#include <QPushButton>
+#include <QVBoxLayout>
 #include "widgets/ControlPanelWidget.h"
 #include "widgets/GLCoordinateWidget.h"
 #include "widgets/StatusPanelWidget.h"
@@ -23,6 +26,14 @@ MainWindow::MainWindow(QWidget* parent)
     m_controller = new DeviceController(&m_backend, &m_communicationBackend, this);
     m_controller->setRelayStateClient(m_relayStateClient);
     m_controlPanel = new ControlPanelWidget(this);
+    auto* calibrationButton=new QPushButton(QStringLiteral("空间标定（仅采样）"),m_controlPanel);
+    if(auto* layout=qobject_cast<QVBoxLayout*>(m_controlPanel->layout()))layout->insertWidget(3,calibrationButton);
+    connect(calibrationButton,&QPushButton::clicked,this,[this] {
+        TeleopCalibrationDialog dialog(m_controller,m_relayStateClient,this);
+        connect(&dialog,&TeleopCalibrationDialog::calibrationSaved,m_controller,
+            &DeviceController::applyPreviewCalibration);
+        dialog.exec();
+    });
     m_videoWidget = new VideoWidget(this);
     m_glWidget = new GLCoordinateWidget(this);
     m_statusPanel = new StatusPanelWidget(this);
