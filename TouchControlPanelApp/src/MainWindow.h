@@ -10,6 +10,7 @@ class ControlPanelWidget;
 class GLCoordinateWidget;
 class StatusPanelWidget;
 class VideoWidget;
+class RelayStateClient;
 
 class MainWindow : public QMainWindow
 {
@@ -21,6 +22,7 @@ private:
     touchpanel::TouchBackend m_backend;
     touchpanel::CommunicationBackend m_communicationBackend;
     DeviceController* m_controller = nullptr;
+    RelayStateClient* m_relayStateClient = nullptr;
     ControlPanelWidget* m_controlPanel = nullptr;
     VideoWidget* m_videoWidget = nullptr;
     GLCoordinateWidget* m_glWidget = nullptr;
