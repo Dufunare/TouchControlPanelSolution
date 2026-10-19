@@ -47,6 +47,10 @@ namespace touchpanel
         std::atomic<bool> calibrationNeedsManual{true};
         std::atomic<std::uint64_t> calibrationEpoch{0};
         HDint calibrationStyle = 0;
+        // Only touched by the OpenHaptics scheduler thread, never by Qt.
+        bool pendingCalibrationUpdate = false;
+        std::uint32_t calibrationPollTicks = 0;
+        bool schedulerStarted = false;  // owned by the UI thread
         std::atomic<bool> button1Pressed{ false };
 
         std::atomic<std::uint64_t> sampleCounter{ 0 };
@@ -62,24 +66,30 @@ namespace touchpanel
                 return HD_CALLBACK_DONE;
             }
 
-            // Check calibration on the device scheduler, not on the Qt UI thread.
-            // A recalibration can change coordinates discontinuously; fail closed.
-            if ((self->sampleCounter.load(std::memory_order_relaxed) % 100) == 0) {
-                const HDenum status=hdCheckCalibration();
-                const bool wasCalibrated=self->calibrated.load(std::memory_order_relaxed);
-                if(status==HD_CALIBRATION_NEEDS_UPDATE && self->calibrationStyle!=0) {
-                    hdUpdateCalibration(self->calibrationStyle);
+            // hdUpdateCalibration can change the coordinate origin. It must
+            // never share a servo tick with our hdBeginFrame/hdEndFrame pair:
+            // HD_ONE_FRAME_LIMIT is enabled by default.
+            if (self->pendingCalibrationUpdate)
+            {
+                self->pendingCalibrationUpdate = false;
+                hdMakeCurrentDevice(self->deviceHandle);
+                hdUpdateCalibration(self->calibrationStyle);
+                const HDErrorInfo calibrationError = hdGetError();
+                if (HD_DEVICE_ERROR(calibrationError))
+                {
+                    self->lastErrorCode.store(static_cast<int>(calibrationError.errorCode),
+                                              std::memory_order_relaxed);
+                    self->valid.store(false, std::memory_order_relaxed);
+                    self->running.store(false, std::memory_order_relaxed);
+                    return HD_CALLBACK_DONE;
                 }
-                const bool nowCalibrated=hdCheckCalibration()==HD_CALIBRATION_OK;
-                self->calibrated.store(nowCalibrated,std::memory_order_relaxed);
-                self->calibrationNeedsManual.store(status==HD_CALIBRATION_NEEDS_MANUAL_INPUT,
-                    std::memory_order_relaxed);
-                if(wasCalibrated!=nowCalibrated)
-                    self->calibrationEpoch.fetch_add(1,std::memory_order_relaxed);
+                // Start another tick to check HD_CALIBRATION_OK before sampling.
+                self->calibrationPollTicks = 0;
+                return HD_CALLBACK_CONTINUE;
             }
-            // OpenHaptics 官方要求 hdGet / hdSet 这类状态访问放在 haptics frame 内执行。
-            hdBeginFrame(self->deviceHandle);
 
+            // Exactly ONE device frame in each ordinary sample tick.
+            hdBeginFrame(self->deviceHandle);
             HDdouble position[3] = { 0.0, 0.0, 0.0 };
             HDint currentButtons = 0;
             HDdouble transform[16]{};
@@ -87,15 +97,46 @@ namespace touchpanel
             hdGetIntegerv(HD_CURRENT_BUTTONS, &currentButtons);
             hdGetDoublev(HD_CURRENT_TRANSFORM, transform);
 
-            const HDErrorInfo error = hdGetError();
-            hdEndFrame(self->deviceHandle);
+            // Calibration status is checked while the frame is open, but
+            // calibration UPDATE is deferred to the next tick (above).
+            if (self->calibrationPollTicks++ % 100 == 0)
+            {
+                const HDenum status = hdCheckCalibration();
+                const bool wasCalibrated =
+                    self->calibrated.load(std::memory_order_relaxed);
+                const bool nowCalibrated = (status == HD_CALIBRATION_OK);
+                self->calibrated.store(nowCalibrated, std::memory_order_relaxed);
+                self->calibrationNeedsManual.store(
+                    status == HD_CALIBRATION_NEEDS_MANUAL_INPUT,
+                    std::memory_order_relaxed);
+                if (wasCalibrated != nowCalibrated)
+                    self->calibrationEpoch.fetch_add(1, std::memory_order_relaxed);
 
+                if (status == HD_CALIBRATION_NEEDS_UPDATE &&
+                    self->calibrationStyle != 0)
+                {
+                    self->pendingCalibrationUpdate = true;
+                }
+            }
+
+            hdEndFrame(self->deviceHandle);
+            // Fetch errors AFTER hdEndFrame as it may itself report a frame error.
+            const HDErrorInfo error = hdGetError();
             if (HD_DEVICE_ERROR(error))
             {
-                self->lastErrorCode.store(static_cast<int>(error.errorCode), std::memory_order_relaxed);
+                self->lastErrorCode.store(static_cast<int>(error.errorCode),
+                                          std::memory_order_relaxed);
                 self->valid.store(false, std::memory_order_relaxed);
                 self->running.store(false, std::memory_order_relaxed);
                 return HD_CALLBACK_DONE;
+            }
+
+            // Never publish a coordinate obtained in a tick that observed
+            // "needs calibration", even before the next calibration-only tick.
+            if (!self->calibrated.load(std::memory_order_relaxed))
+            {
+                self->valid.store(false, std::memory_order_relaxed);
+                return HD_CALLBACK_CONTINUE;
             }
 
             self->frameVersion.fetch_add(1,std::memory_order_release);
@@ -193,6 +234,9 @@ namespace touchpanel
         m_impl->initialized.store(true, std::memory_order_relaxed);
         m_impl->lastErrorCode.store(HD_SUCCESS, std::memory_order_relaxed);
         m_impl->lastErrorText.clear();
+        m_impl->calibrationStyle = 0;
+        m_impl->pendingCalibrationUpdate = false;
+        m_impl->calibrationPollTicks = 0;
 
         HDint styles=0;
         hdGetIntegerv(HD_CALIBRATION_STYLE,&styles);
@@ -220,9 +264,22 @@ namespace touchpanel
             return true;
         }
 
+        // A callback that returned HD_CALLBACK_DONE on an earlier error can
+        // leave the scheduler/device owned by this object. Reclaim it before
+        // registering a new callback, including after an aborted start.
+        if (m_impl->hasCallback || m_impl->schedulerStarted)
+            stop();
+
+        // Cleanup can leave a stale HD error in the queue. Keep the previous
+        // failure in lastErrorText, then start with a clear HDAPI error queue.
+        while (HD_DEVICE_ERROR(hdGetError())) { }
         m_impl->lastErrorText.clear();
         m_impl->lastErrorCode.store(HD_SUCCESS, std::memory_order_relaxed);
         m_impl->sampleCounter.store(0, std::memory_order_relaxed);
+        m_impl->calibrationPollTicks = 0;
+        m_impl->pendingCalibrationUpdate = false;
+        m_impl->calibrated.store(false, std::memory_order_relaxed);
+        m_impl->valid.store(false, std::memory_order_relaxed);
 
         m_impl->schedulerHandle =
             hdScheduleAsynchronous(&Impl::servoCallback, m_impl.get(), HD_DEFAULT_SCHEDULER_PRIORITY);
@@ -249,17 +306,19 @@ namespace touchpanel
                 m_impl->lastErrorCode.store(static_cast<int>(error.errorCode), std::memory_order_relaxed);
                 m_impl->lastErrorText = errorToString(error, "开始调度器失败：");
 
-                if (m_impl->hasCallback)
-                {
-                    hdUnschedule(m_impl->schedulerHandle);
-                    m_impl->hasCallback = false;
-                }
-
+                // Stop BEFORE unscheduling, per OpenHaptics cleanup guidance.
+                // Avoid leaving a scheduled callback behind on startup failure.
                 m_impl->running.store(false, std::memory_order_relaxed);
+                hdStopScheduler();
+                hdUnschedule(m_impl->schedulerHandle);
+                m_impl->hasCallback = false;
+                m_impl->schedulerStarted = false;
+                while (HD_DEVICE_ERROR(hdGetError())) { }
                 return false;
             }
         }
 
+        m_impl->schedulerStarted = true;
         return true;
     }
 
@@ -273,16 +332,22 @@ namespace touchpanel
         m_impl->running.store(false, std::memory_order_relaxed);
         m_impl->valid.store(false, std::memory_order_relaxed);
 
+        // The documentation's cleanup order is stop scheduler first, then
+        // remove registered operations. Do not call hdStopScheduler again on
+        // an already-stopped scheduler.
+        if (m_impl->schedulerStarted)
+        {
+            hdStopScheduler();
+            m_impl->schedulerStarted = false;
+        }
         if (m_impl->hasCallback)
         {
             hdUnschedule(m_impl->schedulerHandle);
             m_impl->hasCallback = false;
         }
-
-        if (m_impl->initialized.load(std::memory_order_relaxed))
-        {
-            hdStopScheduler();
-        }
+        m_impl->calibrated.store(false, std::memory_order_relaxed);
+        m_impl->calibrationNeedsManual.store(true, std::memory_order_relaxed);
+        m_impl->calibrationEpoch.fetch_add(1, std::memory_order_relaxed);
     }
 
     void TouchBackend::reset()
