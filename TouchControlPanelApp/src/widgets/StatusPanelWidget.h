@@ -26,6 +26,7 @@ private:
     QLabel* m_schedulerValue = nullptr;
     QLabel* m_validValue = nullptr;
     QLabel* m_counterValue = nullptr;
+    QLabel* m_touchCalibrationValue = nullptr;
 
     QLabel* m_tcpStateValue = nullptr;
     QLabel* m_robotStateValue = nullptr;
