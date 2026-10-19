@@ -372,6 +372,19 @@ void GLCoordinateWidget::setDeviceState(const touchpanel::DeviceState& state)
     update();
 }
 
+bool GLCoordinateWidget::captureDisplayOrigin()
+{
+    const bool ok=m_displayOrigin.capture(m_state.positionMm,m_state.valid);
+    if(ok)update();
+    return ok;
+}
+
+void GLCoordinateWidget::clearDisplayOrigin()
+{
+    m_displayOrigin.clear();
+    update();
+}
+
 void GLCoordinateWidget::initializeGL()
 {
     initializeOpenGLFunctions();
@@ -489,10 +502,11 @@ void GLCoordinateWidget::paintGL()
     font.setPointSize(11);
     painter.setFont(font);
 
-    const QString text = QString("X: %1   Y: %2   Z: %3 mm")
+    const QString text = QString("Raw X: %1   Y: %2   Z: %3 mm%4")
         .arg(m_state.positionMm[0], 0, 'f', 3)
         .arg(m_state.positionMm[1], 0, 'f', 3)
-        .arg(m_state.positionMm[2], 0, 'f', 3);
+        .arg(m_state.positionMm[2], 0, 'f', 3)
+        .arg(m_displayOrigin.active() ? QStringLiteral(" | GL 相对原点") : QStringLiteral(" | GL 原始坐标"));
 
     const QRect textRect(14, 12, width() - 28, 28);
     const QColor textColor = m_state.valid ? QColor(230, 240, 255) : QColor(170, 170, 170);
@@ -731,10 +745,11 @@ void GLCoordinateWidget::setupVertexLayout()
 
 void GLCoordinateWidget::updatePenGeometry()
 {
+    const auto display=m_displayOrigin.render(m_state.positionMm);
     const QVector3D tip(
-        static_cast<float>(m_state.positionMm[0]),
-        static_cast<float>(m_state.positionMm[1]),
-        static_cast<float>(m_state.positionMm[2]));
+        static_cast<float>(display[0]),
+        static_cast<float>(display[1]),
+        static_cast<float>(display[2]));
 
     const auto penVertices = buildPenVertices(tip, m_state.valid);
 
