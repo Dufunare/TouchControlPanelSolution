@@ -5,6 +5,7 @@
 #include <QList>
 
 #include "DeviceController.h"
+#include "RelayStateClient.h"
 #include "widgets/ControlPanelWidget.h"
 #include "widgets/GLCoordinateWidget.h"
 #include "widgets/StatusPanelWidget.h"
@@ -18,7 +19,9 @@ MainWindow::MainWindow(QWidget* parent)
     resize(1440, 860);
 
 	//组件初始化
+    m_relayStateClient = new RelayStateClient(this);
     m_controller = new DeviceController(&m_backend, &m_communicationBackend, this);
+    m_controller->setRelayStateClient(m_relayStateClient);
     m_controlPanel = new ControlPanelWidget(this);
     m_videoWidget = new VideoWidget(this);
     m_glWidget = new GLCoordinateWidget(this);
@@ -57,8 +60,15 @@ MainWindow::MainWindow(QWidget* parent)
         m_controller, &DeviceController::resetBackend);
     connect(m_controlPanel, &ControlPanelWidget::robotConnectRequested,
         m_controller, &DeviceController::connectTransit);
+    connect(m_controlPanel, &ControlPanelWidget::robotConnectRequested, this,
+        [this](const QString& ip, quint16) {
+            m_relayStateClient->connectToRelay(ip.trimmed().isEmpty() ?
+                QStringLiteral("192.168.100.194") : ip.trimmed(), 8891);
+        });
     connect(m_controlPanel, &ControlPanelWidget::robotDisconnectRequested,
         m_controller, &DeviceController::disconnectTransit);
+    connect(m_controlPanel, &ControlPanelWidget::robotDisconnectRequested,
+        m_relayStateClient, &RelayStateClient::disconnectRelay);
     connect(m_controlPanel, &ControlPanelWidget::powerOnRequested,
         m_controller, &DeviceController::powerOnRobot);
     connect(m_controlPanel, &ControlPanelWidget::enableRobotRequested,
@@ -77,6 +87,11 @@ MainWindow::MainWindow(QWidget* parent)
         m_controller, &DeviceController::startTeleop);
     connect(m_controlPanel, &ControlPanelWidget::stopTeleopRequested,
         m_controller, &DeviceController::stopTeleop);
+
+    connect(m_relayStateClient, &RelayStateClient::statusChanged, this,
+        [this](const QString& status) {m_statusPanel->setRobotStatusText(status);});
+    connect(m_relayStateClient, &RelayStateClient::stateInvalidated, m_controller,
+        &DeviceController::invalidateTeleopBaseline);
 
     connect(m_controller, &DeviceController::deviceStateUpdated, this,
         [this](const touchpanel::DeviceState& state)
