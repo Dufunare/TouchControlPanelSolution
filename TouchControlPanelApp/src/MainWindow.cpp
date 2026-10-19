@@ -36,6 +36,18 @@ MainWindow::MainWindow(QWidget* parent)
     });
     m_videoWidget = new VideoWidget(this);
     m_glWidget = new GLCoordinateWidget(this);
+    auto* originButton = new QPushButton(QStringLiteral("将当前位置设为 GL 显示原点"), m_controlPanel);
+    auto* resetOriginButton = new QPushButton(QStringLiteral("恢复 GL 原始坐标"), m_controlPanel);
+    if (auto* layout = qobject_cast<QVBoxLayout*>(m_controlPanel->layout())) {
+        layout->insertWidget(4, originButton);
+        layout->insertWidget(5, resetOriginButton);
+    }
+    connect(originButton, &QPushButton::clicked, this, [this] {
+        const bool ok=m_glWidget->captureDisplayOrigin();
+        statusBar()->showMessage(ok ? QStringLiteral("GL 显示原点已更新（不影响 Touch 原始坐标或机械臂）") :
+            QStringLiteral("请先启动有效的 Touch 采集，再设置显示原点。"),5000);
+    });
+    connect(resetOriginButton, &QPushButton::clicked,m_glWidget,&GLCoordinateWidget::clearDisplayOrigin);
     m_statusPanel = new StatusPanelWidget(this);
 
 	//布局设置
