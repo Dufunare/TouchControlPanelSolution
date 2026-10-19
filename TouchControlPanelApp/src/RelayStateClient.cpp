@@ -220,7 +220,8 @@ QString RelayStateClient::buildTelemetrySummary() const {
         "TCP mm/deg  X %4  Y %5  Z %6  Rx %7  Ry %8  Rz %9\n"
         "Joints deg  J1 %10  J2 %11  J3 %12  J4 %13  J5 %14  J6 %15\n"
         "qd deg/s    %16  %17  %18  %19  %20  %21\n"
-        "Mode %22 · Enabled %23 · Drag %24 · Running %25 · Error %26 · User %27 / Tool %28")
+        "Mode %22 · Enabled %23 · Drag %24 · Running %25 · Error %26 · User %27 / Tool %28\n"
+        "Jog %29 · Pause %30 · Queued %31")
         .arg(freshness).arg(s.feedbackAgeMs).arg(s.stateSeq)
         .arg(p[0],0,'f',1).arg(p[1],0,'f',1).arg(p[2],0,'f',1)
         .arg(p[3],0,'f',1).arg(p[4],0,'f',1).arg(p[5],0,'f',1)
@@ -232,7 +233,10 @@ QString RelayStateClient::buildTelemetrySummary() const {
         .arg(s.dragging?QStringLiteral("yes"):QStringLiteral("no"))
         .arg(s.running?QStringLiteral("yes"):QStringLiteral("no"))
         .arg(s.error?QStringLiteral("YES"):QStringLiteral("no"))
-        .arg(s.userIndex).arg(s.toolIndex);
+        .arg(s.userIndex).arg(s.toolIndex)
+        .arg(s.jogging?QStringLiteral("yes"):QStringLiteral("no"))
+        .arg(s.paused?QStringLiteral("yes"):QStringLiteral("no"))
+        .arg(s.queuedMotion?QStringLiteral("yes"):QStringLiteral("no"));
 }
 
 QString RelayStateClient::statusDescription() const {return m_status;}
