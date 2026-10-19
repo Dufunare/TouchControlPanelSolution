@@ -76,8 +76,9 @@ namespace touchpanel
             const auto action=self->calibrationPolicy.next();
             self->diagnosticTicks.store(self->calibrationPolicy.ticks(),std::memory_order_relaxed);
             if(action==CalibrationAction::CheckOnly) {
-                hdMakeCurrentDevice(self->deviceHandle);
+                hdBeginFrame(self->deviceHandle);
                 const HDenum status=hdCheckCalibration();
+                hdEndFrame(self->deviceHandle);
                 const HDErrorInfo error=hdGetError();
                 if(HD_DEVICE_ERROR(error)) {
                     self->failureStage.store(1,std::memory_order_relaxed);
@@ -121,7 +122,7 @@ namespace touchpanel
             }
 
             // A normal tick contains exactly one begin/end pair. Calibration
-            // queries and updates never execute during this frame.
+            // check frames and updates execute in distinct scheduler ticks.
             hdBeginFrame(self->deviceHandle);
             HDdouble position[3] = { 0.0, 0.0, 0.0 };
             HDint currentButtons = 0;
