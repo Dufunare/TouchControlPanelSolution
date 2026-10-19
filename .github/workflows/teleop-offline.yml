@@ -7,6 +7,7 @@ on:
       - 'shared/TeleopGeometry.h'
       - 'shared/RelayV2Frame.h'
       - 'tests/*'
+      - 'shared/RobotTelemetry.h'
       - '.github/workflows/teleop-offline.yml'
 jobs:
   cpp17-offline:
@@ -17,7 +18,10 @@ jobs:
         run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/teleop_geometry_tests.cpp -o /tmp/teleop_geometry_test
       - name: Build protocol test
         run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/relay_v2_frame_tests.cpp -o /tmp/relay_v2_test
+      - name: Build telemetry gate test
+        run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/robot_telemetry_tests.cpp -o /tmp/telemetry_test
       - name: Run tests
         run: |
           /tmp/teleop_geometry_test
           /tmp/relay_v2_test
+          /tmp/telemetry_test
