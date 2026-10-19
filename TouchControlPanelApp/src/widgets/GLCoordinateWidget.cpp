@@ -140,7 +140,11 @@ void GLCoordinateWidget::initializeGL() {
         qWarning("GLCoordinateWidget shader failed: %s",qPrintable(m_shader->log()));
         m_shader.reset();return;
     }
+    // upload() configures VAO attributes for the current shader. Keep the
+    // program bound throughout the static scene upload.
+    m_shader->bind();
     buildStaticScene();
+    m_shader->release();
 }
 void GLCoordinateWidget::resizeGL(int w,int h) {
     m_projection.setToIdentity();
@@ -150,7 +154,8 @@ void GLCoordinateWidget::upload(QOpenGLVertexArrayObject& vao,QOpenGLBuffer& vbo
                                 const std::vector<Vertex>& verts) {
     if(!vao.isCreated())vao.create();
     if(!vbo.isCreated())vbo.create();
-    m_shader->bind();
+    // Caller owns the shader program binding. Unbinding it here used to
+    // silently prevent the following trail, solid stylus and gizmo draws.
     vao.bind();vbo.bind();
     vbo.setUsagePattern(QOpenGLBuffer::DynamicDraw);
     if(!verts.empty())vbo.allocate(verts.data(),int(verts.size()*sizeof(Vertex)));
@@ -158,7 +163,7 @@ void GLCoordinateWidget::upload(QOpenGLVertexArrayObject& vao,QOpenGLBuffer& vbo
     m_shader->enableAttributeArray(0);m_shader->enableAttributeArray(1);
     m_shader->setAttributeBuffer(0,GL_FLOAT,offsetof(Vertex,x),3,sizeof(Vertex));
     m_shader->setAttributeBuffer(1,GL_FLOAT,offsetof(Vertex,r),3,sizeof(Vertex));
-    vbo.release();vao.release();m_shader->release();
+    vbo.release();vao.release();
 }
 void GLCoordinateWidget::draw(QOpenGLVertexArrayObject& vao,int count,
                               unsigned mode,float width) {
@@ -203,8 +208,11 @@ void GLCoordinateWidget::updateDynamicGeometry() {
     m_trailCount=int(trail.size());
     upload(m_trailVao,m_trailVbo,trail);
 
-    if(m_state.valid && m_state.orientationValid) {
-        const auto rotation=m_state.rotationMatrix;
+    // A valid position still has a visible stylus when the orientation
+    // matrix has not yet passed validation. Only rotation is substituted.
+    if(m_state.valid) {
+        const auto rotation=m_state.orientationValid ? m_state.rotationMatrix :
+            touchpanel::teleop::identity();
         const auto tip=renderPosition();
         QMatrix4x4 model;
         const auto& r=rotation;
@@ -278,52 +286,55 @@ void GLCoordinateWidget::paintGL() {
         m_shader->release();
     }
     QPainter painter(this);
-    painter.setRenderHint(QPainter::Antialiasing);
-    const QColor fg(226,237,250),muted(132,157,185),accent(104,209,242);
-    painter.setPen(fg);
-    QFont font=painter.font();font.setPointSize(12);font.setBold(true);
+    painter.setRenderHint(QPainter::TextAntialiasing, true);
+    const QColor primary(225,238,248),secondary(138,163,188);
+    QFont font=painter.font();
+    font.setPointSize(9);
+    font.setBold(true);
     painter.setFont(font);
-    painter.drawText(QRect(18,15,width()-36,28),Qt::AlignLeft|Qt::AlignVCenter,
-                     QStringLiteral("6DoF  /  TOUCH SPACE"));
-    font.setPointSize(9);font.setBold(false);painter.setFont(font);
-    painter.setPen(muted);
-    painter.drawText(QRect(18,42,width()-36,22),Qt::AlignLeft,
-                     QStringLiteral("RAW FRAME  ·  POSITION + ORIENTATION"));
-    const auto p=m_origin.render(m_state.positionMm);
-    painter.setPen(fg);
-    const auto raw=m_state.positionMm;
-    painter.drawText(QRect(18,height()-119,width()-36,21),Qt::AlignLeft,
-        QStringLiteral("RAW     X %1    Y %2    Z %3 mm")
-            .arg(raw[0],0,'f',2).arg(raw[1],0,'f',2).arg(raw[2],0,'f',2));
-    painter.setPen(muted);
-    painter.drawText(QRect(18,height()-97,width()-36,20),Qt::AlignLeft,
-        QStringLiteral("VIEW    X %1    Y %2    Z %3 mm")
-            .arg(p[0],0,'f',2).arg(p[1],0,'f',2).arg(p[2],0,'f',2));
-    if(m_state.orientationValid) {
+    painter.setPen(primary);
+    painter.drawText(QRect(12,9,width()-24,19),
+                     Qt::AlignLeft|Qt::AlignVCenter,
+                     QStringLiteral("TOUCH  /  6DoF"));
+    painter.setPen(m_state.valid ? QColor(106,222,185) : secondary);
+    painter.drawText(QRect(12,9,width()-24,19),
+                     Qt::AlignRight|Qt::AlignVCenter,
+                     m_state.valid ? (m_state.orientationValid ?
+                         QStringLiteral("LIVE") : QStringLiteral("XYZ ONLY")) :
+                         QStringLiteral("NO SIGNAL"));
+
+    // Only two compact diagnostic rows. Display coordinates are raw until
+    // a presentation-only GL origin is explicitly captured.
+    font.setPointSize(8);
+    font.setBold(false);
+    painter.setFont(font);
+    const auto xyz=m_origin.render(m_state.positionMm);
+    painter.setPen(primary);
+    const QString position=QStringLiteral("%1 XYZ  %2   %3   %4 mm")
+        .arg(m_origin.active()?QStringLiteral("REL"):QStringLiteral("RAW"))
+        .arg(xyz[0],0,'f',1).arg(xyz[1],0,'f',1).arg(xyz[2],0,'f',1);
+    const QRect posRect(12,height()-44,width()-24,17);
+    painter.drawText(posRect,Qt::AlignLeft|Qt::AlignVCenter,
+                     painter.fontMetrics().elidedText(position,Qt::ElideRight,posRect.width()));
+    if(m_state.valid && m_state.orientationValid) {
         touchpanel::teleop::Vec3 angles{};
-        const bool hasAngles=touchpanel::teleop::matrixToRpy(
+        const bool available=touchpanel::teleop::matrixToRpy(
             m_state.rotationMatrix,{0,0,0},angles);
-        if(hasAngles) {
-            painter.setPen(fg);
-            painter.drawText(QRect(18,height()-75,width()-36,20),Qt::AlignLeft,
-                QStringLiteral("RPY*   %1°   %2°   %3°")
-                    .arg(angles[0],0,'f',1).arg(angles[1],0,'f',1)
-                    .arg(angles[2],0,'f',1));
-        } else {
-            painter.setPen(muted);
-            painter.drawText(QRect(18,height()-75,width()-36,20),Qt::AlignLeft,
-                QStringLiteral("RPY* unavailable near Euler singularity"));
-        }
+        painter.setPen(secondary);
+        const QString rotation=available ?
+            QStringLiteral("RPY  %1°   %2°   %3°")
+                .arg(angles[0],0,'f',1).arg(angles[1],0,'f',1).arg(angles[2],0,'f',1) :
+            QStringLiteral("RPY  —  (Euler singularity)");
+        const QRect rotRect(12,height()-25,width()-24,16);
+        painter.drawText(rotRect,Qt::AlignLeft|Qt::AlignVCenter,
+                         painter.fontMetrics().elidedText(rotation,Qt::ElideRight,rotRect.width()));
+    } else {
+        painter.setPen(secondary);
+        painter.drawText(QRect(12,height()-25,width()-24,16),
+                         Qt::AlignLeft|Qt::AlignVCenter,
+                         QStringLiteral("Orientation unavailable"));
     }
-    painter.setPen(muted);
-    painter.drawText(QRect(18,height()-53,width()-36,20),Qt::AlignLeft,
-        QStringLiteral("RPY* ZYX view estimate, not verified robot Rx/Ry/Rz"));
-    painter.drawText(QRect(18,height()-30,width()-36,20),Qt::AlignLeft,
-        m_state.valid ? QStringLiteral("● 6DOF LIVE    ·    C clear trail    R reset") :
-                        QStringLiteral("○ NO VALID FRAME"));
-    painter.setPen(muted);
-    painter.drawText(QRect(18,68,width()-36,18),Qt::AlignLeft,
-        QStringLiteral("DRAG orbit  ·  SHIFT+DRAG pan  ·  WHEEL zoom  ·  DOUBLE CLICK focus"));
+
 }
 void GLCoordinateWidget::mousePressEvent(QMouseEvent* e) {
     m_lastMousePos=e->position().toPoint();setFocus();e->accept();
