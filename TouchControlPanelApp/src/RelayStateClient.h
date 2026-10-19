@@ -36,6 +36,7 @@ private:
     touchpanel::protocol::V2FrameCodec m_codec;
     QString m_session;
     QString m_host;
+    quint16 m_port=8891;
     bool m_handshaken=false, m_ready=false, m_valid=false;
     quint64 m_sessionEpoch=0;
     QElapsedTimer m_relayAge;
