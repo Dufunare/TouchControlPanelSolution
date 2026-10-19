@@ -10,6 +10,7 @@ on:
       - 'shared/RobotTelemetry.h'
       - 'shared/MultiPointCalibration.h'
       - 'shared/HapticCalibrationPolicy.h'
+      - 'shared/DisplayOrigin.h'
       - '.github/workflows/teleop-offline.yml'
 jobs:
   cpp17-offline:
@@ -26,6 +27,8 @@ jobs:
         run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/multipoint_calibration_tests.cpp -o /tmp/multipoint_test
       - name: Build haptic scheduler phase test
         run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/haptic_calibration_policy_tests.cpp -o /tmp/haptic_policy_test
+      - name: Build GL display origin test
+        run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/display_origin_tests.cpp -o /tmp/display_origin_test
       - name: Run tests
         run: |
           /tmp/teleop_geometry_test
@@ -33,3 +36,4 @@ jobs:
           /tmp/telemetry_test
           /tmp/multipoint_test
           /tmp/haptic_policy_test
+          /tmp/display_origin_test
