@@ -1,5 +1,6 @@
 #include "DeviceController.h"
 #include "TeleopGeometry.h"
+#include "RelayStateClient.h"
 
 #include <cmath>
 #include <QString>
@@ -60,6 +61,18 @@ DeviceController::DeviceController(
         {
             emit tcpRxMessage(decodeBackendText(text));
         });
+}
+
+void DeviceController::setRelayStateClient(RelayStateClient* client)
+{
+    m_relayStateClient = client;
+}
+
+void DeviceController::invalidateTeleopBaseline()
+{
+    m_lastButtonPressed = false;
+    m_motionBaselineReady = false;
+    m_previewLastValid = false;
 }
 
 void DeviceController::initializeBackend()
@@ -242,9 +255,10 @@ void DeviceController::startTeleop()
         return;
     }
 
-    if (!m_robotBackend->isTransitConnected())
+    if (!m_robotBackend->isTransitConnected() || m_relayStateClient == nullptr ||
+        !m_relayStateClient->hasFreshState())
     {
-        emit backendMessageChanged("开始控制失败：中转站 TCP 未连接。");
+        emit backendMessageChanged("六维预览需要 Legacy 8888 与新鲜的 v2 8891 实时状态。");
         return;
     }
 
@@ -279,92 +293,55 @@ void DeviceController::stopTeleop()
 
 void DeviceController::onMotionTick()
 {
-    if (m_backend == nullptr || m_robotBackend == nullptr) return;
-    if (!m_backend->isRunning() || !m_robotBackend->isTransitConnected()) {
-        m_lastButtonPressed = false;
-        m_motionBaselineReady = false;
+    if (!m_backend || !m_robotBackend || !m_relayStateClient ||
+        !m_backend->isRunning() || !m_robotBackend->isTransitConnected() ||
+        !m_relayStateClient->hasFreshState()) {
+        invalidateTeleopBaseline();
         return;
     }
-
     const auto st = m_backend->latestState();
     if (!st.valid || !st.orientationValid || !st.schedulerRunning) {
-        m_motionBaselineReady = false;
-        m_previewLastValid = false;
+        invalidateTeleopBaseline();
         return;
     }
-
     if (!st.button1Pressed) {
-        m_lastButtonPressed = false;
-        m_motionBaselineReady = false;
-        m_previewLastValid = false;
+        invalidateTeleopBaseline();
         return;
     }
-
-    // Do not submit competing pending requests (the existing backend has one slot).
     if (!m_lastButtonPressed) {
-        m_motionBaselineReady = false;
-        m_previewLastValid = false;
-        m_robotBackend->requestRobotMode();
-        m_modeQueryCooldownTicks = 10;
-        m_poseQueryCooldownTicks = 0;
-    }
-    m_lastButtonPressed = true;
-    if (!m_robotBackend->isRobotModeReady()) {
-        if (--m_modeQueryCooldownTicks <= 0) {
-            m_robotBackend->requestRobotMode();
-            m_modeQueryCooldownTicks = 10;
-        }
-        return;
-    }
-
-    if (!m_motionBaselineReady) {
-        if (--m_poseQueryCooldownTicks <= 0) {
-            m_robotBackend->requestCurrentPose();
-            m_poseQueryCooldownTicks = 10;
-        }
-        std::array<double, 6> pose{};
-        if (!m_robotBackend->tryGetLastPose(pose)) return;
-
+        // Re-capture after each release or invalidation. Never use legacy GetPose cache.
+        if (!m_relayStateClient->tryGetFreshPose(m_robotPoseOrigin)) return;
         m_touchOrigin = st.positionMm;
         m_touchRotationOrigin = st.rotationMatrix;
-        m_robotOrigin = { pose[0], pose[1], pose[2] };
         m_motionBaselineReady = true;
-        m_previewLast = pose;
-        m_previewLastValid = true;
-        emit backendMessageChanged("六维映射起点已捕获。注意：现有 GetPose 缓存尚不支持新鲜度证明；仅可预览。");
+        m_lastButtonPressed = true;
+        m_previewLastValid = false;
+        emit backendMessageChanged(QStringLiteral("[DRY RUN] 已使用新鲜 8891 机器人位姿捕获六维基准"));
         return;
     }
-
-    touchpanel::teleop::Clutch clutch;
-    clutch.valid = true;
-    clutch.touchPosition = m_touchOrigin;
-    clutch.touchRotation = m_touchRotationOrigin;
-    clutch.robotPose = m_previewLast;
-    // Anchor robot orientation is frozen at the first sample, not each tick.
-    // The following static capture will be replaced by a freshness-bound 8891 pose.
-    std::array<double, 6> pose{};
-    if (!m_robotBackend->tryGetLastPose(pose)) return;
-    clutch.robotPose = pose;
-
-    touchpanel::teleop::Calibration mapping; // fallback axis convention, not field-calibrated
-    touchpanel::teleop::Pose6 desired{};
-    if (!touchpanel::teleop::mapClutchedPose(mapping, clutch,
-                                            st.positionMm, st.rotationMatrix, desired)) {
-        m_motionBaselineReady = false;
-        emit backendMessageChanged("六维预览已中止：无效姿态矩阵或欧拉角奇异区间。");
+    if (!m_motionBaselineReady) return;
+    touchpanel::teleop::Clutch anchor;
+    anchor.valid = true;
+    anchor.touchPosition = m_touchOrigin;
+    anchor.touchRotation = m_touchRotationOrigin;
+    anchor.robotPose = m_robotPoseOrigin;
+    touchpanel::teleop::Calibration calibration; // unmeasured; preview only
+    touchpanel::teleop::Pose6 requested{};
+    if (!touchpanel::teleop::mapClutchedPose(calibration,anchor,
+                                             st.positionMm,st.rotationMatrix,requested)) {
+        invalidateTeleopBaseline();
+        emit backendMessageChanged(QStringLiteral("[DRY RUN] 无效的旋转/姿态，已停止当前预览"));
         return;
     }
-
     if (m_previewLastValid &&
-        touchpanel::teleop::smallStep(desired, m_previewLast, 0.25, 0.25)) return;
-    m_previewLast = desired;
+        touchpanel::teleop::smallStep(requested,m_previewLast,0.25,0.25))return;
+    m_previewLast = requested;
     m_previewLastValid = true;
-
     static unsigned previewTick = 0;
     if (++previewTick % 10 != 0) return;
     emit backendMessageChanged(
         QStringLiteral("[DRY RUN / NO ROBOT MOTION] XYZ=(%1,%2,%3) RxRyRz=(%4,%5,%6)")
-        .arg(desired[0], 0, 'f', 2).arg(desired[1], 0, 'f', 2)
-        .arg(desired[2], 0, 'f', 2).arg(desired[3], 0, 'f', 2)
-        .arg(desired[4], 0, 'f', 2).arg(desired[5], 0, 'f', 2));
+        .arg(requested[0],0,'f',2).arg(requested[1],0,'f',2)
+        .arg(requested[2],0,'f',2).arg(requested[3],0,'f',2)
+        .arg(requested[4],0,'f',2).arg(requested[5],0,'f',2));
 }
