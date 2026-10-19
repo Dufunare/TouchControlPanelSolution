@@ -2,6 +2,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonValue>
+#include <QNetworkProxy>
 #include <cmath>
 #include <limits>
 
@@ -27,22 +28,34 @@ bool six(const QJsonValue& v,std::array<double,6>& out) {
 }
 }
 RelayStateClient::RelayStateClient(QObject* parent):QObject(parent) {
+    // The relay runs on a trusted LAN. Never inherit HTTP/HTTPS system
+    // proxies (including transparent VPN proxy settings) for raw TCP 8891.
+    // QTcpSocket may otherwise fail with UnsupportedSocketOperationError:
+    // "The proxy type is invalid for this operation".
+    m_socket.setProxy(QNetworkProxy::NoProxy);
     m_watchdog.setInterval(100);
     connect(&m_watchdog,&QTimer::timeout,this,&RelayStateClient::refreshStatus);
     connect(&m_socket,&QTcpSocket::connected,this,&RelayStateClient::sendHello);
     connect(&m_socket,&QTcpSocket::readyRead,this,&RelayStateClient::readIncoming);
     connect(&m_socket,&QTcpSocket::disconnected,this,[this]{invalidate(QStringLiteral("v2 连接已断开"));});
-    connect(&m_socket,&QTcpSocket::errorOccurred,this,[this](QAbstractSocket::SocketError){
-        invalidate(QStringLiteral("v2 连接错误: %1").arg(m_socket.errorString()));
+    connect(&m_socket,&QTcpSocket::errorOccurred,this,[this](QAbstractSocket::SocketError err){
+        const QString cause=(err==QAbstractSocket::UnsupportedSocketOperationError)
+            ? QStringLiteral("TCP 代理配置不兼容；此连接已设置 NoProxy")
+            : m_socket.errorString();
+        invalidate(QStringLiteral("v2 %1:%2 连接错误 [%3]: %4")
+            .arg(m_host).arg(m_port).arg(static_cast<int>(err)).arg(cause));
     });
     m_watchdog.start();
 }
 void RelayStateClient::connectToRelay(const QString& host,quint16 port) {
     disconnectRelay();
-    m_host=host;
-    m_status=QStringLiteral("正在连接 v2 遥测...");
+    m_host=host.trimmed();
+    m_port=port;
+    m_socket.setProxy(QNetworkProxy::NoProxy);
+    m_status=QStringLiteral("正在直接连接 v2 %1:%2（NoProxy）…")
+        .arg(m_host).arg(m_port);
     emit statusChanged(m_status);
-    m_socket.connectToHost(host,port);
+    m_socket.connectToHost(m_host,m_port);
 }
 void RelayStateClient::disconnectRelay() {
     m_socket.abort();
