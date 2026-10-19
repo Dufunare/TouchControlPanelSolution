@@ -67,6 +67,9 @@ private:
     int m_modeQueryCooldownTicks = 0;
     int m_poseQueryCooldownTicks = 0;
     std::array<double, 3> m_touchOrigin{ 0.0, 0.0, 0.0 };
+    std::array<double, 9> m_touchRotationOrigin{ 1,0,0,0,1,0,0,0,1 };
+    std::array<double, 6> m_previewLast{};
+    bool m_previewLastValid = false;
     std::array<double, 3> m_robotOrigin{ 0.0, 0.0, 0.0 };
     std::array<double, 3> m_lastSent{ 0.0, 0.0, 0.0 };
     bool m_hasLastSent = false;
