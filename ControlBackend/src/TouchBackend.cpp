@@ -42,6 +42,11 @@ namespace touchpanel
         std::atomic<double> z{ 0.0 };
         std::array<std::atomic<double>, 9> rotation{};
         std::atomic<bool> orientationValid{false};
+        std::atomic<std::uint64_t> frameVersion{0}; // odd=writer in progress
+        std::atomic<bool> calibrated{false};
+        std::atomic<bool> calibrationNeedsManual{true};
+        std::atomic<std::uint64_t> calibrationEpoch{0};
+        HDint calibrationStyle = 0;
         std::atomic<bool> button1Pressed{ false };
 
         std::atomic<std::uint64_t> sampleCounter{ 0 };
@@ -57,6 +62,21 @@ namespace touchpanel
                 return HD_CALLBACK_DONE;
             }
 
+            // Check calibration on the device scheduler, not on the Qt UI thread.
+            // A recalibration can change coordinates discontinuously; fail closed.
+            if ((self->sampleCounter.load(std::memory_order_relaxed) % 100) == 0) {
+                const HDenum status=hdCheckCalibration();
+                const bool wasCalibrated=self->calibrated.load(std::memory_order_relaxed);
+                if(status==HD_CALIBRATION_NEEDS_UPDATE && self->calibrationStyle!=0) {
+                    hdUpdateCalibration(self->calibrationStyle);
+                }
+                const bool nowCalibrated=hdCheckCalibration()==HD_CALIBRATION_OK;
+                self->calibrated.store(nowCalibrated,std::memory_order_relaxed);
+                self->calibrationNeedsManual.store(status==HD_CALIBRATION_NEEDS_MANUAL_INPUT,
+                    std::memory_order_relaxed);
+                if(wasCalibrated!=nowCalibrated)
+                    self->calibrationEpoch.fetch_add(1,std::memory_order_relaxed);
+            }
             // OpenHaptics 官方要求 hdGet / hdSet 这类状态访问放在 haptics frame 内执行。
             hdBeginFrame(self->deviceHandle);
 
@@ -78,6 +98,7 @@ namespace touchpanel
                 return HD_CALLBACK_DONE;
             }
 
+            self->frameVersion.fetch_add(1,std::memory_order_release);
             self->x.store(position[0], std::memory_order_relaxed);
             self->y.store(position[1], std::memory_order_relaxed);
             self->z.store(position[2], std::memory_order_relaxed);
@@ -89,7 +110,9 @@ namespace touchpanel
             self->orientationValid.store(orientationOk,std::memory_order_relaxed);
             self->button1Pressed.store((currentButtons & HD_DEVICE_BUTTON_1) != 0, std::memory_order_relaxed);
             self->sampleCounter.fetch_add(1, std::memory_order_relaxed);
-            self->valid.store(true, std::memory_order_relaxed);
+            self->valid.store(self->calibrated.load(std::memory_order_relaxed) && orientationOk,
+                std::memory_order_relaxed);
+            self->frameVersion.fetch_add(1,std::memory_order_release);
 
             return HD_CALLBACK_CONTINUE;
         }
@@ -171,6 +194,13 @@ namespace touchpanel
         m_impl->lastErrorCode.store(HD_SUCCESS, std::memory_order_relaxed);
         m_impl->lastErrorText.clear();
 
+        HDint styles=0;
+        hdGetIntegerv(HD_CALIBRATION_STYLE,&styles);
+        if(styles & HD_CALIBRATION_INKWELL) m_impl->calibrationStyle=HD_CALIBRATION_INKWELL;
+        else if(styles & HD_CALIBRATION_AUTO) m_impl->calibrationStyle=HD_CALIBRATION_AUTO;
+        else if(styles & HD_CALIBRATION_ENCODER_RESET) m_impl->calibrationStyle=HD_CALIBRATION_ENCODER_RESET;
+        m_impl->calibrated.store(false,std::memory_order_relaxed);
+        m_impl->calibrationNeedsManual.store(true,std::memory_order_relaxed);
         // 某些设备和驱动组合下，正式项目还需要加上校准流程。
         // 这一版骨架先聚焦“取坐标 + 前端显示”，你可以后续按官方示例补充校准逻辑。
 
@@ -274,21 +304,39 @@ namespace touchpanel
         m_impl->z.store(0.0, std::memory_order_relaxed);
         m_impl->button1Pressed.store(false, std::memory_order_relaxed);
         m_impl->orientationValid.store(false, std::memory_order_relaxed);
+        m_impl->calibrated.store(false, std::memory_order_relaxed);
+        m_impl->calibrationEpoch.fetch_add(1,std::memory_order_relaxed);
     }
 
     DeviceState TouchBackend::latestState() const
     {
         DeviceState state;
-        state.positionMm[0] = m_impl->x.load(std::memory_order_relaxed);
-        state.positionMm[1] = m_impl->y.load(std::memory_order_relaxed);
-        state.positionMm[2] = m_impl->z.load(std::memory_order_relaxed);
-        for(int i=0;i<9;++i)state.rotationMatrix[i]=m_impl->rotation[i].load(std::memory_order_relaxed);
-        state.orientationValid=m_impl->orientationValid.load(std::memory_order_relaxed);
-        state.initialized = m_impl->initialized.load(std::memory_order_relaxed);
-        state.valid = m_impl->valid.load(std::memory_order_relaxed);
-        state.schedulerRunning = m_impl->running.load(std::memory_order_relaxed);
-        state.button1Pressed = m_impl->button1Pressed.load(std::memory_order_relaxed);
-        state.sampleCounter = m_impl->sampleCounter.load(std::memory_order_relaxed);
+        // All fields are atomics; validate one complete publication version.
+        // Bounded retries prevent UI stalls during an interrupted device callback.
+        for (int retry=0;retry<8;++retry) {
+            const auto before=m_impl->frameVersion.load(std::memory_order_acquire);
+            if(before & 1u) continue;
+            for(int i=0;i<3;++i)state.positionMm[i]=
+                (i==0?m_impl->x.load(std::memory_order_relaxed):
+                 i==1?m_impl->y.load(std::memory_order_relaxed):
+                      m_impl->z.load(std::memory_order_relaxed));
+            for(int i=0;i<9;++i)state.rotationMatrix[i]=m_impl->rotation[i].load(std::memory_order_relaxed);
+            state.orientationValid=m_impl->orientationValid.load(std::memory_order_relaxed);
+            state.button1Pressed=m_impl->button1Pressed.load(std::memory_order_relaxed);
+            state.sampleCounter=m_impl->sampleCounter.load(std::memory_order_relaxed);
+            state.valid=m_impl->valid.load(std::memory_order_relaxed);
+            const auto after=m_impl->frameVersion.load(std::memory_order_acquire);
+            if(before==after && !(after & 1u)) {
+                state.initialized=m_impl->initialized.load(std::memory_order_relaxed);
+                state.schedulerRunning=m_impl->running.load(std::memory_order_relaxed);
+                state.deviceCalibrated=m_impl->calibrated.load(std::memory_order_relaxed);
+                state.calibrationNeedsManualInput=m_impl->calibrationNeedsManual.load(std::memory_order_relaxed);
+                state.calibrationEpoch=m_impl->calibrationEpoch.load(std::memory_order_relaxed);
+                state.valid=state.valid && state.deviceCalibrated && state.schedulerRunning;
+                return state;
+            }
+        }
+        state.valid=false;
         return state;
     }
 
