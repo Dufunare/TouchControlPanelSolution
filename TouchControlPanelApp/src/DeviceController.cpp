@@ -325,6 +325,9 @@ void DeviceController::onMotionTick()
         invalidateTeleopBaseline();
         return;
     }
+    const auto gate=touchpanel::evaluateRobotGate(m_relayStateClient->snapshot(),
+        m_calibrationApplied,m_calibrationUser,m_calibrationTool);
+    if(!gate.canPreview) {invalidateTeleopBaseline();return;}
     if (!m_lastButtonPressed) {
         // Re-capture after each release or invalidation. Never use legacy GetPose cache.
         if (!m_relayStateClient->tryGetFreshPose(m_robotPoseOrigin)) return;
@@ -342,9 +345,6 @@ void DeviceController::onMotionTick()
     anchor.touchPosition = m_touchOrigin;
     anchor.touchRotation = m_touchRotationOrigin;
     anchor.robotPose = m_robotPoseOrigin;
-    const auto gate=touchpanel::evaluateRobotGate(m_relayStateClient->snapshot(),
-        m_calibrationApplied,m_calibrationUser,m_calibrationTool);
-    if(!gate.canPreview) {invalidateTeleopBaseline();return;}
     const auto& calibration=m_calibration;
     touchpanel::teleop::Pose6 requested{};
     if (!touchpanel::teleop::mapClutchedPose(calibration,anchor,
