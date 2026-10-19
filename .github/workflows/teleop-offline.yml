@@ -9,6 +9,7 @@ on:
       - 'tests/*'
       - 'shared/RobotTelemetry.h'
       - 'shared/MultiPointCalibration.h'
+      - 'shared/HapticCalibrationPolicy.h'
       - '.github/workflows/teleop-offline.yml'
 jobs:
   cpp17-offline:
@@ -23,9 +24,12 @@ jobs:
         run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/robot_telemetry_tests.cpp -o /tmp/telemetry_test
       - name: Build multi-point fit test
         run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/multipoint_calibration_tests.cpp -o /tmp/multipoint_test
+      - name: Build haptic scheduler phase test
+        run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/haptic_calibration_policy_tests.cpp -o /tmp/haptic_policy_test
       - name: Run tests
         run: |
           /tmp/teleop_geometry_test
           /tmp/relay_v2_test
           /tmp/telemetry_test
           /tmp/multipoint_test
+          /tmp/haptic_policy_test

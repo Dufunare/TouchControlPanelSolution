@@ -6,6 +6,8 @@
 
 #include "TouchBackend.h"
 #include "TeleopGeometry.h"
+#include "HapticCalibrationPolicy.h"
+#include <cstdio>
 
 
 
@@ -48,8 +50,11 @@ namespace touchpanel
         std::atomic<std::uint64_t> calibrationEpoch{0};
         HDint calibrationStyle = 0;
         // Only touched by the OpenHaptics scheduler thread, never by Qt.
-        bool pendingCalibrationUpdate = false;
-        std::uint32_t calibrationPollTicks = 0;
+        haptics::CalibrationTickPolicy calibrationPolicy;
+        std::atomic<std::uint64_t> diagnosticTicks{0};
+        std::atomic<std::uint64_t> diagnosticUpdates{0};
+        std::atomic<int> failureStage{0};
+        std::atomic<int> failureCode{HD_SUCCESS};
         bool schedulerStarted = false;  // owned by the UI thread
         std::atomic<bool> button1Pressed{ false };
 
@@ -66,29 +71,58 @@ namespace touchpanel
                 return HD_CALLBACK_DONE;
             }
 
-            // hdUpdateCalibration can change the coordinate origin. It must
-            // never share a servo tick with our hdBeginFrame/hdEndFrame pair:
-            // HD_ONE_FRAME_LIMIT is enabled by default.
-            if (self->pendingCalibrationUpdate)
-            {
-                self->pendingCalibrationUpdate = false;
-                hdMakeCurrentDevice(self->deviceHandle);
-                hdUpdateCalibration(self->calibrationStyle);
-                const HDErrorInfo calibrationError = hdGetError();
-                if (HD_DEVICE_ERROR(calibrationError))
-                {
-                    self->lastErrorCode.store(static_cast<int>(calibrationError.errorCode),
-                                              std::memory_order_relaxed);
-                    self->valid.store(false, std::memory_order_relaxed);
-                    self->running.store(false, std::memory_order_relaxed);
+            using haptics::CalibrationAction;
+            using haptics::CalibrationCondition;
+            const auto action=self->calibrationPolicy.next();
+            self->diagnosticTicks.store(self->calibrationPolicy.ticks(),std::memory_order_relaxed);
+            if(action==CalibrationAction::CheckOnly) {
+                hdBeginFrame(self->deviceHandle);
+                const HDenum status=hdCheckCalibration();
+                hdEndFrame(self->deviceHandle);
+                const HDErrorInfo error=hdGetError();
+                if(HD_DEVICE_ERROR(error)) {
+                    self->failureStage.store(1,std::memory_order_relaxed);
+                    self->failureCode.store(static_cast<int>(error.errorCode),std::memory_order_relaxed);
+                    self->lastErrorCode.store(static_cast<int>(error.errorCode),std::memory_order_relaxed);
+                    self->valid.store(false,std::memory_order_relaxed);
+                    self->running.store(false,std::memory_order_relaxed);
                     return HD_CALLBACK_DONE;
                 }
-                // Start another tick to check HD_CALIBRATION_OK before sampling.
-                self->calibrationPollTicks = 0;
+                const bool ready=status==HD_CALIBRATION_OK;
+                const bool previouslyReady=self->calibrated.exchange(ready,std::memory_order_relaxed);
+                self->calibrationNeedsManual.store(status==HD_CALIBRATION_NEEDS_MANUAL_INPUT,std::memory_order_relaxed);
+                if(ready!=previouslyReady)
+                    self->calibrationEpoch.fetch_add(1,std::memory_order_relaxed);
+                self->calibrationPolicy.checked(
+                    status==HD_CALIBRATION_NEEDS_UPDATE?CalibrationCondition::NeedsUpdate:
+                    status==HD_CALIBRATION_NEEDS_MANUAL_INPUT?CalibrationCondition::ManualInput:
+                    ready?CalibrationCondition::Good:CalibrationCondition::Unsupported,
+                    self->calibrationStyle!=0);
+                if(!ready)self->valid.store(false,std::memory_order_relaxed);
+                return HD_CALLBACK_CONTINUE;
+            }
+            if(action==CalibrationAction::UpdateOnly) {
+                hdMakeCurrentDevice(self->deviceHandle);
+                hdUpdateCalibration(self->calibrationStyle);
+                const HDErrorInfo error=hdGetError();
+                if(HD_DEVICE_ERROR(error)) {
+                    self->failureStage.store(2,std::memory_order_relaxed);
+                    self->failureCode.store(static_cast<int>(error.errorCode),std::memory_order_relaxed);
+                    self->lastErrorCode.store(static_cast<int>(error.errorCode),std::memory_order_relaxed);
+                    self->valid.store(false,std::memory_order_relaxed);
+                    self->running.store(false,std::memory_order_relaxed);
+                    return HD_CALLBACK_DONE;
+                }
+                self->calibrationPolicy.updated();
+                self->diagnosticUpdates.store(self->calibrationPolicy.updateCount(),std::memory_order_relaxed);
+                self->calibrated.store(false,std::memory_order_relaxed);
+                self->calibrationEpoch.fetch_add(1,std::memory_order_relaxed);
+                self->valid.store(false,std::memory_order_relaxed);
                 return HD_CALLBACK_CONTINUE;
             }
 
-            // Exactly ONE device frame in each ordinary sample tick.
+            // A normal tick contains exactly one begin/end pair. Calibration
+            // check frames and updates execute in distinct scheduler ticks.
             hdBeginFrame(self->deviceHandle);
             HDdouble position[3] = { 0.0, 0.0, 0.0 };
             HDint currentButtons = 0;
@@ -96,46 +130,18 @@ namespace touchpanel
             hdGetDoublev(HD_CURRENT_POSITION, position);
             hdGetIntegerv(HD_CURRENT_BUTTONS, &currentButtons);
             hdGetDoublev(HD_CURRENT_TRANSFORM, transform);
-
-            // Calibration status is checked while the frame is open, but
-            // calibration UPDATE is deferred to the next tick (above).
-            if (self->calibrationPollTicks++ % 100 == 0)
-            {
-                const HDenum status = hdCheckCalibration();
-                const bool wasCalibrated =
-                    self->calibrated.load(std::memory_order_relaxed);
-                const bool nowCalibrated = (status == HD_CALIBRATION_OK);
-                self->calibrated.store(nowCalibrated, std::memory_order_relaxed);
-                self->calibrationNeedsManual.store(
-                    status == HD_CALIBRATION_NEEDS_MANUAL_INPUT,
-                    std::memory_order_relaxed);
-                if (wasCalibrated != nowCalibrated)
-                    self->calibrationEpoch.fetch_add(1, std::memory_order_relaxed);
-
-                if (status == HD_CALIBRATION_NEEDS_UPDATE &&
-                    self->calibrationStyle != 0)
-                {
-                    self->pendingCalibrationUpdate = true;
-                }
-            }
-
             hdEndFrame(self->deviceHandle);
-            // Fetch errors AFTER hdEndFrame as it may itself report a frame error.
-            const HDErrorInfo error = hdGetError();
-            if (HD_DEVICE_ERROR(error))
-            {
-                self->lastErrorCode.store(static_cast<int>(error.errorCode),
-                                          std::memory_order_relaxed);
-                self->valid.store(false, std::memory_order_relaxed);
-                self->running.store(false, std::memory_order_relaxed);
+            const HDErrorInfo error=hdGetError();
+            if(HD_DEVICE_ERROR(error)) {
+                self->failureStage.store(3,std::memory_order_relaxed);
+                self->failureCode.store(static_cast<int>(error.errorCode),std::memory_order_relaxed);
+                self->lastErrorCode.store(static_cast<int>(error.errorCode),std::memory_order_relaxed);
+                self->valid.store(false,std::memory_order_relaxed);
+                self->running.store(false,std::memory_order_relaxed);
                 return HD_CALLBACK_DONE;
             }
-
-            // Never publish a coordinate obtained in a tick that observed
-            // "needs calibration", even before the next calibration-only tick.
-            if (!self->calibrated.load(std::memory_order_relaxed))
-            {
-                self->valid.store(false, std::memory_order_relaxed);
+            if(!self->calibrated.load(std::memory_order_relaxed)) {
+                self->valid.store(false,std::memory_order_relaxed);
                 return HD_CALLBACK_CONTINUE;
             }
 
@@ -235,8 +241,7 @@ namespace touchpanel
         m_impl->lastErrorCode.store(HD_SUCCESS, std::memory_order_relaxed);
         m_impl->lastErrorText.clear();
         m_impl->calibrationStyle = 0;
-        m_impl->pendingCalibrationUpdate = false;
-        m_impl->calibrationPollTicks = 0;
+        m_impl->calibrationPolicy.reset();
 
         HDint styles=0;
         hdGetIntegerv(HD_CALIBRATION_STYLE,&styles);
@@ -276,8 +281,11 @@ namespace touchpanel
         m_impl->lastErrorText.clear();
         m_impl->lastErrorCode.store(HD_SUCCESS, std::memory_order_relaxed);
         m_impl->sampleCounter.store(0, std::memory_order_relaxed);
-        m_impl->calibrationPollTicks = 0;
-        m_impl->pendingCalibrationUpdate = false;
+        m_impl->calibrationPolicy.reset();
+        m_impl->diagnosticTicks.store(0,std::memory_order_relaxed);
+        m_impl->diagnosticUpdates.store(0,std::memory_order_relaxed);
+        m_impl->failureStage.store(0,std::memory_order_relaxed);
+        m_impl->failureCode.store(HD_SUCCESS,std::memory_order_relaxed);
         m_impl->calibrated.store(false, std::memory_order_relaxed);
         m_impl->valid.store(false, std::memory_order_relaxed);
 
@@ -423,6 +431,9 @@ namespace touchpanel
         }
 
         const int errorCode = m_impl->lastErrorCode.load(std::memory_order_relaxed);
+        const int stage=m_impl->failureStage.load(std::memory_order_relaxed);
+        const char* stageName=stage==1?"calibration-check":stage==2?"calibration-update":
+            stage==3?"sample-frame":"startup/other";
         if (errorCode == HD_SUCCESS)
         {
             return {};
@@ -434,7 +445,10 @@ namespace touchpanel
             return "Unknown OpenHaptics Error";
         }
 
-        return std::string(errorText);
+        return std::string("HDAPI stage=")+stageName+" code="+std::to_string(errorCode)+
+               " ticks="+std::to_string(m_impl->diagnosticTicks.load(std::memory_order_relaxed))+
+               " updates="+std::to_string(m_impl->diagnosticUpdates.load(std::memory_order_relaxed))+
+               ": "+errorText;
     }
 } // namespace touchpanel
 
