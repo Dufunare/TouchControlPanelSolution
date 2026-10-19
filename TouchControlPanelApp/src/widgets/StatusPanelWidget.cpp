@@ -120,7 +120,7 @@ void StatusPanelWidget::setDeviceState(const touchpanel::DeviceState& state)
     m_validValue->setText(state.valid ? "有效" : "无效");
     m_counterValue->setText(QString::number(state.sampleCounter));
     m_touchCalibrationValue->setText(state.deviceCalibrated ? QStringLiteral("已校准") :
-        state.calibrationNeedsManualInput ? QStringLiteral("需将笔归位/手动校准") : QStringLiteral("校准中或未完成"));
+        state.calibrationNeedsManualInput ? QStringLiteral("未验证（自动校准已暂停）") : QStringLiteral("未验证（自动校准已暂停）"));
 }
 
 void StatusPanelWidget::setBackendMessage(const QString& text)
