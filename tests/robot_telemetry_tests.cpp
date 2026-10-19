@@ -18,6 +18,10 @@ int main() {
     auto d=evaluateRobotGate(s,true,0,0);
     assert(d.reason==GateReason::Ok && d.canPreview && d.canCaptureCalibration);
     assert(!d.canSendRobotMotion);
+    s.jogging=true;
+    assert(evaluateRobotGate(s,true,0,0).reason==GateReason::RobotNotIdle);
+    assert(idleGateDiagnostics(s).find("Jog=yes")!=std::string::npos);
+    s.jogging=false;
     assert(std::string(gateReasonChinese(GateReason::RobotDragging)).find("拖拽")!=std::string::npos);
     assert(evaluateRobotGate(s).reason==GateReason::NoVerifiedCalibration);
     s.error=true;
