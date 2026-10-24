@@ -9,7 +9,6 @@ class DeviceController;
 class ControlPanelWidget;
 class GLCoordinateWidget;
 class StatusPanelWidget;
-class VideoWidget;
 class RelayStateClient;
 class QCloseEvent;
 
@@ -27,7 +26,6 @@ private:
     DeviceController* m_controller = nullptr;
     RelayStateClient* m_relayStateClient = nullptr;
     ControlPanelWidget* m_controlPanel = nullptr;
-    VideoWidget* m_videoWidget = nullptr;
     GLCoordinateWidget* m_glWidget = nullptr;
     StatusPanelWidget* m_statusPanel = nullptr;
 };
