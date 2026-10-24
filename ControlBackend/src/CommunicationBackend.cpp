@@ -1,4 +1,7 @@
 #include "pch.h"
+// Must precede Windows.h (including indirect project precompiled includes).
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include "CommunicationBackend.h"
 #include "RelayV2Frame.h"
 
@@ -863,6 +866,22 @@ namespace touchpanel
         {
             ::closesocket(newSocket);
             m_impl->emitMessage("连接中转站失败：" + std::to_string(WSAGetLastError()));
+            return;
+        }
+
+        // Legacy 8888 carries tiny, latency-sensitive InverseSolution and
+        // ServoJ messages over a single TCP connection. Disable Nagle:
+        // otherwise small successive writes may be delayed until ACKs arrive
+        // and artificially inflate the IK round-trip towards ~500 ms.
+        BOOL noDelay=TRUE;
+        if(::setsockopt(newSocket,IPPROTO_TCP,TCP_NODELAY,
+                        reinterpret_cast<const char*>(&noDelay),
+                        static_cast<int>(sizeof(noDelay)))==SOCKET_ERROR)
+        {
+            const int err=WSAGetLastError();
+            ::closesocket(newSocket);
+            m_impl->emitMessage("8888 TCP_NODELAY 设置失败，拒绝建立实时控制连接：" +
+                                std::to_string(err));
             return;
         }
 
