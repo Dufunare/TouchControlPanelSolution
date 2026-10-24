@@ -30,5 +30,23 @@ int main(){
     assert(target[0]<=0.35+1e-10&&target[1]<=0.35+1e-10);
     auto bad=solved;bad[0]=40;
     assert(!acceptableJointSolution(s,first,bad));
+    // A large physical Touch gesture must NOT force ResetRobot on the first
+    // tick. Saturate the target at the verified clutch envelope instead.
+    ClutchBound bound;
+    Pose6 origin={100,200,300,-170,0,90};
+    Pose6 fast=origin;fast[0]+=100;fast[1]+=40;fast[2]-=80;
+    assert(boundClutchTarget(fast,origin,bound));
+    assert(bound.saturated && bound.rawDistanceMm>100);
+    const Vec3 limited={bound.pose[0]-origin[0],bound.pose[1]-origin[1],
+                        bound.pose[2]-origin[2]};
+    assert(std::abs(norm(limited)-kClutchTrialLimitMm)<1e-8);
+    assert(bound.pose[3]==origin[3]&&bound.pose[4]==origin[4]);
+    fast=origin;fast[1]+=5;
+    assert(boundClutchTarget(fast,origin,bound));
+    assert(!bound.saturated&&bound.pose==fast);
+    fast=origin;fast[0]=std::numeric_limits<double>::quiet_NaN();
+    assert(!boundClutchTarget(fast,origin,bound));
+    fast=origin;fast[0]+=40;
+    assert(!boundClutchTarget(fast,origin,bound,100.0));
     std::cout<<"Motion proposal and IK continuity tests passed\n";
 }
