@@ -9,6 +9,7 @@ class QLineEdit;
 class QSpinBox;
 class QComboBox;
 class QCheckBox;
+class QDoubleSpinBox;
 
 class ControlPanelWidget : public QWidget
 {
@@ -45,6 +46,11 @@ signals:
     void continuousServoRequested(const std::array<int,3>& axes,double gain,double deadzone);
 
 private:
+    void setAxisChoice(int robotAxis,int sourceCode);
+    std::array<int,3> m_axisSelection{{0,1,2}};
+    std::array<QComboBox*,3> m_axisCombos{{nullptr,nullptr,nullptr}};
+    QDoubleSpinBox* m_axisGain=nullptr;
+    QDoubleSpinBox* m_axisDeadzone=nullptr;
 
 	//touch控制按钮
     QPushButton* m_initializeButton = nullptr;
