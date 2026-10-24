@@ -869,7 +869,18 @@ void DeviceController::runContinuousTick()
         requested[2]-m_robotPoseOrigin[2]};
     const double displacement=touchpanel::teleop::norm(delta);
     if(displacement>15.0) {
-        haltRealMotion(QStringLiteral("本次离合运动超过 15mm 测试范围，请重新建立基准"));
+        // This is a per-clutch test envelope, not a fatal loss of control.
+        // Stop the current gesture and stay ARMED; the operator must
+        // release Button1 and wait for confirmed idle before re-clutching.
+        const bool stopNeeded=m_motionCommandSent || m_ikPending;
+        m_continuousStopping=true;
+        m_stopReplyAccepted=!stopNeeded;
+        m_stopTimer.start();
+        m_ikPending=false;
+        m_haveServoTarget=false;
+        if(stopNeeded)m_robotBackend->requestControlledStop();
+        emit backendMessageChanged(QStringLiteral(
+            "本次离合已达到 15mm 受控范围：正在停稳；释放 Button1 后可重新按下继续"));
         return;
     }
     const touchpanel::teleop::Vec3 tracking={
