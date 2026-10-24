@@ -11,12 +11,15 @@ class GLCoordinateWidget;
 class StatusPanelWidget;
 class VideoWidget;
 class RelayStateClient;
+class QCloseEvent;
 
 class MainWindow : public QMainWindow
 {
 public:
     explicit MainWindow(QWidget* parent = nullptr);
     ~MainWindow() override = default;
+protected:
+    void closeEvent(QCloseEvent* event) override;
 
 private:
     touchpanel::TouchBackend m_backend;
