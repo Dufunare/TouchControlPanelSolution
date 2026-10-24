@@ -558,9 +558,22 @@ void DeviceController::prepareSingleStep()
     m_stepProposal=proposal;
     m_stepExpectedStart=snapshot.tcpPose;
     m_stepStartSeq=snapshot.stateSeq;
+    m_stepLastArrivalSeq=snapshot.stateSeq;
+    m_stepArrivalStableSamples=0;
     m_motionSession=snapshot.sessionEpoch;
     m_motionUser=snapshot.userIndex;m_motionTool=snapshot.toolIndex;
     m_stepPrepared=true;
+    emit backendMessageChanged(
+        QStringLiteral("[STEP PLAN] 当前机器人 XYZ=(%1,%2,%3), "
+                       "Touch 预览 XYZ=(%4,%5,%6), "
+                       "本次 MovL 目标 XYZ=(%7,%8,%9), 位移=%10 mm, seq=%11")
+        .arg(snapshot.tcpPose[0],0,'f',3).arg(snapshot.tcpPose[1],0,'f',3)
+        .arg(snapshot.tcpPose[2],0,'f',3)
+        .arg(m_previewLast[0],0,'f',3).arg(m_previewLast[1],0,'f',3)
+        .arg(m_previewLast[2],0,'f',3)
+        .arg(proposal.pose[0],0,'f',3).arg(proposal.pose[1],0,'f',3)
+        .arg(proposal.pose[2],0,'f',3)
+        .arg(proposal.distanceMm,0,'f',3).arg(snapshot.stateSeq));
     emit singleStepConfirmationNeeded(
         QStringLiteral("将通过 MovL 执行单次 %1 mm 位移。\n目标 XYZ=(%2,%3,%4) mm\n机器人当前姿态保持不变。\n确认周围人员、障碍物及物理急停状态后执行？")
         .arg(proposal.distanceMm,0,'f',2)
@@ -590,6 +603,8 @@ void DeviceController::confirmSingleStep()
     m_manualPreview=false;
     m_stepAwaitingReply=true;
     m_stepReplyAccepted=false;
+    m_stepLastArrivalSeq=snapshot.stateSeq;
+    m_stepArrivalStableSamples=0;
     m_motionCommandSent=true;
     invalidateTeleopBaseline();
     m_stepTimer.start();
@@ -722,27 +737,72 @@ void DeviceController::handleInverseSolution(bool success,const std::array<doubl
 void DeviceController::monitorSingleStep()
 {
     if(!m_relayStateClient || !m_stepTimer.isValid()) {
-        haltRealMotion(QStringLiteral("单步反馈监控不可用"));return;
+        haltRealMotion(QStringLiteral("单步反馈监控不可用"));
+        return;
     }
     const auto s=m_relayStateClient->snapshot();
+    const touchpanel::teleop::Vec3 delta={
+        s.tcpPose[0]-m_stepExpectedStart[0],
+        s.tcpPose[1]-m_stepExpectedStart[1],
+        s.tcpPose[2]-m_stepExpectedStart[2]};
+    const touchpanel::teleop::Vec3 error={
+        s.tcpPose[0]-m_stepProposal.pose[0],
+        s.tcpPose[1]-m_stepProposal.pose[1],
+        s.tcpPose[2]-m_stepProposal.pose[2]};
+    const double measured=touchpanel::teleop::norm(delta);
+    const double remaining=touchpanel::teleop::norm(error);
+    const auto elapsed=m_stepTimer.elapsed();
     if(!m_relayStateClient->hasFreshState() ||
        s.sessionEpoch!=m_motionSession || s.userIndex!=m_motionUser ||
        s.toolIndex!=m_motionTool || s.error || s.dragging ||
-       m_stepTimer.elapsed()>7000) {
-        haltRealMotion(QStringLiteral("单步超时、断线或机器人状态异常"));return;
+       elapsed>7000) {
+        const QString cause=QStringLiteral(
+            "单步未完成：耗时 %1 ms，命令应答=%2，"
+            "机器人实际位移=%3 mm（计划 %4 mm），"
+            "距离目标=%5 mm，Mode=%6，8891年龄=%7 ms，seq=%8")
+            .arg(elapsed).arg(m_stepReplyAccepted?QStringLiteral("成功"):QStringLiteral("未成功"))
+            .arg(measured,0,'f',3).arg(m_stepProposal.distanceMm,0,'f',3)
+            .arg(remaining,0,'f',3).arg(s.robotMode)
+            .arg(s.feedbackAgeMs).arg(s.stateSeq);
+        haltRealMotion(cause);
+        return;
     }
-    if(m_stepReplyAccepted && s.stateSeq>m_stepStartSeq &&
-       touchpanel::teleop::stepArrived(s,m_stepProposal,m_motionUser,m_motionTool) &&
-       touchpanel::teleop::norm({s.tcpPose[0]-m_stepExpectedStart[0],
-                                s.tcpPose[1]-m_stepExpectedStart[1],
-                                s.tcpPose[2]-m_stepExpectedStart[2]})>=0.25) {
-        m_realMode=RealMode::None;
-        m_motionCommandSent=false;
-        m_singleStepVerified=true;
-        m_verifiedStepSession=s.sessionEpoch;
-        m_motionTimer.stop();
-        emit backendMessageChanged(QStringLiteral("单步结束：机器人已由 8891 确认到位；本次会话可测试 ServoJ 连续模式"));
+    // Do not treat one early reply + one position sample as proof of arrival.
+    // Require real movement and independent, settled, successive 8891 states.
+    if(s.stateSeq<=m_stepLastArrivalSeq)return;
+    m_stepLastArrivalSeq=s.stateSeq;
+    const double minimumEvidence=std::max(0.5,m_stepProposal.distanceMm-0.8);
+    const bool arrived=m_stepReplyAccepted &&
+        s.stateSeq>m_stepStartSeq && elapsed>=150 &&
+        measured>=minimumEvidence &&
+        touchpanel::teleop::stepArrived(
+            s,m_stepProposal,m_motionUser,m_motionTool);
+    if(!arrived) {
+        m_stepArrivalStableSamples=0;
+        return;
     }
+    if(++m_stepArrivalStableSamples<3)return;
+    m_realMode=RealMode::None;
+    m_motionCommandSent=false;
+    m_singleStepVerified=true;
+    m_verifiedStepSession=s.sessionEpoch;
+    m_motionTimer.stop();
+    emit backendMessageChanged(
+        QStringLiteral("[STEP VERIFIED] 计划=%1 mm 实际=%2 mm "
+                       "剩余误差=%3 mm，耗时=%4 ms，"
+                       "起点=(%5,%6,%7)，实测终点=(%8,%9,%10)，seq=%11。"
+                       "单步经过持续空闲反馈确认。")
+        .arg(m_stepProposal.distanceMm,0,'f',3)
+        .arg(measured,0,'f',3)
+        .arg(remaining,0,'f',3)
+        .arg(elapsed)
+        .arg(m_stepExpectedStart[0],0,'f',3)
+        .arg(m_stepExpectedStart[1],0,'f',3)
+        .arg(m_stepExpectedStart[2],0,'f',3)
+        .arg(s.tcpPose[0],0,'f',3)
+        .arg(s.tcpPose[1],0,'f',3)
+        .arg(s.tcpPose[2],0,'f',3)
+        .arg(s.stateSeq));
 }
 
 void DeviceController::runContinuousTick()
