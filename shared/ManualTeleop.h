@@ -10,6 +10,24 @@ struct ManualAxisMap {
     double scale=0.25;
     double deadzoneMm=1.5;
 };
+// Keep a 1:1 source-axis assignment when the operator changes a combo.
+// Selecting an axis already used by another robot output swaps its previous
+// mapping into that output, retaining the previous sign.
+inline std::array<int,3> swapManualAxisSelection(
+    const std::array<int,3>& previous,int changedRobotAxis,int selectedCode) {
+    if(changedRobotAxis<0||changedRobotAxis>=3 ||
+       selectedCode<0||selectedCode>5)return previous;
+    std::array<int,3> next=previous;
+    const int displaced=previous[changedRobotAxis];
+    for(int other=0;other<3;++other) {
+        if(other!=changedRobotAxis && previous[other]%3==selectedCode%3) {
+            next[other]=displaced;
+            break;
+        }
+    }
+    next[changedRobotAxis]=selectedCode;
+    return next;
+}
 inline bool validManualAxisMap(const ManualAxisMap& m) {
     if(!std::isfinite(m.scale)||m.scale<0.05||m.scale>2.0||
        !std::isfinite(m.deadzoneMm)||m.deadzoneMm<0||m.deadzoneMm>10)return false;
