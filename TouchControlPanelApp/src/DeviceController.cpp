@@ -124,6 +124,7 @@ void DeviceController::applyPreviewCalibration(const touchpanel::teleop::Calibra
 
 void DeviceController::onRelayStateInvalidated()
 {
+    m_singleStepVerified=false;
     if(m_realMode!=RealMode::None)
         haltRealMotion(QStringLiteral("8891 遥测失效，已终止实体运动"));
     else
@@ -290,6 +291,7 @@ void DeviceController::enableRobot()
 
 void DeviceController::disableRobot()
 {
+    m_singleStepVerified=false;
     if(m_realMode!=RealMode::None)haltRealMotion(QStringLiteral("机器人下使能"));
     m_robotBackend->disableRobot();
 }
@@ -306,6 +308,7 @@ void DeviceController::emergencyStopRobot()
     m_motionCommandSent=false;
     m_ikPending=false;
     m_stepPrepared=false;
+    m_singleStepVerified=false;
     m_manualPreview=false;
     m_motionTimer.stop();
     invalidateTeleopBaseline();
@@ -314,6 +317,7 @@ void DeviceController::emergencyStopRobot()
 
 void DeviceController::startDragRobot()
 {
+    m_singleStepVerified=false;
     if(m_realMode!=RealMode::None)haltRealMotion(QStringLiteral("切换到拖拽模式"));
     m_robotBackend->startDrag();
 }
@@ -607,6 +611,10 @@ void DeviceController::startContinuousServo()
         emit backendMessageChanged(QStringLiteral("连续遥控未启动：机器人应处于使能空闲，且 Touch 校准与反馈有效"));
         return;
     }
+    if(!m_singleStepVerified || m_verifiedStepSession!=s.sessionEpoch) {
+        emit backendMessageChanged(QStringLiteral("连续控制未放行：本次 8891 会话尚未完成一次受控单步到位验收"));
+        return;
+    }
     m_realMode=RealMode::Continuous;
     m_manualPreview=false;
     m_motionSession=s.sessionEpoch;
@@ -687,8 +695,10 @@ void DeviceController::monitorSingleStep()
                                 s.tcpPose[2]-m_stepExpectedStart[2]})>=0.25) {
         m_realMode=RealMode::None;
         m_motionCommandSent=false;
+        m_singleStepVerified=true;
+        m_verifiedStepSession=s.sessionEpoch;
         m_motionTimer.stop();
-        emit backendMessageChanged(QStringLiteral("单步结束：已收到命令成功应答并由 8891 确认位置到达"));
+        emit backendMessageChanged(QStringLiteral("单步结束：机器人已由 8891 确认到位；本次会话可测试 ServoJ 连续模式"));
     }
 }
 
