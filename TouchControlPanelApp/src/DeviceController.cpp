@@ -78,10 +78,26 @@ bool DeviceController::getTouchSnapshot(touchpanel::DeviceState& state) const
 void DeviceController::applyPreviewCalibration(const touchpanel::teleop::Calibration& calibration,int user,int tool)
 {
     invalidateTeleopBaseline();
+    m_calibrationApplied=false;
+    if(!m_relayStateClient || !m_backend || !calibration.measured ||
+       !touchpanel::teleop::properRotation(calibration.touchToBase)) {
+        emit backendMessageChanged(QStringLiteral("拒绝应用标定：数据或连接状态无效"));
+        return;
+    }
+    const auto robot=m_relayStateClient->snapshot();
+    const auto touch=m_backend->latestState();
+    if(!touch.valid || !touch.schedulerRunning || !touch.deviceCalibrated ||
+       !touchpanel::evaluateRobotGate(robot).canCaptureCalibration ||
+       robot.userIndex!=user || robot.toolIndex!=tool) {
+        emit backendMessageChanged(QStringLiteral("拒绝应用标定：机器人/Touch 会话或校准状态已失效"));
+        return;
+    }
     m_calibration=calibration;
-    m_calibrationApplied=calibration.measured;
     m_calibrationUser=user;m_calibrationTool=tool;
-    emit backendMessageChanged(QStringLiteral("已启用仅预览的临时坐标标定；不会启用实体运动"));
+    m_calibrationSessionEpoch=robot.sessionEpoch;
+    m_calibrationTouchEpoch=touch.calibrationEpoch;
+    m_calibrationApplied=true;
+    emit backendMessageChanged(QStringLiteral("已启用本次会话相对位移标定（仅预览，不启用实体运动）；姿态约定仍待独立验证"));
 }
 
 void DeviceController::invalidateTeleopBaseline()
@@ -292,7 +308,15 @@ void DeviceController::startTeleop()
         emit backendMessageChanged(QStringLiteral("六维预览失败：需要 Touch 有效六维采样与 HDAPI 已确认校准"));
         return;
     }
-    const auto decision=touchpanel::evaluateRobotGate(m_relayStateClient->snapshot(),
+    const auto robotSnapshot=m_relayStateClient->snapshot();
+    if(m_calibrationApplied &&
+       (robotSnapshot.sessionEpoch!=m_calibrationSessionEpoch ||
+        touch.calibrationEpoch!=m_calibrationTouchEpoch)) {
+        m_calibrationApplied=false;
+        emit backendMessageChanged(QStringLiteral("六维预览未启用：标定绑定的设备或 8891 会话已变化，必须重新标定"));
+        return;
+    }
+    const auto decision=touchpanel::evaluateRobotGate(robotSnapshot,
         m_calibrationApplied,m_calibrationUser,m_calibrationTool);
     if(!decision.canPreview) {
         emit backendMessageChanged(QStringLiteral("六维预览未启用：%1；%2")
@@ -347,7 +371,14 @@ void DeviceController::onMotionTick()
         invalidateTeleopBaseline();
         return;
     }
-    const auto gate=touchpanel::evaluateRobotGate(m_relayStateClient->snapshot(),
+    const auto robotSnapshot=m_relayStateClient->snapshot();
+    if(robotSnapshot.sessionEpoch!=m_calibrationSessionEpoch ||
+       st.calibrationEpoch!=m_calibrationTouchEpoch) {
+        m_calibrationApplied=false;
+        invalidateTeleopBaseline();
+        return;
+    }
+    const auto gate=touchpanel::evaluateRobotGate(robotSnapshot,
         m_calibrationApplied,m_calibrationUser,m_calibrationTool);
     if(!gate.canPreview) {invalidateTeleopBaseline();return;}
     if (!m_lastButtonPressed) {
