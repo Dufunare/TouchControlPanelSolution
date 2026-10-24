@@ -9,6 +9,37 @@ struct StepProposal {
     Pose6 pose{};
     double distanceMm=0;
 };
+// Preserve a fixed per-clutch displacement envelope WITHOUT stopping at
+// its boundary. An ordinary 50-150mm hand gesture may far exceed 15mm at
+// gain=1, so stopping immediately on overflow prevents useful feedback.
+// Saturation preserves direction and lets the robot approach the constrained
+// endpoint; releasing the clutch still requests a controlled stop.
+struct ClutchBound {
+    Pose6 pose{};
+    double rawDistanceMm=0.0;
+    bool saturated=false;
+};
+constexpr double kClutchTrialLimitMm=15.0;
+inline bool boundClutchTarget(const Pose6& requested,const Pose6& origin,
+                             ClutchBound& bounded,
+                             double maxTravelMm=kClutchTrialLimitMm) {
+    if(!finiteSix(requested) || !finiteSix(origin) ||
+       !std::isfinite(maxTravelMm)||maxTravelMm<=0.0||
+       maxTravelMm>kClutchTrialLimitMm)return false;
+    const Vec3 delta={requested[0]-origin[0],
+                      requested[1]-origin[1],
+                      requested[2]-origin[2]};
+    const double magnitude=norm(delta);
+    if(!std::isfinite(magnitude))return false;
+    bounded.pose=requested;
+    bounded.rawDistanceMm=magnitude;
+    bounded.saturated=magnitude>maxTravelMm;
+    if(bounded.saturated) {
+        const double ratio=maxTravelMm/magnitude;
+        for(int i=0;i<3;++i)bounded.pose[i]=origin[i]+delta[i]*ratio;
+    }
+    return true;
+}
 inline bool idleForExperimentalStep(const RobotSnapshot& s,int user,int tool) {
     const auto gate=evaluateRobotGate(s,true,user,tool,150,350);
     if(!gate.canPreview || !finiteSix(s.tcpVelocity) || !finiteSix(s.jointVelocity))
