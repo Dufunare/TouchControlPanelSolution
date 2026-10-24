@@ -120,6 +120,9 @@ private:
     bool m_continuousStopping=false;
     bool m_stopReplyAccepted=false;
     int m_releaseTicks=0;
+    int m_invalidTouchTicks=0;
+    int m_staleTouchTicks=0;
+    std::uint64_t m_lastTouchSampleCounter=0;
     int m_ikQueries=0,m_ikAccepted=0,m_servoCommands=0;
     QElapsedTimer m_stopTimer;
     QElapsedTimer m_continuousStatsTimer;
@@ -132,6 +135,8 @@ private:
     QElapsedTimer m_ikTimer;
     QElapsedTimer m_servoTime;
     std::uint64_t m_stepStartSeq=0;
+    std::uint64_t m_stepLastArrivalSeq=0;
+    int m_stepArrivalStableSamples=0;
     bool m_singleStepVerified=false;
     std::uint64_t m_verifiedStepSession=0;
 };
