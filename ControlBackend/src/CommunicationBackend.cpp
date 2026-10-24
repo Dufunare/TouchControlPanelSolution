@@ -76,6 +76,38 @@ namespace touchpanel
             return trimSpace(trimmed.substr(0, bracket));
         }
 
+        // Controller echos may use different float precision or omit
+        // optional parameters. Match the six motion target values instead
+        // of requiring byte-for-byte command equality.
+        bool sameMovLTarget(const std::string& sent,const std::string& echoed)
+        {
+            if(extractCommandName(sent)!="MovL" || extractCommandName(echoed)!="MovL")
+                return false;
+            const auto numbers=[](const std::string& command,
+                                  std::array<double,6>& out)->bool {
+                const auto open=command.find('(');
+                if(open==std::string::npos)return false;
+                auto start=open+1;
+                for(int i=0;i<6;++i) {
+                    const auto comma=command.find(',',start);
+                    if(comma==std::string::npos)return false;
+                    const std::string token=trimSpace(command.substr(start,comma-start));
+                    try {
+                        std::size_t n=0;
+                        out[i]=std::stod(token,&n);
+                        if(n!=token.size() || !std::isfinite(out[i]))return false;
+                    } catch(...) {return false;}
+                    start=comma+1;
+                }
+                return true;
+            };
+            std::array<double,6> expected{},actual{};
+            if(!numbers(sent,expected)||!numbers(echoed,actual))return false;
+            for(int i=0;i<6;++i)
+                if(std::abs(expected[i]-actual[i])>0.02)return false;
+            return true;
+        }
+
         double clampValue(double value, double minValue, double maxValue)
         {
             return (value < minValue) ? minValue : ((value > maxValue) ? maxValue : value);
@@ -550,9 +582,9 @@ namespace touchpanel
                 // A late reply from a previous MovL must never confirm a
                 // different movement target. Preserve the one-request slot.
                 if(pendingOperation=="MovL" &&
-                   trimSpace(parsed.messageName)!=trimSpace(pendingCommand))
+                   !sameMovLTarget(pendingCommand,parsed.messageName))
                 {
-                    emitMessage("[OP] ignored nonmatching MovL echo");
+                    emitMessage("[OP] MovL reply target mismatch; ignoring potentially stale reply");
                     return;
                 }
                 const bool success = (parsed.errorId == 0);
