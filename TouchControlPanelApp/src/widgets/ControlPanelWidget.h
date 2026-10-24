@@ -2,6 +2,7 @@
 
 #include <QWidget>
 #include <QtGlobal>
+#include <array>
 
 class QPushButton;
 class QLineEdit;
@@ -39,6 +40,7 @@ signals:
     void stopDragRequested();
     void startTeleopRequested();
     void stopTeleopRequested();
+    void manualPreviewRequested(const std::array<int,3>& axes,double gain,double deadzone);
 
 private:
 
