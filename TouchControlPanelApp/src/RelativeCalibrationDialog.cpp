@@ -57,7 +57,6 @@ RelativeCalibrationDialog::RelativeCalibrationDialog(DeviceController* touch,
     m_status->setMinimumHeight(80);
     root->addWidget(m_status);
     m_confirm=new QCheckBox(QStringLiteral("确认本组两个设备的位移按预定方向与比例对应，并已确认机器人静止"),this);
-    m_confirm->setWordWrap(true);
     root->addWidget(m_confirm);
     m_start=new QPushButton(QStringLiteral("① 捕获两台设备起点（静止采样）"),this);
     m_end=new QPushButton(QStringLiteral("② 捕获两台设备终点并记录位移"),this);
