@@ -9,6 +9,7 @@
 #include <QDateTime>
 #include <QTextOption>
 #include <QFont>
+#include <QToolButton>
 
 namespace
 {
@@ -65,7 +66,7 @@ StatusPanelWidget::StatusPanelWidget(QWidget* parent)
 
     m_messageValue = new QPlainTextEdit(messageGroup);
     m_messageValue->setReadOnly(true);
-    m_messageValue->setMinimumHeight(150);
+    m_messageValue->setMinimumHeight(110);
     m_messageValue->setMaximumBlockCount(500);
     m_messageValue->setLineWrapMode(QPlainTextEdit::WidgetWidth);
     m_messageValue->setWordWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
@@ -122,9 +123,26 @@ StatusPanelWidget::StatusPanelWidget(QWidget* parent)
     rootLayout->addWidget(stateGroup);
     rootLayout->addWidget(commStateGroup);
     rootLayout->addWidget(telemetryGroup);
-    rootLayout->addWidget(txGroup);
-    rootLayout->addWidget(rxGroup);
     rootLayout->addWidget(messageGroup);
+
+    auto* rawToggle=new QToolButton(this);
+    rawToggle->setText(QStringLiteral("TCP 原始收发报文 · 高级"));
+    rawToggle->setCheckable(true);
+    rawToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    rawToggle->setArrowType(Qt::RightArrow);
+    auto* rawPanel=new QWidget(this);
+    auto* rawLayout=new QVBoxLayout(rawPanel);
+    rawLayout->setContentsMargins(0,0,0,0);
+    rawLayout->addWidget(txGroup);
+    rawLayout->addWidget(rxGroup);
+    rootLayout->addWidget(rawToggle);
+    rootLayout->addWidget(rawPanel);
+    rawPanel->setVisible(false);
+    connect(rawToggle,&QToolButton::toggled,rawPanel,&QWidget::setVisible);
+    connect(rawToggle,&QToolButton::toggled,rawToggle,
+        [rawToggle](bool expanded){
+            rawToggle->setArrowType(expanded?Qt::DownArrow:Qt::RightArrow);
+        });
 }
 
 void StatusPanelWidget::setDeviceState(const touchpanel::DeviceState& state)
