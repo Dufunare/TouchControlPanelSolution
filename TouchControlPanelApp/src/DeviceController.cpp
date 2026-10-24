@@ -835,16 +835,21 @@ void DeviceController::runContinuousTick()
        s.userIndex!=m_motionUser || s.toolIndex!=m_motionTool ||
        !s.enabled || s.error || s.dragging || s.jogging || s.paused ||
        (s.robotMode!=5 && s.robotMode!=7) ||
-       s.feedbackAgeMs<0 || s.feedbackAgeMs>250 ||
-       s.relayStatusAgeMs<0 || s.relayStatusAgeMs>500) {
+       // Do not mistake an occasionally late 200ms relay heartbeat for
+       // stale high-rate robot feedback: keep a strict 250ms state limit
+       // and a separate 750ms relay_status heartbeat limit.
+       !touchpanel::teleop::continuousTelemetryAgesHealthy(s)) {
         haltRealMotion(QStringLiteral(
             "连续遥控状态不符合要求：Touch运行=%1 校准=%2 Mode=%3 "
             "Enabled=%4 Drag=%5 Running=%6 Jog=%7 Pause=%8 Error=%9 "
-            "FeedbackAge=%10ms RelayAge=%11ms Session=%12")
+            "FeedbackAge=%10ms (max250) RelayAge=%11ms (max750) "
+            "RelayReady=%12 Ports=%13/%14/%15 Session=%16")
             .arg(st.schedulerRunning).arg(st.deviceCalibrated).arg(s.robotMode)
             .arg(s.enabled).arg(s.dragging).arg(s.running)
             .arg(s.jogging).arg(s.paused).arg(s.error)
-            .arg(s.feedbackAgeMs).arg(s.relayStatusAgeMs).arg(s.sessionEpoch));
+            .arg(s.feedbackAgeMs).arg(s.relayStatusAgeMs).arg(s.relayReady)
+            .arg(s.port29999Connected).arg(s.port30003Connected)
+            .arg(s.port30004Connected).arg(s.sessionEpoch));
         return;
     }
 
@@ -1007,7 +1012,8 @@ void DeviceController::runContinuousTick()
         emit backendMessageChanged(
             QStringLiteral("[SERVO RATE] IK请求=%1/s 成功逆解=%2/s ServoJ发送=%3/s，"
                            "Touch原始映射=%4mm 软限目标=%5mm 机器人实测=%6mm "
-                           "当前目标误差=%7mm，Mode=%8 8891延迟=%9ms 增益=%10")
+                           "当前目标误差=%7mm，Mode=%8 8891延迟=%9ms "
+                           "RelayAge=%10ms 增益=%11")
                 .arg(m_ikQueries/seconds,0,'f',1)
                 .arg(m_ikAccepted/seconds,0,'f',1)
                 .arg(m_servoCommands/seconds,0,'f',1)
@@ -1016,7 +1022,7 @@ void DeviceController::runContinuousTick()
                 .arg(touchpanel::teleop::norm(reached),0,'f',2)
                 .arg(distance,0,'f',2)
                 .arg(s.robotMode).arg(s.feedbackAgeMs)
-                .arg(m_manualMap.scale,0,'f',2));
+                .arg(s.relayStatusAgeMs).arg(m_manualMap.scale,0,'f',2));
         m_continuousStatsTimer.restart();
         m_ikQueries=0;m_ikAccepted=0;m_servoCommands=0;
     }
