@@ -688,7 +688,7 @@ void DeviceController::monitorSingleStep()
     if(!m_relayStateClient->hasFreshState() ||
        s.sessionEpoch!=m_motionSession || s.userIndex!=m_motionUser ||
        s.toolIndex!=m_motionTool || s.error || s.dragging ||
-       m_stepTimer.elapsed()>4000) {
+       m_stepTimer.elapsed()>7000) {
         haltRealMotion(QStringLiteral("单步超时、断线或机器人状态异常"));return;
     }
     if(m_stepReplyAccepted && s.stateSeq>m_stepStartSeq &&
