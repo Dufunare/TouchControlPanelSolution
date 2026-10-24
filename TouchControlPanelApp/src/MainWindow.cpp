@@ -13,6 +13,7 @@
 #include "TeleopCalibrationDialog.h"
 #include "RelativeCalibrationDialog.h"
 #include <QPushButton>
+#include <QToolButton>
 #include <QVBoxLayout>
 #include "widgets/ControlPanelWidget.h"
 #include "widgets/GLCoordinateWidget.h"
@@ -31,41 +32,61 @@ MainWindow::MainWindow(QWidget* parent)
     m_controller = new DeviceController(&m_backend, &m_communicationBackend, this);
     m_controller->setRelayStateClient(m_relayStateClient);
     m_controlPanel = new ControlPanelWidget(this);
-    auto* calibrationCheckButton=new QPushButton(QStringLiteral("检查 Touch 校准状态（只读）"),m_controlPanel);
-    if(auto* layout=qobject_cast<QVBoxLayout*>(m_controlPanel->layout()))
-        layout->insertWidget(3,calibrationCheckButton);
-    connect(calibrationCheckButton,&QPushButton::clicked,m_controller,&DeviceController::checkTouchCalibration);
-    auto* relativeCalibrationButton=new QPushButton(QStringLiteral("相对位移与方向标定（分离工作空间）"),m_controlPanel);
-    if(auto* layout=qobject_cast<QVBoxLayout*>(m_controlPanel->layout()))
-        layout->insertWidget(3,relativeCalibrationButton);
+    m_videoWidget = new VideoWidget(this);
+    m_glWidget = new GLCoordinateWidget(this);
+
+    // Less frequently used calibration and GL presentation tools remain
+    // accessible, but do not occupy the control panel by default.
+    auto* advancedToggle=new QToolButton(m_controlPanel);
+    advancedToggle->setText(QStringLiteral("标定与 GL 显示 · 高级"));
+    advancedToggle->setCheckable(true);
+    advancedToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    advancedToggle->setArrowType(Qt::RightArrow);
+    auto* advancedPanel=new QWidget(m_controlPanel);
+    auto* advancedLayout=new QVBoxLayout(advancedPanel);
+    advancedLayout->setContentsMargins(0,0,0,0);
+
+    auto* calibrationCheckButton=new QPushButton(QStringLiteral("检查 Touch 校准状态（只读）"),advancedPanel);
+    auto* relativeCalibrationButton=new QPushButton(QStringLiteral("相对位移与方向标定"),advancedPanel);
+    auto* calibrationButton=new QPushButton(QStringLiteral("绝对空间点对标定"),advancedPanel);
+    auto* originButton=new QPushButton(QStringLiteral("将当前位置设为 GL 原点"),advancedPanel);
+    auto* resetOriginButton=new QPushButton(QStringLiteral("恢复 GL 原始坐标"),advancedPanel);
+    for(auto* button:{calibrationCheckButton,relativeCalibrationButton,
+                      calibrationButton,originButton,resetOriginButton})
+        advancedLayout->addWidget(button);
+    if(auto* layout=qobject_cast<QVBoxLayout*>(m_controlPanel->layout())) {
+        // ControlPanelWidget finishes with a stretch.
+        layout->insertWidget(layout->count()-1,advancedToggle);
+        layout->insertWidget(layout->count()-1,advancedPanel);
+    }
+    advancedPanel->setVisible(false);
+    connect(advancedToggle,&QToolButton::toggled,advancedPanel,&QWidget::setVisible);
+    connect(advancedToggle,&QToolButton::toggled,advancedToggle,
+        [advancedToggle](bool expanded){
+            advancedToggle->setArrowType(expanded?Qt::DownArrow:Qt::RightArrow);
+        });
+    connect(calibrationCheckButton,&QPushButton::clicked,
+            m_controller,&DeviceController::checkTouchCalibration);
     connect(relativeCalibrationButton,&QPushButton::clicked,this,[this]{
         RelativeCalibrationDialog dialog(m_controller,m_relayStateClient,this);
         connect(&dialog,&RelativeCalibrationDialog::calibrationSaved,m_controller,
             &DeviceController::applyPreviewCalibration);
         dialog.exec();
     });
-    auto* calibrationButton=new QPushButton(QStringLiteral("绝对空间点对标定（仅共同基准点）"),m_controlPanel);
-    if(auto* layout=qobject_cast<QVBoxLayout*>(m_controlPanel->layout()))layout->insertWidget(3,calibrationButton);
-    connect(calibrationButton,&QPushButton::clicked,this,[this] {
+    connect(calibrationButton,&QPushButton::clicked,this,[this]{
         TeleopCalibrationDialog dialog(m_controller,m_relayStateClient,this);
         connect(&dialog,&TeleopCalibrationDialog::calibrationSaved,m_controller,
             &DeviceController::applyPreviewCalibration);
         dialog.exec();
     });
-    m_videoWidget = new VideoWidget(this);
-    m_glWidget = new GLCoordinateWidget(this);
-    auto* originButton = new QPushButton(QStringLiteral("将当前位置设为 GL 显示原点"), m_controlPanel);
-    auto* resetOriginButton = new QPushButton(QStringLiteral("恢复 GL 原始坐标"), m_controlPanel);
-    if (auto* layout = qobject_cast<QVBoxLayout*>(m_controlPanel->layout())) {
-        layout->insertWidget(4, originButton);
-        layout->insertWidget(5, resetOriginButton);
-    }
-    connect(originButton, &QPushButton::clicked, this, [this] {
+    connect(originButton,&QPushButton::clicked,this,[this]{
         const bool ok=m_glWidget->captureDisplayOrigin();
-        statusBar()->showMessage(ok ? QStringLiteral("GL 显示原点已更新（不影响 Touch 原始坐标或机械臂）") :
-            QStringLiteral("请先启动有效的 Touch 采集，再设置显示原点。"),5000);
+        statusBar()->showMessage(ok?
+            QStringLiteral("GL 显示原点已更新；不影响机器人或 Touch 原始坐标"):
+            QStringLiteral("请先启动 Touch 有效采集"),5000);
     });
-    connect(resetOriginButton, &QPushButton::clicked,m_glWidget,&GLCoordinateWidget::clearDisplayOrigin);
+    connect(resetOriginButton,&QPushButton::clicked,
+            m_glWidget,&GLCoordinateWidget::clearDisplayOrigin);
     m_statusPanel = new StatusPanelWidget(this);
 
 	//布局设置
