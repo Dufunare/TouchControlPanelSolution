@@ -9,6 +9,7 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QSpinBox>
+#include <QDoubleSpinBox>
 #include <QVBoxLayout>
 
 ControlPanelWidget::ControlPanelWidget(QWidget *parent)
@@ -93,6 +94,31 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     teleopLayout->addWidget(m_startTeleopButton);
     teleopLayout->addWidget(m_stopTeleopButton);
     mainVLayout->addLayout(teleopLayout);
+    auto* manualGroup=new QGroupBox(QStringLiteral("手动轴映射 · 无标定预览"),robotGroup);
+    auto* manualForm=new QFormLayout(manualGroup);
+    QComboBox* axes[3]{};
+    const QStringList choices={QStringLiteral("+Touch X"),QStringLiteral("+Touch Y"),QStringLiteral("+Touch Z"),
+                               QStringLiteral("-Touch X"),QStringLiteral("-Touch Y"),QStringLiteral("-Touch Z")};
+    for(int i=0;i<3;++i) {
+        axes[i]=new QComboBox(manualGroup);
+        axes[i]->addItems(choices);
+        axes[i]->setCurrentIndex(i);
+        manualForm->addRow(QStringLiteral("机器人 %1:").arg(QStringLiteral("XYZ").at(i)),axes[i]);
+    }
+    auto* gain=new QDoubleSpinBox(manualGroup);
+    gain->setRange(0.05,2.0);gain->setDecimals(2);gain->setSingleStep(0.05);gain->setValue(0.25);
+    auto* deadzone=new QDoubleSpinBox(manualGroup);
+    deadzone->setRange(0,10);deadzone->setSuffix(QStringLiteral(" mm"));deadzone->setValue(1.5);
+    manualForm->addRow(QStringLiteral("比例"),gain);
+    manualForm->addRow(QStringLiteral("死区"),deadzone);
+    auto* previewButton=new QPushButton(QStringLiteral("启用手动 XYZ 预览（无实体运动）"),manualGroup);
+    manualForm->addRow(previewButton);
+    connect(previewButton,&QPushButton::clicked,this,[this,axes,gain,deadzone]{
+        emit manualPreviewRequested(
+            {axes[0]->currentIndex(),axes[1]->currentIndex(),axes[2]->currentIndex()},
+            gain->value(),deadzone->value());
+    });
+    mainVLayout->addWidget(manualGroup);
 
     //视频控制区
     auto* videoGroup = new QGroupBox("视频控制", this);
