@@ -547,6 +547,14 @@ namespace touchpanel
                     return;
                 }
 
+                // A late reply from a previous MovL must never confirm a
+                // different movement target. Preserve the one-request slot.
+                if(pendingOperation=="MovL" &&
+                   trimSpace(parsed.messageName)!=trimSpace(pendingCommand))
+                {
+                    emitMessage("[OP] ignored nonmatching MovL echo");
+                    return;
+                }
                 const bool success = (parsed.errorId == 0);
                 if(pendingOperation == "InverseSolution")
                 {
