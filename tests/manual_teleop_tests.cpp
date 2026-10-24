@@ -4,6 +4,15 @@
 using namespace touchpanel::teleop;
 int main() {
     ManualAxisMap m;
+    // Mirror the working master ServoP direction convention by default.
+    assert((m.output==std::array<int,3>{0,5,1}));
+    assert(m.scale==1.0&&m.deadzoneMm==0.3);
+    Pose6 source={0,0,0,0,0,0};
+    Pose6 initial{};
+    assert(manualPositionPreview(m,{10,20,30},source,initial));
+    assert(initial[0]==9.7 && initial[1]==-29.7 && initial[2]==19.7);
+    m.output={0,1,2};
+    m.scale=0.25;m.deadzoneMm=1.5;
     Pose6 base={100,200,300,10,20,30}, out{};
     assert(validManualAxisMap(m));
     assert(manualPositionPreview(m,{21,0,0},base,out));
