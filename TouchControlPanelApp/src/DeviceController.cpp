@@ -85,6 +85,11 @@ void DeviceController::setRelayStateClient(RelayStateClient* client)
     m_relayStateClient = client;
 }
 
+bool DeviceController::realMotionActive() const
+{
+    return m_realMode!=RealMode::None;
+}
+
 bool DeviceController::getTouchSnapshot(touchpanel::DeviceState& state) const
 {
     if(!m_backend)return false;
