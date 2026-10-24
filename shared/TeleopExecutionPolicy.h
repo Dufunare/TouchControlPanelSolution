@@ -5,6 +5,21 @@
 #include <cmath>
 
 namespace touchpanel::teleop {
+// The relay publishes relay_status every 200ms; it is heartbeat/port
+// metadata, NOT the high-rate robot_state motion feedback. Give it several
+// heartbeat periods of tolerance, while the physical robot feedback stays
+// on a stricter 250ms bound. Never ignore a relay_ready=false event.
+inline constexpr int kContinuousRobotFeedbackAgeLimitMs=250;
+inline constexpr int kContinuousRelayStatusAgeLimitMs=750;
+inline bool continuousTelemetryAgesHealthy(const RobotSnapshot& s) {
+    return s.sessionEstablished && s.feedbackValid && s.relayStatusSeen &&
+        s.relayReady && s.port29999Connected && s.port30003Connected &&
+        s.port30004Connected &&
+        s.feedbackAgeMs>=0 &&
+        s.feedbackAgeMs<=kContinuousRobotFeedbackAgeLimitMs &&
+        s.relayStatusAgeMs>=0 &&
+        s.relayStatusAgeMs<=kContinuousRelayStatusAgeLimitMs;
+}
 struct StepProposal {
     Pose6 pose{};
     double distanceMm=0;
