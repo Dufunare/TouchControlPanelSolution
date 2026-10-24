@@ -47,7 +47,7 @@ signals:
 
 private:
     void setAxisChoice(int robotAxis,int sourceCode);
-    std::array<int,3> m_axisSelection{{0,1,2}};
+    std::array<int,3> m_axisSelection{{0,5,1}}; // match working master ServoP axis convention
     std::array<QComboBox*,3> m_axisCombos{{nullptr,nullptr,nullptr}};
     QDoubleSpinBox* m_axisGain=nullptr;
     QDoubleSpinBox* m_axisDeadzone=nullptr;
