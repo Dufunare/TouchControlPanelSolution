@@ -635,12 +635,16 @@ void DeviceController::handleInverseSolution(bool success,const std::array<doubl
        s.userIndex!=m_motionUser || s.toolIndex!=m_motionTool ||
        !s.enabled || s.error || s.dragging || s.jogging || s.paused ||
        (s.robotMode!=5 && s.robotMode!=7) ||
+       !m_ikTimer.isValid() || m_ikTimer.elapsed()>300 ||
        !touchpanel::teleop::acceptableJointSolution(s,m_ikJointOrigin,joints)) {
         haltRealMotion(QStringLiteral("逆解不连续、过期或关节状态失效"));
         return;
     }
     const auto target=touchpanel::teleop::limitedServoTarget(s,joints);
-    m_robotBackend->sendServoJointTarget(target);
+    if(!m_robotBackend->sendServoJointTarget(target)) {
+        haltRealMotion(QStringLiteral("ServoJ 发送失败"));
+        return;
+    }
     m_motionCommandSent=true;
     m_servoTime.restart();
 }
