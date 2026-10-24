@@ -63,7 +63,7 @@ struct GateDecision {
     GateReason reason = GateReason::NoSession;
     bool canCaptureCalibration = false;
     bool canPreview = false;
-    bool canSendRobotMotion = false; // NO physical motion path in this phase.
+    bool canSendRobotMotion = false; // This legacy gate is preview-only; real modes have a separate policy.
 };
 
 inline const char* gateReasonChinese(GateReason reason) {
@@ -139,8 +139,8 @@ inline GateDecision evaluateRobotGate(const RobotSnapshot& s,
     // is defined by Dobot as the algorithm queue execution flag, not as a
     // count of pending robot motions. It may stay true with RobotMode=5 and
     // RunningStatus=0. Do not disqualify the preview on that flag alone.
-    // Actual robot motion remains HARD DISABLED (canSendRobotMotion=false)
-    // and requires a separate, validated movement safety policy.
+    // This preview gate never grants physical motion. Experimental motion
+    // uses TeleopExecutionPolicy instead of reusing canPreview as authorization.
     if(s.robotMode!=5 || s.running || s.jogging || s.paused) {
         result.reason=GateReason::RobotNotIdle;return result;
     }
