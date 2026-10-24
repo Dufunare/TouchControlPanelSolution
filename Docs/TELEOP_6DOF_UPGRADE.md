@@ -1,3 +1,5 @@
+**当前遥控验收与运行约束请优先阅读 [TELEOP_CONTROL_ACCEPTANCE.md](TELEOP_CONTROL_ACCEPTANCE.md)。下文保留阶段性研发记录，部分早期“实体运动禁用”描述反映的是历史状态。**
+
 # TouchControlPanel 六自由度遥操作升级：设计与分阶段落地
 
 > 状态：**阶段 A（六维采样与离线映射 + 禁止物理运动）**。本分支没有启用新的真实运动指令。基于 `master@894ff8f`，不以放行 ServoP 的 relay_station PR 为前提。
