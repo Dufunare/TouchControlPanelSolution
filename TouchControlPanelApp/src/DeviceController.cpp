@@ -623,6 +623,7 @@ void DeviceController::startContinuousServo()
     m_motionSession=s.sessionEpoch;
     m_motionUser=s.userIndex;m_motionTool=s.toolIndex;
     m_motionCommandSent=false;
+    m_haveServoTarget=false;
     m_ikPending=false;
     m_continuousStopping=false;
     m_stopReplyAccepted=false;
@@ -693,6 +694,8 @@ void DeviceController::handleInverseSolution(bool success,const std::array<doubl
         haltRealMotion(QStringLiteral("ServoJ 发送失败"));
         return;
     }
+    m_latestServoTarget=target;
+    m_haveServoTarget=true;
     m_motionCommandSent=true;
     ++m_ikAccepted;
     ++m_servoCommands;
@@ -773,6 +776,7 @@ void DeviceController::runContinuousTick()
             m_continuousStopping=false;
             m_stopReplyAccepted=false;
             m_motionCommandSent=false;
+            m_haveServoTarget=false;
             m_ikPending=false;
             m_releaseTicks=0;
             invalidateTeleopBaseline();
@@ -787,8 +791,9 @@ void DeviceController::runContinuousTick()
     // active ServoJ gesture; never resume until idle/stop are confirmed.
     if(!st.button1Pressed) {
         if(++m_releaseTicks<2)return; // filter one transient HDAPI tick
-        if(m_motionCommandSent) {
+        if(m_motionCommandSent || m_ikPending) {
             m_continuousStopping=true;
+            m_haveServoTarget=false;
             m_stopReplyAccepted=false;
             m_stopTimer.start();
             m_ikPending=false;
@@ -807,6 +812,7 @@ void DeviceController::runContinuousTick()
                 "等待机器人空闲才能重新捕获连续控制基准"));
             return;
         }
+        m_haveServoTarget=false;
         m_touchOrigin=st.positionMm;
         m_touchRotationOrigin=st.rotationMatrix;
         m_robotPoseOrigin=s.tcpPose;
@@ -819,6 +825,17 @@ void DeviceController::runContinuousTick()
     if(st.calibrationEpoch!=m_clutchCalibrationEpoch) {
         haltRealMotion(QStringLiteral("Touch 校准周期发生变化"));
         return;
+    }
+    // ServoJ is an online 33Hz interface, whereas remote dashboard IK
+    // replies arrive at an irregular rate. Repeat ONLY the latest validated
+    // joint target while it is young; never queue arbitrary old targets.
+    if(m_haveServoTarget && m_servoTime.isValid() &&
+       m_servoTime.elapsed()<=180) {
+        if(!m_robotBackend->sendServoJointTarget(m_latestServoTarget)) {
+            haltRealMotion(QStringLiteral("ServoJ 保持发送失败"));
+            return;
+        }
+        ++m_servoCommands;
     }
     if(m_ikPending) {
         if(m_ikTimer.elapsed()>450)
@@ -876,6 +893,7 @@ void DeviceController::haltRealMotion(const QString& cause)
     const bool sent=m_motionCommandSent;
     m_realMode=RealMode::None;
     m_motionCommandSent=false;
+    m_haveServoTarget=false;
     m_continuousStopping=false;
     m_stopReplyAccepted=false;
     m_releaseTicks=0;
