@@ -116,6 +116,7 @@ private:
     bool m_ikPending=false;
     bool m_motionCommandSent=false;
     bool m_haveServoTarget=false;
+    bool m_clutchRangeSaturated=false;
     std::array<double,6> m_latestServoTarget{};
     bool m_continuousStopping=false;
     bool m_stopReplyAccepted=false;
