@@ -35,6 +35,7 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="src\TeleopCalibrationDialog.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\RelativeCalibrationDialog.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="src\RelayStateClient.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="src\DeviceController.cpp">
       <Filter>Source Files</Filter>
@@ -76,6 +77,7 @@
   </ItemGroup>
   <ItemGroup>
     <QtMoc Include="src\TeleopCalibrationDialog.h"><Filter>Header Files</Filter></QtMoc>
+    <QtMoc Include="src\RelativeCalibrationDialog.h"><Filter>Header Files</Filter></QtMoc>
     <QtMoc Include="src\RelayStateClient.h"><Filter>Header Files</Filter></QtMoc>
     <QtMoc Include="src\DeviceController.h">
       <Filter>Header Files</Filter>
