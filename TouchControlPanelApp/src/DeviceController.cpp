@@ -660,6 +660,14 @@ void DeviceController::startContinuousServo()
 void DeviceController::handleRobotOperation(const QString& operation,bool success,
                                            const QString& detail)
 {
+    // Ignore benign unsolicited ServoJ success echoes in the transport.
+    // Explicit errors from the motion controller are always fatal for the
+    // current continuous session; never continue on an ErrorID != 0.
+    if(operation==QStringLiteral("ServoJ") && !success &&
+       m_realMode==RealMode::Continuous) {
+        haltRealMotion(QStringLiteral("ServoJ 控制器拒绝指令：")+detail);
+        return;
+    }
     if(operation==QStringLiteral("MovL") && m_realMode==RealMode::SingleStep) {
         if(!success) {
             haltRealMotion(QStringLiteral("MovL 命令应答失败：")+detail);
