@@ -38,7 +38,7 @@ namespace touchpanel
         void requestInverseSolution(const std::array<double,6>& pose,int user,int tool,
                                     const std::array<double,6>& seed);
         void sendLinearStep(const std::array<double,6>& pose,int user,int tool);
-        void sendServoJointTarget(const std::array<double,6>& joints);
+        bool sendServoJointTarget(const std::array<double,6>& joints);
         void requestControlledStop();
         void requestRobotMode();
         void requestCurrentPose();
