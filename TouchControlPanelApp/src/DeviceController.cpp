@@ -283,8 +283,39 @@ void DeviceController::stopDragRobot()
     m_robotBackend->stopDrag();
 }
 
+void DeviceController::setManualPreviewMapping(const touchpanel::teleop::ManualAxisMap& mapping)
+{
+    if(!touchpanel::teleop::validManualAxisMap(mapping)) {
+        emit backendMessageChanged(QStringLiteral("手动轴映射无效：三个输出轴应各对应不同的 Touch 轴"));
+        return;
+    }
+    m_manualMap=mapping;
+    invalidateTeleopBaseline();
+}
+
+void DeviceController::startManualPreview()
+{
+    if(!touchpanel::teleop::validManualAxisMap(m_manualMap) ||
+       !m_backend || !m_backend->isRunning() || !m_relayStateClient) {
+        emit backendMessageChanged(QStringLiteral("手动预览失败：Touch 采集或 8891 遥测未启动"));
+        return;
+    }
+    const auto touch=m_backend->latestState();
+    const auto robot=m_relayStateClient->snapshot();
+    if(!touch.valid || !touch.deviceCalibrated ||
+       !touchpanel::evaluateRobotGate(robot).canCaptureCalibration) {
+        emit backendMessageChanged(QStringLiteral("手动预览失败：需要 HDAPI 已确认校准与新鲜机器人反馈"));
+        return;
+    }
+    m_manualPreview=true;
+    invalidateTeleopBaseline();
+    if(!m_motionTimer.isActive())m_motionTimer.start();
+    emit backendMessageChanged(QStringLiteral("手动三轴预览已开启：Button1 离合，锁定 TCP 姿态，不下发实体运动"));
+}
+
 void DeviceController::startTeleop()
 {
+    m_manualPreview=false;
     if (m_backend == nullptr || m_robotBackend == nullptr)
     {
         emit backendMessageChanged("后端对象为空，无法开始控制。");
@@ -352,7 +383,8 @@ void DeviceController::stopTeleop()
     m_motionBaselineReady = false;
     m_hasLastSent = false;
     m_previewLastValid = false;
-    emit backendMessageChanged("已停止六维映射预览；本版本无遥操作运动下发。");
+    m_manualPreview=false;
+    emit backendMessageChanged("已停止预览；没有发送实体遥操作运动。");
 }
 
 void DeviceController::onMotionTick()
@@ -372,15 +404,24 @@ void DeviceController::onMotionTick()
         return;
     }
     const auto robotSnapshot=m_relayStateClient->snapshot();
-    if(robotSnapshot.sessionEpoch!=m_calibrationSessionEpoch ||
-       st.calibrationEpoch!=m_calibrationTouchEpoch) {
+    if(!m_manualPreview &&
+       (robotSnapshot.sessionEpoch!=m_calibrationSessionEpoch ||
+        st.calibrationEpoch!=m_calibrationTouchEpoch)) {
         m_calibrationApplied=false;
         invalidateTeleopBaseline();
         return;
     }
     const auto gate=touchpanel::evaluateRobotGate(robotSnapshot,
         m_calibrationApplied,m_calibrationUser,m_calibrationTool);
-    if(!gate.canPreview) {invalidateTeleopBaseline();return;}
+    if(m_manualPreview) {
+        // Read-only mapping needs fresh robot feedback, not a saved spatial fit.
+        // Any error or motion invalidates the clutch; never send real commands.
+        if(!gate.canCaptureCalibration || robotSnapshot.error ||
+           robotSnapshot.running || robotSnapshot.dragging ||
+           robotSnapshot.jogging || robotSnapshot.paused) {
+            invalidateTeleopBaseline();return;
+        }
+    } else if(!gate.canPreview) {invalidateTeleopBaseline();return;}
     if (!m_lastButtonPressed) {
         // Re-capture after each release or invalidation. Never use legacy GetPose cache.
         if (!m_relayStateClient->tryGetFreshPose(m_robotPoseOrigin)) return;
@@ -400,10 +441,14 @@ void DeviceController::onMotionTick()
     anchor.touchPosition = m_touchOrigin;
     anchor.touchRotation = m_touchRotationOrigin;
     anchor.robotPose = m_robotPoseOrigin;
-    const auto& calibration=m_calibration;
     touchpanel::teleop::Pose6 requested{};
-    if (!touchpanel::teleop::mapClutchedPose(calibration,anchor,
-                                             st.positionMm,st.rotationMatrix,requested)) {
+    const bool mapped=m_manualPreview ?
+        touchpanel::teleop::manualPositionPreview(
+            m_manualMap,touchpanel::teleop::sub(st.positionMm,m_touchOrigin),
+            m_robotPoseOrigin,requested) :
+        touchpanel::teleop::mapClutchedPose(
+            m_calibration,anchor,st.positionMm,st.rotationMatrix,requested);
+    if (!mapped) {
         invalidateTeleopBaseline();
         emit backendMessageChanged(QStringLiteral("[DRY RUN] 无效的旋转/姿态，已停止当前预览"));
         return;
