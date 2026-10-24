@@ -125,6 +125,7 @@ private:
     int m_staleTouchTicks=0;
     std::uint64_t m_lastTouchSampleCounter=0;
     int m_ikQueries=0,m_ikAccepted=0,m_servoCommands=0;
+    int m_ikRttSumMs=0,m_ikRttMaxMs=0,m_ikRttSamples=0;
     QElapsedTimer m_stopTimer;
     QElapsedTimer m_continuousStatsTimer;
     int m_motionUser=-1,m_motionTool=-1;
