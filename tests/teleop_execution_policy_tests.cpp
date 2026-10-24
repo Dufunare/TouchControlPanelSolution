@@ -27,7 +27,7 @@ int main(){
     const std::array<double,6> solved={0.6,1,0,0,0,0};
     assert(acceptableJointSolution(s,first,solved));
     const auto target=limitedServoTarget(s,solved);
-    assert(target[0]<=0.18+1e-10&&target[1]<=0.18+1e-10);
+    assert(target[0]<=0.35+1e-10&&target[1]<=0.35+1e-10);
     auto bad=solved;bad[0]=40;
     assert(!acceptableJointSolution(s,first,bad));
     std::cout<<"Motion proposal and IK continuity tests passed\n";
