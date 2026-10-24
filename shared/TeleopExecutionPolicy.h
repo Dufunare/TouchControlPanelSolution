@@ -30,7 +30,7 @@ inline bool proposeSmallPositionStep(const RobotSnapshot& s,
     const Vec3 error=sub(wanted,here);
     const double len=norm(error);
     if(!std::isfinite(len)||len<0.4)return false;
-    const Vec3 next=add(here,scale(error,std::min(len,1.0)/len));
+    const Vec3 next=add(here,scale(error,std::min(len,3.0)/len));
     if(norm(sub(next,anchor))>15.0)return false;
     result.pose=s.tcpPose;
     for(int i=0;i<3;++i)result.pose[i]=next[i];
