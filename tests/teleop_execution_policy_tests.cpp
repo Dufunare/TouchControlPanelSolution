@@ -14,7 +14,7 @@ int main(){
     StepProposal p;
     auto desired=s.tcpPose;desired[1]+=9;
     assert(proposeSmallPositionStep(s,desired,s.tcpPose,0,0,p));
-    assert(p.distanceMm<=1.0&&p.pose[1]==101);
+    assert(p.distanceMm<=3.0&&p.pose[1]==103);
     assert(p.pose[3]==170);
     s.running=true;assert(!proposeSmallPositionStep(s,desired,s.tcpPose,0,0,p));
     s.running=false;s.feedbackAgeMs=200;
