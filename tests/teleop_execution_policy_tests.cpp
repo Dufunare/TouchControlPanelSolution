@@ -11,6 +11,32 @@ int main(){
     s.stateSeq=1;s.feedbackAgeMs=8;s.relayStatusAgeMs=8;
     s.robotMode=5;s.enabled=true;s.userIndex=0;s.toolIndex=0;
     s.tcpPose={100,100,300,170,0,-90};
+    // Regression: relay_status publishes at a 200ms heartbeat, whereas
+    // actual robot_state feedback is much faster. At 501/511ms metadata
+    // age with fresh motion feedback, the controller must not stop a
+    // moving robot merely because one or two heartbeats were delayed.
+    assert(continuousTelemetryAgesHealthy(s));
+    s.relayStatusAgeMs=501;
+    assert(continuousTelemetryAgesHealthy(s));
+    s.relayStatusAgeMs=511;
+    assert(continuousTelemetryAgesHealthy(s));
+    s.relayStatusAgeMs=750;
+    assert(continuousTelemetryAgesHealthy(s));
+    s.relayStatusAgeMs=751;
+    assert(!continuousTelemetryAgesHealthy(s));
+    s.relayStatusAgeMs=8;
+    s.feedbackAgeMs=251;
+    assert(!continuousTelemetryAgesHealthy(s));
+    s.feedbackAgeMs=8;
+    s.relayReady=false;
+    assert(!continuousTelemetryAgesHealthy(s));
+    s.relayReady=true;
+    s.port30003Connected=false;
+    assert(!continuousTelemetryAgesHealthy(s));
+    s.port30003Connected=true;
+    s.sessionEstablished=false;
+    assert(!continuousTelemetryAgesHealthy(s));
+    s.sessionEstablished=true;
     StepProposal p;
     auto desired=s.tcpPose;desired[1]+=9;
     assert(proposeSmallPositionStep(s,desired,s.tcpPose,0,0,p));
