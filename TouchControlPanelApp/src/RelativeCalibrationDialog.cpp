@@ -56,7 +56,7 @@ RelativeCalibrationDialog::RelativeCalibrationDialog(DeviceController* touch,
     m_status->setWordWrap(true);
     m_status->setMinimumHeight(80);
     root->addWidget(m_status);
-    m_confirm=new QCheckBox(QStringLiteral("确认本组两个设备的位移按预定方向与比例对应，并已确认机器人静止"),this);
+    m_confirm=new QCheckBox(QStringLiteral("确认本组位移按预定方向/比例对应，且机器人已静止"),this);
     root->addWidget(m_confirm);
     m_start=new QPushButton(QStringLiteral("① 捕获两台设备起点（静止采样）"),this);
     m_end=new QPushButton(QStringLiteral("② 捕获两台设备终点并记录位移"),this);
@@ -183,7 +183,7 @@ void RelativeCalibrationDialog::captureTick() {
         m_haveStart=false;
         m_confirm->setChecked(false);
         describe(QStringLiteral("已记录第 %1 组：Touch Δ(%2,%3,%4)，Robot Δ(%5,%6,%7) mm。重新摆放起点继续。")
-            .arg(m_gestures.size())
+            .arg(static_cast<int>(m_gestures.size()))
             .arg(delta.touch[0],0,'f',1).arg(delta.touch[1],0,'f',1).arg(delta.touch[2],0,'f',1)
             .arg(delta.robot[0],0,'f',1).arg(delta.robot[1],0,'f',1).arg(delta.robot[2],0,'f',1));
     }
