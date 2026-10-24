@@ -642,6 +642,7 @@ void DeviceController::startContinuousServo()
     m_motionUser=s.userIndex;m_motionTool=s.toolIndex;
     m_motionCommandSent=false;
     m_haveServoTarget=false;
+    m_clutchRangeSaturated=false;
     m_ikPending=false;
     m_continuousStopping=false;
     m_stopReplyAccepted=false;
@@ -921,6 +922,7 @@ void DeviceController::runContinuousTick()
             return;
         }
         m_haveServoTarget=false;
+        m_clutchRangeSaturated=false;
         m_touchOrigin=st.positionMm;
         m_touchRotationOrigin=st.rotationMatrix;
         m_robotPoseOrigin=s.tcpPose;
@@ -957,26 +959,27 @@ void DeviceController::runContinuousTick()
         haltRealMotion(QStringLiteral("目标生成失败"));
         return;
     }
-    const touchpanel::teleop::Vec3 delta={
-        requested[0]-m_robotPoseOrigin[0],
-        requested[1]-m_robotPoseOrigin[1],
-        requested[2]-m_robotPoseOrigin[2]};
-    const double displacement=touchpanel::teleop::norm(delta);
-    if(displacement>15.0) {
-        // This is a per-clutch test envelope, not a fatal loss of control.
-        // Stop the current gesture and stay ARMED; the operator must
-        // release Button1 and wait for confirmed idle before re-clutching.
-        const bool stopNeeded=m_motionCommandSent || m_ikPending;
-        m_continuousStopping=true;
-        m_stopReplyAccepted=!stopNeeded;
-        m_stopTimer.start();
-        m_ikPending=false;
-        m_haveServoTarget=false;
-        if(stopNeeded)m_robotBackend->requestControlledStop();
-        emit backendMessageChanged(QStringLiteral(
-            "本次离合已达到 15mm 受控范围：正在停稳；释放 Button1 后可重新按下继续"));
+    // Saturate the requested target at the same 15mm per-clutch limit.
+    // Reaching that limit must NOT repeatedly reset the physical robot:
+    // a normal Touch gesture can exceed 15mm almost instantly.
+    touchpanel::teleop::ClutchBound bounded{};
+    if(!touchpanel::teleop::boundClutchTarget(
+         requested,m_robotPoseOrigin,bounded)) {
+        haltRealMotion(QStringLiteral("离合目标不是有限数值，停止控制"));
         return;
     }
+    const double displacement=bounded.rawDistanceMm;
+    requested=bounded.pose;
+    if(bounded.saturated && !m_clutchRangeSaturated) {
+        emit backendMessageChanged(
+            QStringLiteral("[CLUTCH LIMIT] Touch 映射原始位移=%1mm；"
+                           "机器人目标软限幅为 %2mm。"
+                           "保持 Button1 可继续接近限幅终点，"
+                           "松开并确认停稳后可重新建立基准。")
+              .arg(bounded.rawDistanceMm,0,'f',2)
+              .arg(touchpanel::teleop::kClutchTrialLimitMm,0,'f',1));
+    }
+    m_clutchRangeSaturated=bounded.saturated;
     const touchpanel::teleop::Vec3 tracking={
         requested[0]-s.tcpPose[0],requested[1]-s.tcpPose[1],
         requested[2]-s.tcpPose[2]};
@@ -1019,6 +1022,7 @@ void DeviceController::haltRealMotion(const QString& cause)
     m_realMode=RealMode::None;
     m_motionCommandSent=false;
     m_haveServoTarget=false;
+    m_clutchRangeSaturated=false;
     m_continuousStopping=false;
     m_stopReplyAccepted=false;
     m_releaseTicks=0;
