@@ -716,7 +716,7 @@ void DeviceController::handleInverseSolution(bool success,const std::array<doubl
        s.userIndex!=m_motionUser || s.toolIndex!=m_motionTool ||
        !s.enabled || s.error || s.dragging || s.jogging || s.paused ||
        (s.robotMode!=5 && s.robotMode!=7) ||
-       !m_ikTimer.isValid() || m_ikTimer.elapsed()>450 ||
+       !m_ikTimer.isValid() || m_ikTimer.elapsed()>touchpanel::teleop::kIKReplyAcceptMs ||
        !validGeometry) {
         double maxMeasured=0,maxFromAnchor=0;
         for(int i=0;i<6;++i) {
@@ -951,9 +951,10 @@ void DeviceController::runContinuousTick()
     }
     // ServoJ is an online 33Hz interface, whereas remote dashboard IK
     // replies arrive at an irregular rate. Repeat ONLY the latest validated
-    // joint target while it is young; never queue arbitrary old targets.
+    // joint target while it is bounded in time AND all fresh 8891/Touch
+    // gates still hold. Repeated ServoJ writes do NOT create new IK targets.
     if(m_haveServoTarget && m_servoTime.isValid() &&
-       m_servoTime.elapsed()<=180) {
+       m_servoTime.elapsed()<=touchpanel::teleop::kMaxValidatedSetpointHoldMs) {
         if(!m_robotBackend->sendServoJointTarget(m_latestServoTarget)) {
             haltRealMotion(QStringLiteral("ServoJ 保持发送失败"));
             return;
@@ -961,8 +962,9 @@ void DeviceController::runContinuousTick()
         ++m_servoCommands;
     }
     if(m_ikPending) {
-        if(m_ikTimer.elapsed()>450)
-            haltRealMotion(QStringLiteral("InverseSolution 未在 450ms 内响应，停止连续发送"));
+        if(m_ikTimer.elapsed()>touchpanel::teleop::kIKRequestTimeoutMs)
+            haltRealMotion(QStringLiteral("InverseSolution 在 %1ms 内没有应答；停止连续发送")
+                .arg(touchpanel::teleop::kIKRequestTimeoutMs));
         return;
     }
     touchpanel::teleop::Pose6 requested{};
