@@ -11,6 +11,7 @@
 #include "DeviceController.h"
 #include "RelayStateClient.h"
 #include "TeleopCalibrationDialog.h"
+#include "RelativeCalibrationDialog.h"
 #include <QPushButton>
 #include <QVBoxLayout>
 #include "widgets/ControlPanelWidget.h"
@@ -34,7 +35,16 @@ MainWindow::MainWindow(QWidget* parent)
     if(auto* layout=qobject_cast<QVBoxLayout*>(m_controlPanel->layout()))
         layout->insertWidget(3,calibrationCheckButton);
     connect(calibrationCheckButton,&QPushButton::clicked,m_controller,&DeviceController::checkTouchCalibration);
-    auto* calibrationButton=new QPushButton(QStringLiteral("空间标定（仅采样）"),m_controlPanel);
+    auto* relativeCalibrationButton=new QPushButton(QStringLiteral("相对位移与方向标定（分离工作空间）"),m_controlPanel);
+    if(auto* layout=qobject_cast<QVBoxLayout*>(m_controlPanel->layout()))
+        layout->insertWidget(3,relativeCalibrationButton);
+    connect(relativeCalibrationButton,&QPushButton::clicked,this,[this]{
+        RelativeCalibrationDialog dialog(m_controller,m_relayStateClient,this);
+        connect(&dialog,&RelativeCalibrationDialog::calibrationSaved,m_controller,
+            &DeviceController::applyPreviewCalibration);
+        dialog.exec();
+    });
+    auto* calibrationButton=new QPushButton(QStringLiteral("绝对空间点对标定（仅共同基准点）"),m_controlPanel);
     if(auto* layout=qobject_cast<QVBoxLayout*>(m_controlPanel->layout()))layout->insertWidget(3,calibrationButton);
     connect(calibrationButton,&QPushButton::clicked,this,[this] {
         TeleopCalibrationDialog dialog(m_controller,m_relayStateClient,this);
