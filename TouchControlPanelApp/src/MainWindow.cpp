@@ -20,13 +20,12 @@
 #include "widgets/ControlPanelWidget.h"
 #include "widgets/GLCoordinateWidget.h"
 #include "widgets/StatusPanelWidget.h"
-#include "widgets/VideoWidget.h"
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
 {
     //窗口设置
-    setWindowTitle("TouchControlPanel(阶段二)");
+    setWindowTitle(QStringLiteral("TouchControlPanel · Teleoperation"));
     resize(1440, 860);
 
 	//组件初始化
@@ -34,7 +33,6 @@ MainWindow::MainWindow(QWidget* parent)
     m_controller = new DeviceController(&m_backend, &m_communicationBackend, this);
     m_controller->setRelayStateClient(m_relayStateClient);
     m_controlPanel = new ControlPanelWidget(this);
-    m_videoWidget = new VideoWidget(this);
     m_glWidget = new GLCoordinateWidget(this);
 
     // Less frequently used calibration and GL presentation tools remain
@@ -92,14 +90,8 @@ MainWindow::MainWindow(QWidget* parent)
     m_statusPanel = new StatusPanelWidget(this);
 
 	//布局设置
-    auto* leftSplitter = new QSplitter(Qt::Vertical, this);
-    leftSplitter->addWidget(m_videoWidget);
-    leftSplitter->addWidget(m_glWidget);
-    leftSplitter->setStretchFactor(0, 1);
-    leftSplitter->setStretchFactor(1, 1);
-    leftSplitter->setChildrenCollapsible(false);
-    leftSplitter->setSizes({ 380, 400 });
-
+    // The camera placeholder belongs to a separate PR. Keep the active
+    // 6DoF Touch scene prominent rather than reserving half the window for NO SIGNAL.
     // The two sidebars grow vertically as controls and logs are added.
     // Independent scroll areas keep the center video/GL splitter visible
     // even when the main window becomes short. Existing widget pointers and
@@ -126,7 +118,7 @@ MainWindow::MainWindow(QWidget* parent)
 
     auto* splitter = new QSplitter(Qt::Horizontal, this);
     splitter->addWidget(controlsScroll);
-    splitter->addWidget(leftSplitter);
+    splitter->addWidget(m_glWidget);
     splitter->addWidget(statusScroll);
     splitter->setStretchFactor(0, 1);
     splitter->setStretchFactor(1, 4);
