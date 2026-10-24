@@ -890,10 +890,10 @@ namespace touchpanel
         m_impl->sendRobotCommand("MovL",c.str(),3000,kRobotMotionPort);
     }
 
-    void CommunicationBackend::sendServoJointTarget(const std::array<double,6>& joints)
+    bool CommunicationBackend::sendServoJointTarget(const std::array<double,6>& joints)
     {
-        for(double q:joints)if(!std::isfinite(q))return;
-        if(!m_impl->connected.load(std::memory_order_relaxed))return;
+        for(double q:joints)if(!std::isfinite(q))return false;
+        if(!m_impl->connected.load(std::memory_order_relaxed))return false;
         std::ostringstream c;
         c<<"ServoJ(";
         for(std::size_t i=0;i<6;++i) {
@@ -902,7 +902,7 @@ namespace touchpanel
         }
         c<<",t=0.1,lookahead_time=50,gain=500)";
         // Dobot V3 ServoJ intentionally has NO normal command reply.
-        m_impl->sendLine(std::to_string(kRobotMotionPort)+"|"+c.str(),false);
+        return m_impl->sendLine(std::to_string(kRobotMotionPort)+"|"+c.str(),false);
     }
 
     void CommunicationBackend::requestControlledStop()
