@@ -3,6 +3,9 @@
 #include <QObject>
 #include <array>
 #include <QTimer>
+#include <QElapsedTimer>
+#include <QString>
+#include "TeleopExecutionPolicy.h"
 #include <QtGlobal>
 
 #include "DeviceStateQt.h"
@@ -54,6 +57,9 @@ public slots:
     void stopDragRobot();
     void startTeleop();
     void startManualPreview();
+    void prepareSingleStep();
+    void confirmSingleStep();
+    void startContinuousServo();
     void stopTeleop();
 
 signals:
@@ -64,10 +70,16 @@ signals:
     void robotStatusChanged(const QString& status);
     void tcpTxMessage(const QString& message);
     void tcpRxMessage(const QString& message);
+    void singleStepConfirmationNeeded(const QString& summary);
 
 private slots:
     void pollDeviceState();
     void onMotionTick();
+    void handleRobotOperation(const QString& operation,bool success,const QString& detail);
+    void handleInverseSolution(bool success,const std::array<double,6>& joints);
+    void runContinuousTick();
+    void monitorSingleStep();
+    void haltRealMotion(const QString& cause);
 
 private:
     RelayStateClient* m_relayStateClient = nullptr;
@@ -94,4 +106,19 @@ private:
     std::array<double, 3> m_robotOrigin{ 0.0, 0.0, 0.0 };
     std::array<double, 3> m_lastSent{ 0.0, 0.0, 0.0 };
     bool m_hasLastSent = false;
+    enum class RealMode { None, SingleStep, Continuous };
+    RealMode m_realMode=RealMode::None;
+    bool m_stepPrepared=false;
+    bool m_stepAwaitingReply=false;
+    bool m_stepReplyAccepted=false;
+    bool m_ikPending=false;
+    int m_motionUser=-1,m_motionTool=-1;
+    std::uint64_t m_motionSession=0;
+    std::array<double,6> m_ikJointOrigin{};
+    std::array<double,6> m_stepExpectedStart{};
+    touchpanel::teleop::StepProposal m_stepProposal{};
+    QElapsedTimer m_stepTimer;
+    QElapsedTimer m_ikTimer;
+    QElapsedTimer m_servoTime;
+    std::uint64_t m_stepStartSeq=0;
 };
