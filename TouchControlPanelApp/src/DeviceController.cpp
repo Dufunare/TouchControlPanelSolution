@@ -676,6 +676,8 @@ void DeviceController::handleInverseSolution(bool success,const std::array<doubl
     }
     const auto st=m_backend->latestState();
     const auto s=m_relayStateClient->snapshot();
+    bool validGeometry=touchpanel::teleop::acceptableJointSolution(
+        s,m_ikJointOrigin,joints);
     if(!m_motionBaselineReady || !m_lastButtonPressed ||
        !st.valid || !st.button1Pressed || !st.deviceCalibrated ||
        st.calibrationEpoch!=m_clutchCalibrationEpoch ||
@@ -684,9 +686,21 @@ void DeviceController::handleInverseSolution(bool success,const std::array<doubl
        s.userIndex!=m_motionUser || s.toolIndex!=m_motionTool ||
        !s.enabled || s.error || s.dragging || s.jogging || s.paused ||
        (s.robotMode!=5 && s.robotMode!=7) ||
-       !m_ikTimer.isValid() || m_ikTimer.elapsed()>300 ||
-       !touchpanel::teleop::acceptableJointSolution(s,m_ikJointOrigin,joints)) {
-        haltRealMotion(QStringLiteral("逆解不连续、过期或关节状态失效"));
+       !m_ikTimer.isValid() || m_ikTimer.elapsed()>450 ||
+       !validGeometry) {
+        double maxMeasured=0,maxFromAnchor=0;
+        for(int i=0;i<6;++i) {
+            maxMeasured=std::max(maxMeasured,std::abs(joints[i]-s.jointPosition[i]));
+            maxFromAnchor=std::max(maxFromAnchor,std::abs(joints[i]-m_ikJointOrigin[i]));
+        }
+        haltRealMotion(QStringLiteral(
+            "逆解结果不符合连续控制条件：IK耗时=%1ms，Mode=%2，"
+            "8891延迟=%3ms，Button1=%4，关节相对实际最大差=%5°(限3°)，"
+            "相对离合起点最大差=%6°(限8°)，几何检查=%7")
+            .arg(m_ikTimer.isValid()?m_ikTimer.elapsed():-1)
+            .arg(s.robotMode).arg(s.feedbackAgeMs).arg(st.button1Pressed)
+            .arg(maxMeasured,0,'f',2).arg(maxFromAnchor,0,'f',2)
+            .arg(validGeometry?QStringLiteral("通过"):QStringLiteral("拒绝")));
         return;
     }
     const auto target=touchpanel::teleop::limitedServoTarget(s,joints);
