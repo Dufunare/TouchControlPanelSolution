@@ -193,6 +193,7 @@ namespace touchpanel
         TextCallback txCallback;
         TextCallback rxCallback;
         OperationCallback operationCallback;
+        JointSolutionCallback jointSolutionCallback;
 
         std::mutex callbackMutex;
 
@@ -296,6 +297,16 @@ namespace touchpanel
             {
                 callback(text);
             }
+        }
+
+        void emitJointSolution(bool success,const std::array<double,6>& joints,const std::string& detail)
+        {
+            JointSolutionCallback callback;
+            {
+                std::lock_guard<std::mutex> lock(callbackMutex);
+                callback=jointSolutionCallback;
+            }
+            if(callback)callback(success,joints,detail);
         }
 
         void emitOperation(const std::string& operation, bool success, const std::string& detail)
@@ -530,6 +541,19 @@ namespace touchpanel
                 }
 
                 const bool success = (parsed.errorId == 0);
+                if(pendingOperation == "InverseSolution")
+                {
+                    std::array<double,6> joints{};
+                    const bool solutionValid=success && parsed.values.size()==6;
+                    if(solutionValid)for(int i=0;i<6;++i)joints[i]=parsed.values[i];
+                    bool finiteValues=solutionValid;
+                    for(double q:joints)if(!std::isfinite(q))finiteValues=false;
+                    finishPendingByReplyObserved(finiteValues,
+                        finiteValues ? "IK reply" : "InverseSolution error or incomplete joints");
+                    emitJointSolution(finiteValues,joints,
+                        finiteValues ? "InverseSolution" : "IK missing/invalid");
+                    return;
+                }
                 if (success)
                 {
                     finishPendingByReplyObserved(true, parsed.messageName);
@@ -638,7 +662,7 @@ namespace touchpanel
             }
         }
 
-        void sendRobotCommand(const std::string& operation, const std::string& command, int timeoutMs)
+        void sendRobotCommand(const std::string& operation, const std::string& command, int timeoutMs, std::uint16_t port=kRobotControlPort)
         {
             if (!connected.load(std::memory_order_relaxed))
             {
@@ -662,7 +686,7 @@ namespace touchpanel
                 pending.deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
             }
 
-            const std::string packet = std::to_string(kRobotControlPort) + "|" + command;
+            const std::string packet = std::to_string(port) + "|" + command;
             if (!sendLine(packet, true))
             {
                 finishPendingAsCanceled("发送失败");
@@ -729,6 +753,13 @@ namespace touchpanel
         std::lock_guard<std::mutex> lock(m_impl->callbackMutex);
         m_impl->operationCallback = std::move(callback);
     }
+
+    void CommunicationBackend::setJointSolutionCallback(JointSolutionCallback callback)
+    {
+        std::lock_guard<std::mutex> lock(m_impl->callbackMutex);
+        m_impl->jointSolutionCallback=std::move(callback);
+    }
+
 
     void CommunicationBackend::connectTransit(const std::string& ipOverride, std::uint16_t portOverride)
     {
@@ -828,6 +859,58 @@ namespace touchpanel
         (void)y;
         (void)z;
         m_impl->emitMessage("ServoP 已禁用：当前版本仅允许六维遥操作预览。");
+    }
+
+    void CommunicationBackend::requestInverseSolution(const std::array<double,6>& pose,int user,int tool,
+                                                       const std::array<double,6>& seed)
+    {
+        for(double x:pose)if(!std::isfinite(x))return;
+        for(double x:seed)if(!std::isfinite(x))return;
+        if(user<0||tool<0)return;
+        std::ostringstream c;
+        c<<"InverseSolution(";
+        for(double x:pose)c<<formatDouble3(x)<<",";
+        c<<user<<","<<tool<<",1,{";
+        for(std::size_t i=0;i<6;++i) {
+            if(i)c<<",";
+            c<<formatDouble3(seed[i]);
+        }
+        c<<"})";
+        m_impl->sendRobotCommand("InverseSolution",c.str(),1000);
+    }
+
+    void CommunicationBackend::sendLinearStep(const std::array<double,6>& pose,int user,int tool)
+    {
+        for(double x:pose)if(!std::isfinite(x))return;
+        if(user<0||tool<0)return;
+        std::ostringstream c;
+        c<<"MovL(";
+        for(double x:pose)c<<formatDouble3(x)<<",";
+        c<<"User="<<user<<",Tool="<<tool<<",SpeedL=1,AccL=1)";
+        m_impl->sendRobotCommand("MovL",c.str(),3000,kRobotMotionPort);
+    }
+
+    void CommunicationBackend::sendServoJointTarget(const std::array<double,6>& joints)
+    {
+        for(double q:joints)if(!std::isfinite(q))return;
+        if(!m_impl->connected.load(std::memory_order_relaxed))return;
+        std::ostringstream c;
+        c<<"ServoJ(";
+        for(std::size_t i=0;i<6;++i) {
+            if(i)c<<",";
+            c<<formatDouble3(joints[i]);
+        }
+        c<<",t=0.1,lookahead_time=50,gain=500)";
+        // Dobot V3 ServoJ intentionally has NO normal command reply.
+        m_impl->sendLine(std::to_string(kRobotMotionPort)+"|"+c.str(),false);
+    }
+
+    void CommunicationBackend::requestControlledStop()
+    {
+        // ResetRobot is explicitly documented to stop the robot and clear
+        // its planned motion queue. This is NOT a hardware E-stop.
+        m_impl->finishPendingAsCanceled("operator stop");
+        m_impl->sendRobotCommand("ResetRobot","ResetRobot()",3000);
     }
 
     void CommunicationBackend::requestRobotMode()
