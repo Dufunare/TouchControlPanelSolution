@@ -819,10 +819,23 @@ void DeviceController::monitorSingleStep()
 
 void DeviceController::runContinuousTick()
 {
-    if(!m_backend || !m_relayStateClient || !m_robotBackend ||
-       !m_backend->isRunning() || !m_relayStateClient->hasFreshState() ||
-       !m_robotBackend->isTransitConnected()) {
-        haltRealMotion(QStringLiteral("连续遥控链路失效：Touch/8888/8891 连接或数据新鲜度异常"));
+    const bool touchRunning=m_backend && m_backend->isRunning();
+    const bool legacyConnected=m_robotBackend && m_robotBackend->isTransitConnected();
+    const bool stateFresh=m_relayStateClient && m_relayStateClient->hasFreshState();
+    if(!touchRunning || !legacyConnected || !stateFresh) {
+        const auto snapshot=m_relayStateClient
+            ? m_relayStateClient->snapshot() : touchpanel::RobotSnapshot{};
+        const auto decision=touchpanel::evaluateRobotGate(snapshot,false);
+        haltRealMotion(QStringLiteral(
+            "连续遥控链路失效：Touch运行=%1 8888连接=%2 8891新鲜=%3，"
+            "门禁=%4，FeedbackAge=%5ms RelayAge=%6ms "
+            "RelayReady=%7 Ports=%8/%9/%10 Session=%11")
+                .arg(touchRunning).arg(legacyConnected).arg(stateFresh)
+                .arg(QString::fromUtf8(touchpanel::gateReasonChinese(decision.reason)))
+                .arg(snapshot.feedbackAgeMs).arg(snapshot.relayStatusAgeMs)
+                .arg(snapshot.relayReady).arg(snapshot.port29999Connected)
+                .arg(snapshot.port30003Connected).arg(snapshot.port30004Connected)
+                .arg(snapshot.sessionEpoch));
         return;
     }
     const auto st=m_backend->latestState();
