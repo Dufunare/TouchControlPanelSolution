@@ -112,6 +112,7 @@ private:
     bool m_stepAwaitingReply=false;
     bool m_stepReplyAccepted=false;
     bool m_ikPending=false;
+    bool m_motionCommandSent=false;
     int m_motionUser=-1,m_motionTool=-1;
     std::uint64_t m_motionSession=0;
     std::array<double,6> m_ikJointOrigin{};
