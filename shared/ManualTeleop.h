@@ -6,9 +6,9 @@ namespace touchpanel::teleop {
 // Read-only position joystick: one signed Touch axis per robot axis.
 // Inputs 0..5 mean +X,+Y,+Z,-X,-Y,-Z, respectively.
 struct ManualAxisMap {
-    std::array<int,3> output{0,1,2};
-    double scale=0.25;
-    double deadzoneMm=1.5;
+    std::array<int,3> output{0,5,1}; // master: X<-Touch X, Y<--Touch Z, Z<-Touch Y
+    double scale=1.0;
+    double deadzoneMm=0.3;
 };
 // Keep a 1:1 source-axis assignment when the operator changes a combo.
 // Selecting an axis already used by another robot output swaps its previous
