@@ -115,10 +115,10 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     }
     m_axisGain=new QDoubleSpinBox(manualGroup);
     m_axisGain->setRange(0.05,2.0);m_axisGain->setDecimals(2);
-    m_axisGain->setSingleStep(0.05);m_axisGain->setValue(0.25);
+    m_axisGain->setSingleStep(0.05);m_axisGain->setValue(1.0);
     m_axisDeadzone=new QDoubleSpinBox(manualGroup);
     m_axisDeadzone->setRange(0,10);m_axisDeadzone->setSuffix(QStringLiteral(" mm"));
-    m_axisDeadzone->setValue(1.5);
+    m_axisDeadzone->setValue(0.3);
     manualForm->addRow(QStringLiteral("比例"),m_axisGain);
     manualForm->addRow(QStringLiteral("死区"),m_axisDeadzone);
     auto* previewButton=new QPushButton(QStringLiteral("启用平移预览（不发送运动）"),manualGroup);
