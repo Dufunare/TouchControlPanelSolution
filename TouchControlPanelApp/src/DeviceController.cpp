@@ -648,6 +648,7 @@ void DeviceController::startContinuousServo()
     m_stopReplyAccepted=false;
     m_releaseTicks=0;
     m_ikQueries=0;m_ikAccepted=0;m_servoCommands=0;
+    m_ikRttSumMs=0;m_ikRttMaxMs=0;m_ikRttSamples=0;
     m_invalidTouchTicks=0;
     m_staleTouchTicks=0;
     m_lastTouchSampleCounter=st.sampleCounter;
@@ -697,6 +698,12 @@ void DeviceController::handleInverseSolution(bool success,const std::array<doubl
 {
     if(m_realMode!=RealMode::Continuous || !m_ikPending)return;
     m_ikPending=false;
+    const int ikElapsed=m_ikTimer.isValid()?static_cast<int>(m_ikTimer.elapsed()):0;
+    if(ikElapsed>0) {
+        m_ikRttSumMs+=ikElapsed;
+        m_ikRttMaxMs=std::max(m_ikRttMaxMs,ikElapsed);
+        ++m_ikRttSamples;
+    }
     // Release cancels pending IK; its late reply must never move the robot
     // or turn an intentional clutch release into a fault.
     if(m_continuousStopping || !m_backend->latestState().button1Pressed)return;
@@ -1028,7 +1035,7 @@ void DeviceController::runContinuousTick()
             QStringLiteral("[SERVO RATE] IK请求=%1/s 成功逆解=%2/s ServoJ发送=%3/s，"
                            "Touch原始映射=%4mm 软限目标=%5mm 机器人实测=%6mm "
                            "当前目标误差=%7mm，Mode=%8 8891延迟=%9ms "
-                           "RelayAge=%10ms 增益=%11")
+                           "RelayAge=%10ms 增益=%11 IK-RTT均值=%12ms 峰值=%13ms")
                 .arg(m_ikQueries/seconds,0,'f',1)
                 .arg(m_ikAccepted/seconds,0,'f',1)
                 .arg(m_servoCommands/seconds,0,'f',1)
@@ -1037,9 +1044,12 @@ void DeviceController::runContinuousTick()
                 .arg(touchpanel::teleop::norm(reached),0,'f',2)
                 .arg(distance,0,'f',2)
                 .arg(s.robotMode).arg(s.feedbackAgeMs)
-                .arg(s.relayStatusAgeMs).arg(m_manualMap.scale,0,'f',2));
+                .arg(s.relayStatusAgeMs).arg(m_manualMap.scale,0,'f',2)
+                .arg(m_ikRttSamples?m_ikRttSumMs/m_ikRttSamples:-1)
+                .arg(m_ikRttSamples?m_ikRttMaxMs:-1));
         m_continuousStatsTimer.restart();
         m_ikQueries=0;m_ikAccepted=0;m_servoCommands=0;
+        m_ikRttSumMs=0;m_ikRttMaxMs=0;m_ikRttSamples=0;
     }
     if(distance<0.15)return;
     if(distance>1.2) {
