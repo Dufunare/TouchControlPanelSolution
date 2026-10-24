@@ -8,6 +8,7 @@
 #include "TeleopGeometry.h"
 #include "HapticCalibrationPolicy.h"
 #include <cstdio>
+#include <cmath>
 
 
 
