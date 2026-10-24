@@ -869,12 +869,12 @@ namespace touchpanel
     void CommunicationBackend::sendMotion(double x, double y, double z)
     {
         // Deliberately disable the former ServoP production entrypoint.
-        // A future physical motion API must require validated calibration,
-        // fresh robot feedback, joint constraints, and explicit authorization.
+        // Do not restore ServoP: one-shot MovL and IK-based ServoJ have
+        // separate explicit experimental entrypoints.
         (void)x;
         (void)y;
         (void)z;
-        m_impl->emitMessage("ServoP 已禁用：当前版本仅允许六维遥操作预览。");
+        m_impl->emitMessage("ServoP 已禁用；请使用受控单步或 ServoJ 入口。");
     }
 
     void CommunicationBackend::requestInverseSolution(const std::array<double,6>& pose,int user,int tool,
