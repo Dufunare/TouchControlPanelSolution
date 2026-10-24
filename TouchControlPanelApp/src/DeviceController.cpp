@@ -4,6 +4,9 @@
 
 #include <cmath>
 #include <QString>
+#include <QPointer>
+#include <QMetaObject>
+#include <algorithm>
 
 namespace
 {
@@ -61,6 +64,20 @@ DeviceController::DeviceController(
         {
             emit tcpRxMessage(decodeBackendText(text));
         });
+    QPointer<DeviceController> guard(this);
+    m_robotBackend->setOperationCallback([guard](const std::string& op,bool ok,const std::string& detail){
+        if(!guard)return;
+        const QString operation=QString::fromStdString(op),message=QString::fromStdString(detail);
+        QMetaObject::invokeMethod(guard.data(),[guard,operation,ok,message]{
+            if(guard)guard->handleRobotOperation(operation,ok,message);
+        },Qt::QueuedConnection);
+    });
+    m_robotBackend->setJointSolutionCallback([guard](bool ok,const std::array<double,6>& q,const std::string&){
+        if(!guard)return;
+        QMetaObject::invokeMethod(guard.data(),[guard,ok,q]{
+            if(guard)guard->handleInverseSolution(ok,q);
+        },Qt::QueuedConnection);
+    });
 }
 
 void DeviceController::setRelayStateClient(RelayStateClient* client)
@@ -295,6 +312,10 @@ void DeviceController::setManualPreviewMapping(const touchpanel::teleop::ManualA
 
 void DeviceController::startManualPreview()
 {
+    if(m_realMode!=RealMode::None) {
+        emit backendMessageChanged(QStringLiteral("先停止实体遥控，再切换预览模式"));
+        return;
+    }
     if(!touchpanel::teleop::validManualAxisMap(m_manualMap) ||
        !m_backend || !m_backend->isRunning() || !m_relayStateClient) {
         emit backendMessageChanged(QStringLiteral("手动预览失败：Touch 采集或 8891 遥测未启动"));
@@ -315,6 +336,10 @@ void DeviceController::startManualPreview()
 
 void DeviceController::startTeleop()
 {
+    if(m_realMode!=RealMode::None) {
+        emit backendMessageChanged(QStringLiteral("先停止实体遥控，再切换六维预览"));
+        return;
+    }
     m_manualPreview=false;
     if (m_backend == nullptr || m_robotBackend == nullptr)
     {
@@ -376,6 +401,10 @@ void DeviceController::startTeleop()
 
 void DeviceController::stopTeleop()
 {
+    if(m_realMode!=RealMode::None) {
+        haltRealMotion(QStringLiteral("操作员停止遥控"));
+        return;
+    }
     if (m_motionTimer.isActive())
     {
         m_motionTimer.stop();
@@ -391,6 +420,14 @@ void DeviceController::stopTeleop()
 
 void DeviceController::onMotionTick()
 {
+    if(m_realMode==RealMode::SingleStep) {
+        monitorSingleStep();
+        return;
+    }
+    if(m_realMode==RealMode::Continuous) {
+        runContinuousTick();
+        return;
+    }
     if (!m_backend || !m_relayStateClient ||
         !m_backend->isRunning() || !m_relayStateClient->hasFreshState()) {
         invalidateTeleopBaseline();
@@ -468,3 +505,242 @@ void DeviceController::onMotionTick()
         .arg(requested[2],0,'f',2).arg(requested[3],0,'f',2)
         .arg(requested[4],0,'f',2).arg(requested[5],0,'f',2));
 }
+
+
+void DeviceController::prepareSingleStep()
+{
+    if(m_realMode!=RealMode::None || !m_manualPreview ||
+       !m_motionBaselineReady || !m_previewLastValid ||
+       !m_relayStateClient || !m_robotBackend->isTransitConnected()) {
+        emit backendMessageChanged(QStringLiteral("单步准备失败：请先开启平移预览，按住 Touch Button 1 移动至目标，再捕获单步"));
+        return;
+    }
+    const auto snapshot=m_relayStateClient->snapshot();
+    touchpanel::teleop::StepProposal proposal;
+    if(!touchpanel::teleop::proposeSmallPositionStep(snapshot,m_previewLast,
+         m_robotPoseOrigin,snapshot.userIndex,snapshot.toolIndex,proposal)) {
+        emit backendMessageChanged(QStringLiteral("单步准备失败：目标过近、超出当前离合范围，或机器人反馈/空闲状态不满足条件"));
+        return;
+    }
+    m_stepProposal=proposal;
+    m_stepExpectedStart=snapshot.tcpPose;
+    m_stepStartSeq=snapshot.stateSeq;
+    m_motionSession=snapshot.sessionEpoch;
+    m_motionUser=snapshot.userIndex;m_motionTool=snapshot.toolIndex;
+    m_stepPrepared=true;
+    emit singleStepConfirmationNeeded(
+        QStringLiteral("将通过 MovL 执行单次 %1 mm 位移。\n目标 XYZ=(%2,%3,%4) mm\n机器人当前姿态保持不变。\n确认周围人员、障碍物及物理急停状态后执行？")
+        .arg(proposal.distanceMm,0,'f',2)
+        .arg(proposal.pose[0],0,'f',2).arg(proposal.pose[1],0,'f',2)
+        .arg(proposal.pose[2],0,'f',2));
+}
+
+void DeviceController::confirmSingleStep()
+{
+    if(!m_stepPrepared || m_realMode!=RealMode::None ||
+       !m_robotBackend->isTransitConnected() || !m_relayStateClient)return;
+    m_stepPrepared=false;
+    const auto snapshot=m_relayStateClient->snapshot();
+    if(snapshot.sessionEpoch!=m_motionSession ||
+       snapshot.userIndex!=m_motionUser || snapshot.toolIndex!=m_motionTool ||
+       !touchpanel::teleop::idleForExperimentalStep(snapshot,m_motionUser,m_motionTool) ||
+       touchpanel::teleop::norm({snapshot.tcpPose[0]-m_stepExpectedStart[0],
+                                 snapshot.tcpPose[1]-m_stepExpectedStart[1],
+                                 snapshot.tcpPose[2]-m_stepExpectedStart[2]})>0.5) {
+        emit backendMessageChanged(QStringLiteral("单步取消：确认前机器人位置、会话或状态发生了变化"));
+        return;
+    }
+    m_realMode=RealMode::SingleStep;
+    m_manualPreview=false;
+    m_stepAwaitingReply=true;
+    m_stepReplyAccepted=false;
+    m_motionCommandSent=true;
+    invalidateTeleopBaseline();
+    m_stepTimer.start();
+    if(!m_motionTimer.isActive())m_motionTimer.start();
+    m_robotBackend->sendLinearStep(m_stepProposal.pose,m_motionUser,m_motionTool);
+    emit backendMessageChanged(QStringLiteral("单步 MovL 已下发；等待应答及 8891 到位确认"));
+}
+
+void DeviceController::startContinuousServo()
+{
+    if(m_realMode!=RealMode::None || !m_backend ||
+       !m_backend->isRunning() || !m_relayStateClient ||
+       !m_robotBackend->isTransitConnected() ||
+       !touchpanel::teleop::validManualAxisMap(m_manualMap)) {
+        emit backendMessageChanged(QStringLiteral("连续遥控未启动：请确认 8888、8891、Touch 和轴映射"));
+        return;
+    }
+    const auto st=m_backend->latestState();
+    const auto s=m_relayStateClient->snapshot();
+    if(!st.valid || !st.deviceCalibrated ||
+       !touchpanel::teleop::idleForExperimentalStep(s,s.userIndex,s.toolIndex)) {
+        emit backendMessageChanged(QStringLiteral("连续遥控未启动：机器人应处于使能空闲，且 Touch 校准与反馈有效"));
+        return;
+    }
+    m_realMode=RealMode::Continuous;
+    m_manualPreview=false;
+    m_motionSession=s.sessionEpoch;
+    m_motionUser=s.userIndex;m_motionTool=s.toolIndex;
+    m_motionCommandSent=false;
+    m_ikPending=false;
+    invalidateTeleopBaseline();
+    if(!m_motionTimer.isActive())m_motionTimer.start();
+    emit backendMessageChanged(QStringLiteral("连续 ServoJ 已就绪：仅按住 Touch Button1 时生成新目标；松开将请求停止机器人"));
+}
+
+void DeviceController::handleRobotOperation(const QString& operation,bool success,
+                                           const QString& detail)
+{
+    if(operation==QStringLiteral("MovL") && m_realMode==RealMode::SingleStep) {
+        if(!success) {
+            haltRealMotion(QStringLiteral("MovL 命令应答失败：")+detail);
+            return;
+        }
+        m_stepAwaitingReply=false;
+        m_stepReplyAccepted=true;
+        emit backendMessageChanged(QStringLiteral("单步命令已接收，等待机器人实际到位"));
+    }
+    if(operation==QStringLiteral("InverseSolution") &&
+       m_realMode==RealMode::Continuous && !success) {
+        haltRealMotion(QStringLiteral("逆解请求失败：")+detail);
+    }
+}
+
+void DeviceController::handleInverseSolution(bool success,const std::array<double,6>& joints)
+{
+    if(m_realMode!=RealMode::Continuous || !m_ikPending)return;
+    m_ikPending=false;
+    if(!success) {
+        haltRealMotion(QStringLiteral("逆解返回失败"));
+        return;
+    }
+    const auto st=m_backend->latestState();
+    const auto s=m_relayStateClient->snapshot();
+    if(!m_motionBaselineReady || !m_lastButtonPressed ||
+       !st.valid || !st.button1Pressed || !st.deviceCalibrated ||
+       st.calibrationEpoch!=m_clutchCalibrationEpoch ||
+       !m_relayStateClient->hasFreshState() ||
+       s.sessionEpoch!=m_motionSession ||
+       s.userIndex!=m_motionUser || s.toolIndex!=m_motionTool ||
+       !s.enabled || s.error || s.dragging || s.jogging || s.paused ||
+       (s.robotMode!=5 && s.robotMode!=7) ||
+       !touchpanel::teleop::acceptableJointSolution(s,m_ikJointOrigin,joints)) {
+        haltRealMotion(QStringLiteral("逆解不连续、过期或关节状态失效"));
+        return;
+    }
+    const auto target=touchpanel::teleop::limitedServoTarget(s,joints);
+    m_robotBackend->sendServoJointTarget(target);
+    m_motionCommandSent=true;
+    m_servoTime.restart();
+}
+
+void DeviceController::monitorSingleStep()
+{
+    if(!m_relayStateClient || !m_stepTimer.isValid()) {
+        haltRealMotion(QStringLiteral("单步反馈监控不可用"));return;
+    }
+    const auto s=m_relayStateClient->snapshot();
+    if(!m_relayStateClient->hasFreshState() ||
+       s.sessionEpoch!=m_motionSession || s.userIndex!=m_motionUser ||
+       s.toolIndex!=m_motionTool || s.error || s.dragging ||
+       m_stepTimer.elapsed()>4000) {
+        haltRealMotion(QStringLiteral("单步超时、断线或机器人状态异常"));return;
+    }
+    if(m_stepReplyAccepted && s.stateSeq>m_stepStartSeq &&
+       touchpanel::teleop::stepArrived(s,m_stepProposal,m_motionUser,m_motionTool) &&
+       touchpanel::teleop::norm({s.tcpPose[0]-m_stepExpectedStart[0],
+                                s.tcpPose[1]-m_stepExpectedStart[1],
+                                s.tcpPose[2]-m_stepExpectedStart[2]})>=0.25) {
+        m_realMode=RealMode::None;
+        m_motionCommandSent=false;
+        m_motionTimer.stop();
+        emit backendMessageChanged(QStringLiteral("单步结束：已收到命令成功应答并由 8891 确认位置到达"));
+    }
+}
+
+void DeviceController::runContinuousTick()
+{
+    if(!m_backend || !m_relayStateClient || !m_robotBackend ||
+       !m_backend->isRunning() || !m_relayStateClient->hasFreshState() ||
+       !m_robotBackend->isTransitConnected()) {
+        haltRealMotion(QStringLiteral("连续遥控链路不再有效"));return;
+    }
+    const auto st=m_backend->latestState();
+    const auto s=m_relayStateClient->snapshot();
+    if(!st.valid || !st.deviceCalibrated || !st.orientationValid ||
+       s.sessionEpoch!=m_motionSession ||
+       s.userIndex!=m_motionUser || s.toolIndex!=m_motionTool ||
+       !s.enabled || s.error || s.dragging || s.jogging || s.paused ||
+       (s.robotMode!=5 && s.robotMode!=7) ||
+       s.feedbackAgeMs<0 || s.feedbackAgeMs>150 ||
+       s.relayStatusAgeMs<0 || s.relayStatusAgeMs>350) {
+        haltRealMotion(QStringLiteral("连续遥控状态/会话/反馈失效"));return;
+    }
+    if(!st.button1Pressed) {
+        if(m_lastButtonPressed || m_motionBaselineReady)
+            haltRealMotion(QStringLiteral("Touch Button1 已松开"));
+        return;
+    }
+    if(!m_lastButtonPressed) {
+        m_touchOrigin=st.positionMm;
+        m_touchRotationOrigin=st.rotationMatrix;
+        m_robotPoseOrigin=s.tcpPose;
+        m_ikJointOrigin=s.jointPosition;
+        m_clutchCalibrationEpoch=st.calibrationEpoch;
+        m_motionBaselineReady=true;m_lastButtonPressed=true;
+        emit backendMessageChanged(QStringLiteral("连续控制：已捕获 Touch 和机器人实际基准"));
+        return;
+    }
+    if(st.calibrationEpoch!=m_clutchCalibrationEpoch) {
+        haltRealMotion(QStringLiteral("Touch 校准周期发生变化"));return;
+    }
+    if(m_ikPending) {
+        if(m_ikTimer.elapsed()>900)
+            haltRealMotion(QStringLiteral("InverseSolution 回复超时"));
+        return;
+    }
+    touchpanel::teleop::Pose6 requested{};
+    if(!touchpanel::teleop::manualPositionPreview(
+        m_manualMap,touchpanel::teleop::sub(st.positionMm,m_touchOrigin),
+        m_robotPoseOrigin,requested)) {
+        haltRealMotion(QStringLiteral("目标生成失败"));return;
+    }
+    const touchpanel::teleop::Vec3 delta={
+        requested[0]-m_robotPoseOrigin[0],
+        requested[1]-m_robotPoseOrigin[1],
+        requested[2]-m_robotPoseOrigin[2]};
+    if(touchpanel::teleop::norm(delta)>15.0) {
+        haltRealMotion(QStringLiteral("离合行程超过 15 mm；请释放后重新建立基准"));return;
+    }
+    const touchpanel::teleop::Vec3 tracking={
+        requested[0]-s.tcpPose[0],requested[1]-s.tcpPose[1],
+        requested[2]-s.tcpPose[2]};
+    const double step=touchpanel::teleop::norm(tracking);
+    if(step<0.15)return;
+    if(step>0.6) {
+        for(int i=0;i<3;++i)requested[i]=s.tcpPose[i]+0.6*tracking[i]/step;
+    }
+    requested[3]=s.tcpPose[3];requested[4]=s.tcpPose[4];requested[5]=s.tcpPose[5];
+    m_ikPending=true;
+    m_ikTimer.start();
+    m_robotBackend->requestInverseSolution(requested,m_motionUser,m_motionTool,s.jointPosition);
+}
+
+void DeviceController::haltRealMotion(const QString& cause)
+{
+    const bool sent=m_motionCommandSent;
+    m_realMode=RealMode::None;
+    m_motionCommandSent=false;
+    m_stepPrepared=false;m_stepAwaitingReply=false;m_stepReplyAccepted=false;
+    m_ikPending=false;
+    m_manualPreview=false;
+    invalidateTeleopBaseline();
+    m_motionTimer.stop();
+    if(sent && m_robotBackend && m_robotBackend->isTransitConnected())
+        m_robotBackend->requestControlledStop();
+    emit backendMessageChanged(QStringLiteral("实体遥控已终止：")+cause+
+        (sent?QStringLiteral("；已请求 ResetRobot 停止/清队列（非物理急停）"):
+              QStringLiteral("；未发送运动指令")));
+}
+
