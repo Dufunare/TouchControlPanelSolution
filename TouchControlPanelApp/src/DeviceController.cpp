@@ -467,7 +467,10 @@ void DeviceController::onMotionTick()
         return;
     }
     const auto st = m_backend->latestState();
-    if (!st.valid || !st.orientationValid || !st.schedulerRunning) {
+    // Position-only manual preview does not need a valid stylus rotation.
+    // Six-DoF orientation preview retains its explicit orientation gate.
+    if (!st.valid || !st.schedulerRunning ||
+        (!m_manualPreview && !st.orientationValid)) {
         invalidateTeleopBaseline();
         return;
     }
