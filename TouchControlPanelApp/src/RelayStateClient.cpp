@@ -249,8 +249,21 @@ void RelayStateClient::refreshStatus() {
        : (!m_handshaken ? m_status :
           (!m_ready ? QStringLiteral("v2 在线；中转站未就绪")
                     : QStringLiteral("v2 无有效新鲜机器人状态")));
-    if(newStatus!=m_status) {m_status=newStatus;emit statusChanged(m_status);}
-    if(!m_summaryEmitAge.isValid()||m_summaryEmitAge.elapsed()>=200) {
+    // robot_state can arrive hundreds of times per second, but the status
+    // label contains a different seq on EVERY frame. Emitting statusChanged
+    // for each frame overwhelms the main-window UI and can delay processing
+    // the independent 200ms relay_status heartbeat. Keep actual snapshots
+    // full-rate, but throttle cosmetic labels to 5 Hz. Safety transitions
+    // (connected -> not ready / invalid) remain immediate.
+    const bool uiRefreshDue=!m_summaryEmitAge.isValid() ||
+        m_summaryEmitAge.elapsed()>=200;
+    const QString previousClass=m_status.section(QStringLiteral("· seq"),0,0);
+    const QString newClass=newStatus.section(QStringLiteral("· seq"),0,0);
+    if(newStatus!=m_status && (previousClass!=newClass || uiRefreshDue)) {
+        m_status=newStatus;
+        emit statusChanged(m_status);
+    }
+    if(uiRefreshDue) {
         const QString summary=buildTelemetrySummary();
         if(summary!=m_lastTelemetrySummary) {
             m_lastTelemetrySummary=summary;
