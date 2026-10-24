@@ -29,7 +29,9 @@ inline bool proposeSmallPositionStep(const RobotSnapshot& s,
     const Vec3 anchor={clutchAnchor[0],clutchAnchor[1],clutchAnchor[2]};
     const Vec3 error=sub(wanted,here);
     const double len=norm(error);
-    if(!std::isfinite(len)||len<0.4)return false;
+    // This gate is for physical acceptance testing, not sub-mm UI jogging.
+    // A 0.4mm trial could be indistinguishable from feedback tolerance.
+    if(!std::isfinite(len)||len<1.0)return false;
     const Vec3 next=add(here,scale(error,std::min(len,3.0)/len));
     if(norm(sub(next,anchor))>15.0)return false;
     result.pose=s.tcpPose;
