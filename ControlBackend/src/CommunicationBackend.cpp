@@ -908,7 +908,7 @@ namespace touchpanel
             if(i)c<<",";
             c<<formatDouble3(joints[i]);
         }
-        c<<",t=0.1,lookahead_time=50,gain=500)";
+        // The 6-joint form works on controllers predating the optional\n        // ServoJ parameters introduced in firmware 3.5.5. Defaults apply.\n        c<<")";
         // Dobot V3 ServoJ intentionally has NO normal command reply.
         return m_impl->sendLine(std::to_string(kRobotMotionPort)+"|"+c.str(),false);
     }
