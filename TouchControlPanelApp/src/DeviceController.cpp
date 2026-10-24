@@ -624,6 +624,11 @@ void DeviceController::startContinuousServo()
     m_motionUser=s.userIndex;m_motionTool=s.toolIndex;
     m_motionCommandSent=false;
     m_ikPending=false;
+    m_continuousStopping=false;
+    m_stopReplyAccepted=false;
+    m_releaseTicks=0;
+    m_ikQueries=0;m_ikAccepted=0;m_servoCommands=0;
+    m_continuousStatsTimer.restart();
     invalidateTeleopBaseline();
     if(!m_motionTimer.isActive())m_motionTimer.start();
     emit backendMessageChanged(QStringLiteral("连续 ServoJ 已就绪：仅按住 Touch Button1 时生成新目标；松开将请求停止机器人"));
@@ -641,8 +646,18 @@ void DeviceController::handleRobotOperation(const QString& operation,bool succes
         m_stepReplyAccepted=true;
         emit backendMessageChanged(QStringLiteral("单步命令已接收，等待机器人实际到位"));
     }
+    if(operation==QStringLiteral("ResetRobot") &&
+       m_realMode==RealMode::Continuous && m_continuousStopping) {
+        if(!success) {
+            haltRealMotion(QStringLiteral("离合释放后的停止命令失败：")+detail);
+        } else {
+            m_stopReplyAccepted=true;
+            emit backendMessageChanged(QStringLiteral("停止命令已应答，继续等待 8891 确认机器人空闲"));
+        }
+        return;
+    }
     if(operation==QStringLiteral("InverseSolution") &&
-       m_realMode==RealMode::Continuous && !success) {
+       m_realMode==RealMode::Continuous && !success && !m_continuousStopping) {
         haltRealMotion(QStringLiteral("逆解请求失败：")+detail);
     }
 }
@@ -651,6 +666,9 @@ void DeviceController::handleInverseSolution(bool success,const std::array<doubl
 {
     if(m_realMode!=RealMode::Continuous || !m_ikPending)return;
     m_ikPending=false;
+    // Release cancels pending IK; its late reply must never move the robot
+    // or turn an intentional clutch release into a fault.
+    if(m_continuousStopping || !m_backend->latestState().button1Pressed)return;
     if(!success) {
         haltRealMotion(QStringLiteral("逆解返回失败"));
         return;
@@ -676,6 +694,8 @@ void DeviceController::handleInverseSolution(bool success,const std::array<doubl
         return;
     }
     m_motionCommandSent=true;
+    ++m_ikAccepted;
+    ++m_servoCommands;
     m_servoTime.restart();
 }
 
@@ -778,6 +798,9 @@ void DeviceController::haltRealMotion(const QString& cause)
     const bool sent=m_motionCommandSent;
     m_realMode=RealMode::None;
     m_motionCommandSent=false;
+    m_continuousStopping=false;
+    m_stopReplyAccepted=false;
+    m_releaseTicks=0;
     m_stepPrepared=false;m_stepAwaitingReply=false;m_stepReplyAccepted=false;
     m_ikPending=false;
     m_manualPreview=false;
