@@ -9,6 +9,7 @@
 #include "CommunicationBackend.h"
 #include "TouchBackend.h"
 #include "TeleopGeometry.h"
+#include "ManualTeleop.h"
 
 #define DEVICE_CONTROLLER_POLL_INTERVAL_MS 8 // 约 125 FPS 的前端刷新频率
 #define DEVICE_CONTROLLER_MOTION_INTERVAL_MS 33 // 33ms 为机械臂官方文档推荐的远程控制发送频率
@@ -28,6 +29,7 @@ public:
     void setRelayStateClient(RelayStateClient* client);
     bool getTouchSnapshot(touchpanel::DeviceState& state) const;
     void applyPreviewCalibration(const touchpanel::teleop::Calibration& calibration,int user,int tool);
+    void setManualPreviewMapping(const touchpanel::teleop::ManualAxisMap& mapping);
 
 public slots:
     void invalidateTeleopBaseline();
@@ -51,6 +53,7 @@ public slots:
     void startDragRobot();
     void stopDragRobot();
     void startTeleop();
+    void startManualPreview();
     void stopTeleop();
 
 signals:
@@ -70,6 +73,8 @@ private:
     RelayStateClient* m_relayStateClient = nullptr;
     touchpanel::teleop::Calibration m_calibration{};
     bool m_calibrationApplied=false;
+    bool m_manualPreview=false;
+    touchpanel::teleop::ManualAxisMap m_manualMap{};
     int m_calibrationUser=-1,m_calibrationTool=-1;
     std::uint64_t m_calibrationSessionEpoch=0,m_calibrationTouchEpoch=0;
     touchpanel::TouchBackend* m_backend = nullptr;
