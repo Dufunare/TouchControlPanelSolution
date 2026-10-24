@@ -629,6 +629,9 @@ void DeviceController::startContinuousServo()
     m_stopReplyAccepted=false;
     m_releaseTicks=0;
     m_ikQueries=0;m_ikAccepted=0;m_servoCommands=0;
+    m_invalidTouchTicks=0;
+    m_staleTouchTicks=0;
+    m_lastTouchSampleCounter=st.sampleCounter;
     m_continuousStatsTimer.restart();
     invalidateTeleopBaseline();
     if(!m_motionTimer.isActive())m_motionTimer.start();
@@ -752,7 +755,10 @@ void DeviceController::runContinuousTick()
     }
     const auto st=m_backend->latestState();
     const auto s=m_relayStateClient->snapshot();
-    if(!st.valid || !st.deviceCalibrated ||
+    // HDAPI calibration and scheduler lifecycle are real safety gates.
+    // A transient incoherent Qt snapshot is a missed sample, not proof
+    // of permanent device failure; handle it separately below.
+    if(!st.schedulerRunning || !st.deviceCalibrated ||
        s.sessionEpoch!=m_motionSession ||
        s.userIndex!=m_motionUser || s.toolIndex!=m_motionTool ||
        !s.enabled || s.error || s.dragging || s.jogging || s.paused ||
@@ -760,10 +766,10 @@ void DeviceController::runContinuousTick()
        s.feedbackAgeMs<0 || s.feedbackAgeMs>250 ||
        s.relayStatusAgeMs<0 || s.relayStatusAgeMs>500) {
         haltRealMotion(QStringLiteral(
-            "连续遥控状态不符合要求：Touch有效=%1 校准=%2 Mode=%3 "
+            "连续遥控状态不符合要求：Touch运行=%1 校准=%2 Mode=%3 "
             "Enabled=%4 Drag=%5 Running=%6 Jog=%7 Pause=%8 Error=%9 "
             "FeedbackAge=%10ms RelayAge=%11ms Session=%12")
-            .arg(st.valid).arg(st.deviceCalibrated).arg(s.robotMode)
+            .arg(st.schedulerRunning).arg(st.deviceCalibrated).arg(s.robotMode)
             .arg(s.enabled).arg(s.dragging).arg(s.running)
             .arg(s.jogging).arg(s.paused).arg(s.error)
             .arg(s.feedbackAgeMs).arg(s.relayStatusAgeMs).arg(s.sessionEpoch));
@@ -786,7 +792,7 @@ void DeviceController::runContinuousTick()
                 still=true;
         }
         if(m_stopReplyAccepted && s.robotMode==5 && !s.running &&
-           !still && !st.button1Pressed) {
+           !still && st.valid && !st.button1Pressed) {
             m_continuousStopping=false;
             m_stopReplyAccepted=false;
             m_motionCommandSent=false;
@@ -799,6 +805,31 @@ void DeviceController::runContinuousTick()
         }
         return;
     }
+
+    // Do not send a ServoJ target while the current Touch frame is invalid.
+    // The 1 kHz producer can temporarily overlap a Qt snapshot read; it
+    // previously caused a complete exit on a single failed eight-retry read.
+    if(!st.valid) {
+        if(++m_invalidTouchTicks>=3) {
+            haltRealMotion(QStringLiteral(
+                "Touch 连续 %1 个控制周期没有可用 XYZ 快照；"
+                "采样计数=%2，姿态有效=%3，调度器仍运行=%4")
+                .arg(m_invalidTouchTicks).arg(st.sampleCounter)
+                .arg(st.orientationValid).arg(st.schedulerRunning));
+        }
+        return; // Pause this tick, and NEVER replay a stale motion target.
+    }
+    m_invalidTouchTicks=0;
+    if(st.sampleCounter<=m_lastTouchSampleCounter) {
+        if(++m_staleTouchTicks>=3) {
+            haltRealMotion(QStringLiteral(
+                "Touch 采样计数连续 %1 个控制周期未增长：sample=%2")
+                .arg(m_staleTouchTicks).arg(st.sampleCounter));
+        }
+        return;
+    }
+    m_staleTouchTicks=0;
+    m_lastTouchSampleCounter=st.sampleCounter;
 
     // The previous ServoP controller stayed armed across clutch releases.
     // Keep that workflow, but request a bounded software stop after each
