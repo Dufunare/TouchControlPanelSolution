@@ -90,14 +90,18 @@ namespace touchpanel
                 auto start=open+1;
                 for(int i=0;i<6;++i) {
                     const auto comma=command.find(',',start);
-                    if(comma==std::string::npos)return false;
-                    const std::string token=trimSpace(command.substr(start,comma-start));
+                    const auto close=command.find(')',start);
+                    const auto stop=(comma==std::string::npos ||
+                        (close!=std::string::npos && close<comma))?close:comma;
+                    if(stop==std::string::npos)return false;
+                    const std::string token=trimSpace(command.substr(start,stop-start));
                     try {
                         std::size_t n=0;
                         out[i]=std::stod(token,&n);
                         if(n!=token.size() || !std::isfinite(out[i]))return false;
                     } catch(...) {return false;}
-                    start=comma+1;
+                    if(i<5 && stop==close)return false;
+                    start=stop+1;
                 }
                 return true;
             };
