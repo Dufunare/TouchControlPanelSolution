@@ -996,14 +996,24 @@ void DeviceController::runContinuousTick()
     // IK requests: otherwise a stationary or deadzoned input stays silent.
     if(m_continuousStatsTimer.isValid() && m_continuousStatsTimer.elapsed()>=2000) {
         const double seconds=m_continuousStatsTimer.elapsed()/1000.0;
+        const touchpanel::teleop::Vec3 reached={
+            s.tcpPose[0]-m_robotPoseOrigin[0],
+            s.tcpPose[1]-m_robotPoseOrigin[1],
+            s.tcpPose[2]-m_robotPoseOrigin[2]};
+        const touchpanel::teleop::Vec3 clipped={
+            requested[0]-m_robotPoseOrigin[0],
+            requested[1]-m_robotPoseOrigin[1],
+            requested[2]-m_robotPoseOrigin[2]};
         emit backendMessageChanged(
             QStringLiteral("[SERVO RATE] IK请求=%1/s 成功逆解=%2/s ServoJ发送=%3/s，"
-                           "Touch映射位移=%4mm 目标跟踪差=%5mm，"
-                           "Mode=%6 8891延迟=%7ms 增益=%8")
+                           "Touch原始映射=%4mm 软限目标=%5mm 机器人实测=%6mm "
+                           "当前目标误差=%7mm，Mode=%8 8891延迟=%9ms 增益=%10")
                 .arg(m_ikQueries/seconds,0,'f',1)
                 .arg(m_ikAccepted/seconds,0,'f',1)
                 .arg(m_servoCommands/seconds,0,'f',1)
                 .arg(displacement,0,'f',2)
+                .arg(touchpanel::teleop::norm(clipped),0,'f',2)
+                .arg(touchpanel::teleop::norm(reached),0,'f',2)
                 .arg(distance,0,'f',2)
                 .arg(s.robotMode).arg(s.feedbackAgeMs)
                 .arg(m_manualMap.scale,0,'f',2));
