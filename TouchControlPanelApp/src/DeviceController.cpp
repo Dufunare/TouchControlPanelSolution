@@ -287,6 +287,14 @@ void DeviceController::clearRobotError()
 
 void DeviceController::emergencyStopRobot()
 {
+    // Never permit the 33ms servo timer to re-issue motion after E-stop.
+    m_realMode=RealMode::None;
+    m_motionCommandSent=false;
+    m_ikPending=false;
+    m_stepPrepared=false;
+    m_manualPreview=false;
+    m_motionTimer.stop();
+    invalidateTeleopBaseline();
     m_robotBackend->emergencyStop();
 }
 
@@ -369,8 +377,7 @@ void DeviceController::startTeleop()
        (robotSnapshot.sessionEpoch!=m_calibrationSessionEpoch ||
         touch.calibrationEpoch!=m_calibrationTouchEpoch)) {
         m_calibrationApplied=false;
-        emit backendMessageChanged(QStringLiteral("六维预览未启用：标定绑定的设备或 8891 会话已变化，必须重新标定"));
-        return;
+        emit backendMessageChanged(QStringLiteral("旧空间标定已失效，自动退回无标定固定轴映射预览"));
     }
     // Read-only preview intentionally does not require a saved spatial fit.
     // Evaluate normal feedback/idle gates using the robot's current User/Tool.
@@ -447,7 +454,7 @@ void DeviceController::onMotionTick()
        (robotSnapshot.sessionEpoch!=m_calibrationSessionEpoch ||
         st.calibrationEpoch!=m_calibrationTouchEpoch)) {
         m_calibrationApplied=false;
-        invalidateTeleopBaseline();
+        invalidateTeleopBaseline(); // Restart the clutch using default axes.
         return;
     }
     const auto gate=touchpanel::evaluateRobotGate(robotSnapshot,
@@ -546,7 +553,10 @@ void DeviceController::confirmSingleStep()
        !touchpanel::teleop::idleForExperimentalStep(snapshot,m_motionUser,m_motionTool) ||
        touchpanel::teleop::norm({snapshot.tcpPose[0]-m_stepExpectedStart[0],
                                  snapshot.tcpPose[1]-m_stepExpectedStart[1],
-                                 snapshot.tcpPose[2]-m_stepExpectedStart[2]})>0.5) {
+                                 snapshot.tcpPose[2]-m_stepExpectedStart[2]})>0.5 ||
+       std::abs(snapshot.tcpPose[3]-m_stepExpectedStart[3])>0.3 ||
+       std::abs(snapshot.tcpPose[4]-m_stepExpectedStart[4])>0.3 ||
+       std::abs(snapshot.tcpPose[5]-m_stepExpectedStart[5])>0.3) {
         emit backendMessageChanged(QStringLiteral("单步取消：确认前机器人位置、会话或状态发生了变化"));
         return;
     }
