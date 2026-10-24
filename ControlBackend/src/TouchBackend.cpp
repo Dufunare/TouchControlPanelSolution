@@ -115,7 +115,9 @@ namespace touchpanel
                 self->calibrationNeedsManual.store(status==TouchCalibrationStatus::NeedsManualInput,std::memory_order_relaxed);
                 if(ready!=wasReady)self->calibrationEpoch.fetch_add(1,std::memory_order_relaxed);
             }
-            self->frameVersion.fetch_add(1,std::memory_order_release);
+            // Start publication with acquire/release ordering. These fields
+            // are also atomic, so readers never race with the HD callback.
+            self->frameVersion.fetch_add(1,std::memory_order_acq_rel);
             self->x.store(position[0], std::memory_order_relaxed);
             self->y.store(position[1], std::memory_order_relaxed);
             self->z.store(position[2], std::memory_order_relaxed);
@@ -127,7 +129,13 @@ namespace touchpanel
             self->orientationValid.store(orientationOk,std::memory_order_relaxed);
             self->button1Pressed.store((currentButtons & HD_DEVICE_BUTTON_1) != 0, std::memory_order_relaxed);
             self->sampleCounter.fetch_add(1, std::memory_order_relaxed);
-            self->valid.store(orientationOk,std::memory_order_relaxed);
+            // XYZ validity must not depend on stylus orientation. Continuous
+            // translation teleop does not use the Touch rotation at all.
+            // The 6DoF preview separately checks orientationValid.
+            const bool xyzOk=std::isfinite(position[0]) &&
+                             std::isfinite(position[1]) &&
+                             std::isfinite(position[2]);
+            self->valid.store(xyzOk,std::memory_order_relaxed);
             self->frameVersion.fetch_add(1,std::memory_order_release);
 
             return HD_CALLBACK_CONTINUE;
@@ -362,8 +370,9 @@ namespace touchpanel
     {
         DeviceState state;
         // All fields are atomics; validate one complete publication version.
-        // Bounded retries prevent UI stalls during an interrupted device callback.
-        for (int retry=0;retry<8;++retry) {
+        // Retry contention without treating one incoherent 1kHz publication
+        // as a real device failure. Keep a finite bounded read for the Qt UI.
+        for (int retry=0;retry<64;++retry) {
             const auto before=m_impl->frameVersion.load(std::memory_order_acquire);
             if(before & 1u) continue;
             for(int i=0;i<3;++i)state.positionMm[i]=
