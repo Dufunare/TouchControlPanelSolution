@@ -66,3 +66,15 @@
 - **连续试动**：只在单步行为通过、机器人固件确实支持当前 ServoJ 指令语法及停止行为已确认后进行，先保持小范围、短时、低比例输入。
 
 当前真实 ServoJ 跟随与绝对关节范围、奇异点附近行为、失联时硬件停机能力仍须现场独立核实。这些风险不能通过代码里存在一个数值限幅来视为已经解决。
+
+## 21:04 连续控制被 RelayAge=501–511 ms 中断：定点修复
+
+实机日志：`[STEP VERIFIED] 计划3.000mm 实际3.031/3.042mm，误差0.034/0.044mm，耗时419/474ms`，说明单步 MovL 已确实执行。连续 ServoJ 在 `Mode=7, Running=1, Enabled=1, Error=0, FeedbackAge=31/41ms` 时停止，原因是本地 `relayStatusAgeMs>500ms`，观察值分别为 **511ms 和 501ms**。机器人实时 `robot_state` 并未过期。
+
+实际 `relay_station/master` 的 `relay_status` 使用 **200ms 定时发布**，且在拥塞时可能延迟/合并状态元数据；它与高频 `robot_state` 是不同数据流。修复：
+
+- 连续模式的高频机器人反馈上限保留为 **250ms**，中转站状态心跳上限改为 **750ms**，与 `RelayStateClient::hasFreshState()` 所用默认 gate 一致。**不**忽略 `relay_ready=false`、缺失端口、会话变化、无使能、模式不符或实际机器人状态超时；收到即时状态故障仍终止运动。
+- `RelayStateClient::refreshStatus()` 原先每收一帧机器人数据都向 Qt 发包含不同 `seq` 的 `statusChanged`，造成不必要的 UI 频繁重绘。现将标签限频约 5 Hz，**不**降低机器人快照/新鲜度检查的采样频率，状态类别变更即时发信号。
+- 退出日志增加 `RelayReady` 和三个端口标记；`[SERVO RATE]` 增加 `RelayAge`，验证是否仍存在心跳延迟。离线回归测试覆盖 501/511/750ms 不误停、751ms 停止，以及机器人反馈251ms、端口断开和 relay 未就绪时禁止继续。
+
+这轮不改变 IK 算法、关节幅度、15mm 离合软限幅或 ServoJ 命令周期。**离线 CI 不能证明 Windows Qt 构建与实机连续跟随通过**。实机复验时观察是否不再在约半秒内因 RelayAge 超时停止；若连续运动可持续，再根据 `SERVO RATE` 和实测 TCP 位移判断跟随瓶颈。物理急停须保持可用。
