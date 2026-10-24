@@ -11,6 +11,8 @@
 #include <QSpinBox>
 #include <QDoubleSpinBox>
 #include <QToolButton>
+#include <QSignalBlocker>
+#include "ManualTeleop.h"
 #include <QVBoxLayout>
 
 ControlPanelWidget::ControlPanelWidget(QWidget *parent)
@@ -100,27 +102,29 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     mainVLayout->addLayout(teleopLayout);
     auto* manualGroup=new QGroupBox(QStringLiteral("平移轴映射与灵敏度"),robotGroup);
     auto* manualForm=new QFormLayout(manualGroup);
-    QComboBox* axes[3]{};
     const QStringList choices={QStringLiteral("+Touch X"),QStringLiteral("+Touch Y"),QStringLiteral("+Touch Z"),
                                QStringLiteral("-Touch X"),QStringLiteral("-Touch Y"),QStringLiteral("-Touch Z")};
     for(int i=0;i<3;++i) {
-        axes[i]=new QComboBox(manualGroup);
-        axes[i]->addItems(choices);
-        axes[i]->setCurrentIndex(i);
-        manualForm->addRow(QStringLiteral("机器人 %1:").arg(QStringLiteral("XYZ").at(i)),axes[i]);
+        m_axisCombos[i]=new QComboBox(manualGroup);
+        m_axisCombos[i]->addItems(choices);
+        m_axisCombos[i]->setCurrentIndex(m_axisSelection[i]);
+        m_axisCombos[i]->setToolTip(QStringLiteral("每个 Touch 轴只使用一次；选择冲突轴时自动交换"));
+        manualForm->addRow(QStringLiteral("机器人 %1:").arg(QStringLiteral("XYZ").at(i)),m_axisCombos[i]);
+        connect(m_axisCombos[i],QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this,[this,i](int selected){setAxisChoice(i,selected);});
     }
-    auto* gain=new QDoubleSpinBox(manualGroup);
-    gain->setRange(0.05,2.0);gain->setDecimals(2);gain->setSingleStep(0.05);gain->setValue(0.25);
-    auto* deadzone=new QDoubleSpinBox(manualGroup);
-    deadzone->setRange(0,10);deadzone->setSuffix(QStringLiteral(" mm"));deadzone->setValue(1.5);
-    manualForm->addRow(QStringLiteral("比例"),gain);
-    manualForm->addRow(QStringLiteral("死区"),deadzone);
+    m_axisGain=new QDoubleSpinBox(manualGroup);
+    m_axisGain->setRange(0.05,2.0);m_axisGain->setDecimals(2);
+    m_axisGain->setSingleStep(0.05);m_axisGain->setValue(0.25);
+    m_axisDeadzone=new QDoubleSpinBox(manualGroup);
+    m_axisDeadzone->setRange(0,10);m_axisDeadzone->setSuffix(QStringLiteral(" mm"));
+    m_axisDeadzone->setValue(1.5);
+    manualForm->addRow(QStringLiteral("比例"),m_axisGain);
+    manualForm->addRow(QStringLiteral("死区"),m_axisDeadzone);
     auto* previewButton=new QPushButton(QStringLiteral("启用平移预览（不发送运动）"),manualGroup);
     manualForm->addRow(previewButton);
-    connect(previewButton,&QPushButton::clicked,this,[this,axes,gain,deadzone]{
-        emit manualPreviewRequested(
-            {axes[0]->currentIndex(),axes[1]->currentIndex(),axes[2]->currentIndex()},
-            gain->value(),deadzone->value());
+    connect(previewButton,&QPushButton::clicked,this,[this]{
+        emit manualPreviewRequested(m_axisSelection,m_axisGain->value(),m_axisDeadzone->value());
     });
     auto* actions=new QHBoxLayout();
     auto* stepButton=new QPushButton(QStringLiteral("执行单步（确认）"),manualGroup);
@@ -130,10 +134,8 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     actions->addWidget(stepButton);actions->addWidget(servoButton);
     manualForm->addRow(actions);
     connect(stepButton,&QPushButton::clicked,this,&ControlPanelWidget::singleStepRequested);
-    connect(servoButton,&QPushButton::clicked,this,[this,axes,gain,deadzone]{
-        emit continuousServoRequested(
-            {axes[0]->currentIndex(),axes[1]->currentIndex(),axes[2]->currentIndex()},
-            gain->value(),deadzone->value());
+    connect(servoButton,&QPushButton::clicked,this,[this]{
+        emit continuousServoRequested(m_axisSelection,m_axisGain->value(),m_axisDeadzone->value());
     });
     mainVLayout->addWidget(manualGroup);
 
@@ -197,4 +199,16 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     connect(m_stopDragButton, &QPushButton::clicked, this, &ControlPanelWidget::stopDragRequested);
     connect(m_startTeleopButton, &QPushButton::clicked, this, &ControlPanelWidget::startTeleopRequested);
     connect(m_stopTeleopButton, &QPushButton::clicked, this, &ControlPanelWidget::stopTeleopRequested);
+}
+
+void ControlPanelWidget::setAxisChoice(int robotAxis,int sourceCode)
+{
+    m_axisSelection=touchpanel::teleop::swapManualAxisSelection(
+        m_axisSelection,robotAxis,sourceCode);
+    for(int i=0;i<3;++i) {
+        if(m_axisCombos[i]) {
+            const QSignalBlocker blocker(m_axisCombos[i]);
+            m_axisCombos[i]->setCurrentIndex(m_axisSelection[i]);
+        }
+    }
 }
