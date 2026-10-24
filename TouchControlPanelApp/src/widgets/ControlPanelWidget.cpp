@@ -122,6 +122,19 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
             {axes[0]->currentIndex(),axes[1]->currentIndex(),axes[2]->currentIndex()},
             gain->value(),deadzone->value());
     });
+    auto* actions=new QHBoxLayout();
+    auto* stepButton=new QPushButton(QStringLiteral("执行单步（确认）"),manualGroup);
+    auto* servoButton=new QPushButton(QStringLiteral("连续遥控 ServoJ"),manualGroup);
+    stepButton->setToolTip(QStringLiteral("先用平移预览生成目标，按住 Touch 按钮时捕获一个小幅目标，再人工确认执行"));
+    servoButton->setToolTip(QStringLiteral("实机连续跟随：需要独立物理急停、机器人安全空间与空闲状态；Button1 按住运行，松开停止"));
+    actions->addWidget(stepButton);actions->addWidget(servoButton);
+    manualForm->addRow(actions);
+    connect(stepButton,&QPushButton::clicked,this,&ControlPanelWidget::singleStepRequested);
+    connect(servoButton,&QPushButton::clicked,this,[this,axes,gain,deadzone]{
+        emit continuousServoRequested(
+            {axes[0]->currentIndex(),axes[1]->currentIndex(),axes[2]->currentIndex()},
+            gain->value(),deadzone->value());
+    });
     mainVLayout->addWidget(manualGroup);
 
     // Robot management functions remain available but hidden by default.
