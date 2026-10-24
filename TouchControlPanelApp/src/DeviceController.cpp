@@ -347,8 +347,10 @@ void DeviceController::startTeleop()
         emit backendMessageChanged(QStringLiteral("六维预览未启用：标定绑定的设备或 8891 会话已变化，必须重新标定"));
         return;
     }
+    // Read-only preview intentionally does not require a saved spatial fit.
+    // Evaluate normal feedback/idle gates using the robot's current User/Tool.
     const auto decision=touchpanel::evaluateRobotGate(robotSnapshot,
-        m_calibrationApplied,m_calibrationUser,m_calibrationTool);
+        true,robotSnapshot.userIndex,robotSnapshot.toolIndex);
     if(!decision.canPreview) {
         emit backendMessageChanged(QStringLiteral("六维预览未启用：%1；%2")
             .arg(QString::fromUtf8(touchpanel::gateReasonChinese(decision.reason)) +
@@ -369,7 +371,7 @@ void DeviceController::startTeleop()
         m_motionTimer.start();
     }
 
-    emit backendMessageChanged("六维映射预览已启用（仅计算，不下发运动命令）。需完成标定、逆解和安全闭环后才能启用实体运动。");
+    emit backendMessageChanged("六维预览已启用：不要求空间标定。未标定时使用默认轴映射；仅计算目标，不发送实体运动。");
 }
 
 void DeviceController::stopTeleop()
@@ -404,7 +406,7 @@ void DeviceController::onMotionTick()
         return;
     }
     const auto robotSnapshot=m_relayStateClient->snapshot();
-    if(!m_manualPreview &&
+    if(!m_manualPreview && m_calibrationApplied &&
        (robotSnapshot.sessionEpoch!=m_calibrationSessionEpoch ||
         st.calibrationEpoch!=m_calibrationTouchEpoch)) {
         m_calibrationApplied=false;
@@ -412,7 +414,7 @@ void DeviceController::onMotionTick()
         return;
     }
     const auto gate=touchpanel::evaluateRobotGate(robotSnapshot,
-        m_calibrationApplied,m_calibrationUser,m_calibrationTool);
+        true,robotSnapshot.userIndex,robotSnapshot.toolIndex);
     if(m_manualPreview) {
         // Read-only mapping needs fresh robot feedback, not a saved spatial fit.
         // Any error or motion invalidates the clutch; never send real commands.
@@ -447,7 +449,8 @@ void DeviceController::onMotionTick()
             m_manualMap,touchpanel::teleop::sub(st.positionMm,m_touchOrigin),
             m_robotPoseOrigin,requested) :
         touchpanel::teleop::mapClutchedPose(
-            m_calibration,anchor,st.positionMm,st.rotationMatrix,requested);
+            m_calibrationApplied ? m_calibration : touchpanel::teleop::Calibration{},
+            anchor,st.positionMm,st.rotationMatrix,requested);
     if (!mapped) {
         invalidateTeleopBaseline();
         emit backendMessageChanged(QStringLiteral("[DRY RUN] 无效的旋转/姿态，已停止当前预览"));
