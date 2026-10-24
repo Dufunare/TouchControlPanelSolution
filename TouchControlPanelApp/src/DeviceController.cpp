@@ -730,67 +730,145 @@ void DeviceController::runContinuousTick()
     if(!m_backend || !m_relayStateClient || !m_robotBackend ||
        !m_backend->isRunning() || !m_relayStateClient->hasFreshState() ||
        !m_robotBackend->isTransitConnected()) {
-        haltRealMotion(QStringLiteral("连续遥控链路不再有效"));return;
+        haltRealMotion(QStringLiteral("连续遥控链路失效：Touch/8888/8891 连接或数据新鲜度异常"));
+        return;
     }
     const auto st=m_backend->latestState();
     const auto s=m_relayStateClient->snapshot();
-    if(!st.valid || !st.deviceCalibrated || !st.orientationValid ||
+    if(!st.valid || !st.deviceCalibrated ||
        s.sessionEpoch!=m_motionSession ||
        s.userIndex!=m_motionUser || s.toolIndex!=m_motionTool ||
        !s.enabled || s.error || s.dragging || s.jogging || s.paused ||
        (s.robotMode!=5 && s.robotMode!=7) ||
-       s.feedbackAgeMs<0 || s.feedbackAgeMs>150 ||
-       s.relayStatusAgeMs<0 || s.relayStatusAgeMs>350) {
-        haltRealMotion(QStringLiteral("连续遥控状态/会话/反馈失效"));return;
-    }
-    if(!st.button1Pressed) {
-        if(m_lastButtonPressed || m_motionBaselineReady)
-            haltRealMotion(QStringLiteral("Touch Button1 已松开"));
+       s.feedbackAgeMs<0 || s.feedbackAgeMs>250 ||
+       s.relayStatusAgeMs<0 || s.relayStatusAgeMs>500) {
+        haltRealMotion(QStringLiteral(
+            "连续遥控状态不符合要求：Touch有效=%1 校准=%2 Mode=%3 "
+            "Enabled=%4 Drag=%5 Running=%6 Jog=%7 Pause=%8 Error=%9 "
+            "FeedbackAge=%10ms RelayAge=%11ms Session=%12")
+            .arg(st.valid).arg(st.deviceCalibrated).arg(s.robotMode)
+            .arg(s.enabled).arg(s.dragging).arg(s.running)
+            .arg(s.jogging).arg(s.paused).arg(s.error)
+            .arg(s.feedbackAgeMs).arg(s.relayStatusAgeMs).arg(s.sessionEpoch));
         return;
     }
+
+    // ResetRobot is a software stop command. We MUST wait for its ACK and
+    // fresh 8891 evidence of physical idle before accepting another clutch.
+    if(m_continuousStopping) {
+        if(!m_stopTimer.isValid() || m_stopTimer.elapsed()>5000) {
+            haltRealMotion(QStringLiteral("离合释放后停止未能在 5 秒内确认"));
+            return;
+        }
+        bool still=false;
+        for(double speed:s.jointVelocity) {
+            if(!std::isfinite(speed)||std::abs(speed)>1.0)still=true;
+        }
+        for(int i=0;i<3;++i) {
+            if(!std::isfinite(s.tcpVelocity[i])||std::abs(s.tcpVelocity[i])>2.0)
+                still=true;
+        }
+        if(m_stopReplyAccepted && s.robotMode==5 && !s.running &&
+           !still && !st.button1Pressed) {
+            m_continuousStopping=false;
+            m_stopReplyAccepted=false;
+            m_motionCommandSent=false;
+            m_ikPending=false;
+            m_releaseTicks=0;
+            invalidateTeleopBaseline();
+            emit backendMessageChanged(QStringLiteral(
+                "离合停止已由 8891 确认；连续遥控仍处于待命状态，重新按下 Button1 可捕获新基准"));
+        }
+        return;
+    }
+
+    // The previous ServoP controller stayed armed across clutch releases.
+    // Keep that workflow, but request a bounded software stop after each
+    // active ServoJ gesture; never resume until idle/stop are confirmed.
+    if(!st.button1Pressed) {
+        if(++m_releaseTicks<2)return; // filter one transient HDAPI tick
+        if(m_motionCommandSent) {
+            m_continuousStopping=true;
+            m_stopReplyAccepted=false;
+            m_stopTimer.start();
+            m_ikPending=false;
+            m_robotBackend->requestControlledStop();
+            emit backendMessageChanged(QStringLiteral(
+                "Touch Button1 已释放；请求停止本次 ServoJ，等待机器人实际停稳"));
+        } else {
+            invalidateTeleopBaseline();
+        }
+        return;
+    }
+    m_releaseTicks=0;
     if(!m_lastButtonPressed) {
+        if(s.robotMode!=5 || s.running) {
+            emit backendMessageChanged(QStringLiteral(
+                "等待机器人空闲才能重新捕获连续控制基准"));
+            return;
+        }
         m_touchOrigin=st.positionMm;
         m_touchRotationOrigin=st.rotationMatrix;
         m_robotPoseOrigin=s.tcpPose;
         m_ikJointOrigin=s.jointPosition;
         m_clutchCalibrationEpoch=st.calibrationEpoch;
         m_motionBaselineReady=true;m_lastButtonPressed=true;
-        emit backendMessageChanged(QStringLiteral("连续控制：已捕获 Touch 和机器人实际基准"));
+        emit backendMessageChanged(QStringLiteral("连续控制：已捕获新的 Touch/机器人实际基准"));
         return;
     }
     if(st.calibrationEpoch!=m_clutchCalibrationEpoch) {
-        haltRealMotion(QStringLiteral("Touch 校准周期发生变化"));return;
+        haltRealMotion(QStringLiteral("Touch 校准周期发生变化"));
+        return;
     }
     if(m_ikPending) {
-        if(m_ikTimer.elapsed()>900)
-            haltRealMotion(QStringLiteral("InverseSolution 回复超时"));
+        if(m_ikTimer.elapsed()>450)
+            haltRealMotion(QStringLiteral("InverseSolution 未在 450ms 内响应，停止连续发送"));
         return;
     }
     touchpanel::teleop::Pose6 requested{};
     if(!touchpanel::teleop::manualPositionPreview(
         m_manualMap,touchpanel::teleop::sub(st.positionMm,m_touchOrigin),
         m_robotPoseOrigin,requested)) {
-        haltRealMotion(QStringLiteral("目标生成失败"));return;
+        haltRealMotion(QStringLiteral("目标生成失败"));
+        return;
     }
     const touchpanel::teleop::Vec3 delta={
         requested[0]-m_robotPoseOrigin[0],
         requested[1]-m_robotPoseOrigin[1],
         requested[2]-m_robotPoseOrigin[2]};
-    if(touchpanel::teleop::norm(delta)>15.0) {
-        haltRealMotion(QStringLiteral("离合行程超过 15 mm；请释放后重新建立基准"));return;
+    const double displacement=touchpanel::teleop::norm(delta);
+    if(displacement>15.0) {
+        haltRealMotion(QStringLiteral("本次离合运动超过 15mm 测试范围，请重新建立基准"));
+        return;
     }
     const touchpanel::teleop::Vec3 tracking={
         requested[0]-s.tcpPose[0],requested[1]-s.tcpPose[1],
         requested[2]-s.tcpPose[2]};
-    const double step=touchpanel::teleop::norm(tracking);
-    if(step<0.15)return;
-    if(step>0.6) {
-        for(int i=0;i<3;++i)requested[i]=s.tcpPose[i]+0.6*tracking[i]/step;
+    const double distance=touchpanel::teleop::norm(tracking);
+    if(distance<0.15)return;
+    if(distance>1.2) {
+        for(int i=0;i<3;++i)
+            requested[i]=s.tcpPose[i]+1.2*tracking[i]/distance;
     }
+    // The new remote IK workflow is position-only, not a six-axis stylus
+    // orientation command. Use current robot TCP angles unmodified.
     requested[3]=s.tcpPose[3];requested[4]=s.tcpPose[4];requested[5]=s.tcpPose[5];
     m_ikPending=true;
     m_ikTimer.start();
+    ++m_ikQueries;
     m_robotBackend->requestInverseSolution(requested,m_motionUser,m_motionTool,s.jointPosition);
+    if(m_continuousStatsTimer.isValid() && m_continuousStatsTimer.elapsed()>=2000) {
+        const double seconds=m_continuousStatsTimer.elapsed()/1000.0;
+        emit backendMessageChanged(
+            QStringLiteral("[SERVO RATE] IK请求 %1/s ServoJ下发 %2/s "
+                "实时Mode=%3 反馈延迟=%4ms 比例=%5")
+               .arg(m_ikQueries/seconds,0,'f',1)
+               .arg(m_servoCommands/seconds,0,'f',1)
+               .arg(s.robotMode).arg(s.feedbackAgeMs)
+               .arg(m_manualMap.scale,0,'f',2));
+        m_continuousStatsTimer.restart();
+        m_ikQueries=0;m_ikAccepted=0;m_servoCommands=0;
+    }
 }
 
 void DeviceController::haltRealMotion(const QString& cause)
