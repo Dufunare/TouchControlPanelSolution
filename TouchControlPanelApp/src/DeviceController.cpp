@@ -277,6 +277,7 @@ void DeviceController::enableRobot()
 
 void DeviceController::disableRobot()
 {
+    if(m_realMode!=RealMode::None)haltRealMotion(QStringLiteral("机器人下使能"));
     m_robotBackend->disableRobot();
 }
 
@@ -300,6 +301,7 @@ void DeviceController::emergencyStopRobot()
 
 void DeviceController::startDragRobot()
 {
+    if(m_realMode!=RealMode::None)haltRealMotion(QStringLiteral("切换到拖拽模式"));
     m_robotBackend->startDrag();
 }
 
@@ -310,6 +312,10 @@ void DeviceController::stopDragRobot()
 
 void DeviceController::setManualPreviewMapping(const touchpanel::teleop::ManualAxisMap& mapping)
 {
+    if(m_realMode!=RealMode::None) {
+        emit backendMessageChanged(QStringLiteral("实体遥控期间禁止修改轴映射；请先停止"));
+        return;
+    }
     if(!touchpanel::teleop::validManualAxisMap(mapping)) {
         emit backendMessageChanged(QStringLiteral("手动轴映射无效：三个输出轴应各对应不同的 Touch 轴"));
         return;
