@@ -154,6 +154,13 @@ MainWindow::MainWindow(QWidget* parent)
         m_controller, &DeviceController::stopDragRobot);
     connect(m_controlPanel, &ControlPanelWidget::startTeleopRequested,
         m_controller, &DeviceController::startTeleop);
+    connect(m_controlPanel,&ControlPanelWidget::manualPreviewRequested,this,
+        [this](const std::array<int,3>& axes,double gain,double deadzone){
+            touchpanel::teleop::ManualAxisMap mapping;
+            mapping.output=axes;mapping.scale=gain;mapping.deadzoneMm=deadzone;
+            m_controller->setManualPreviewMapping(mapping);
+            if(touchpanel::teleop::validManualAxisMap(mapping))m_controller->startManualPreview();
+        });
     connect(m_controlPanel, &ControlPanelWidget::stopTeleopRequested,
         m_controller, &DeviceController::stopTeleop);
 
