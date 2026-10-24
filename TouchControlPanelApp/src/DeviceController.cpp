@@ -981,6 +981,24 @@ void DeviceController::runContinuousTick()
         requested[0]-s.tcpPose[0],requested[1]-s.tcpPose[1],
         requested[2]-s.tcpPose[2]};
     const double distance=touchpanel::teleop::norm(tracking);
+    // Report effective control throughput even if the Touch generates zero
+    // IK requests: otherwise a stationary or deadzoned input stays silent.
+    if(m_continuousStatsTimer.isValid() && m_continuousStatsTimer.elapsed()>=2000) {
+        const double seconds=m_continuousStatsTimer.elapsed()/1000.0;
+        emit backendMessageChanged(
+            QStringLiteral("[SERVO RATE] IK请求=%1/s 成功逆解=%2/s ServoJ发送=%3/s，"
+                           "Touch映射位移=%4mm 目标跟踪差=%5mm，"
+                           "Mode=%6 8891延迟=%7ms 增益=%8")
+                .arg(m_ikQueries/seconds,0,'f',1)
+                .arg(m_ikAccepted/seconds,0,'f',1)
+                .arg(m_servoCommands/seconds,0,'f',1)
+                .arg(displacement,0,'f',2)
+                .arg(distance,0,'f',2)
+                .arg(s.robotMode).arg(s.feedbackAgeMs)
+                .arg(m_manualMap.scale,0,'f',2));
+        m_continuousStatsTimer.restart();
+        m_ikQueries=0;m_ikAccepted=0;m_servoCommands=0;
+    }
     if(distance<0.15)return;
     if(distance>1.2) {
         for(int i=0;i<3;++i)
@@ -993,18 +1011,6 @@ void DeviceController::runContinuousTick()
     m_ikTimer.start();
     ++m_ikQueries;
     m_robotBackend->requestInverseSolution(requested,m_motionUser,m_motionTool,s.jointPosition);
-    if(m_continuousStatsTimer.isValid() && m_continuousStatsTimer.elapsed()>=2000) {
-        const double seconds=m_continuousStatsTimer.elapsed()/1000.0;
-        emit backendMessageChanged(
-            QStringLiteral("[SERVO RATE] IK请求 %1/s ServoJ下发 %2/s "
-                "实时Mode=%3 反馈延迟=%4ms 比例=%5")
-               .arg(m_ikQueries/seconds,0,'f',1)
-               .arg(m_servoCommands/seconds,0,'f',1)
-               .arg(s.robotMode).arg(s.feedbackAgeMs)
-               .arg(m_manualMap.scale,0,'f',2));
-        m_continuousStatsTimer.restart();
-        m_ikQueries=0;m_ikAccepted=0;m_servoCommands=0;
-    }
 }
 
 void DeviceController::haltRealMotion(const QString& cause)
