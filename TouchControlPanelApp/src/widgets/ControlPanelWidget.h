@@ -2,12 +2,14 @@
 
 #include <QWidget>
 #include <QtGlobal>
+#include <array>
 
 class QPushButton;
 class QLineEdit;
 class QSpinBox;
 class QComboBox;
 class QCheckBox;
+class QDoubleSpinBox;
 
 class ControlPanelWidget : public QWidget
 {
@@ -26,6 +28,8 @@ signals:
     //tcp连接管理信号
     void robotDisconnectRequested();
     void robotConnectRequested(const QString& ip, quint16 port);
+    void relayV2ConnectRequested(const QString& ip);
+    void relayV2DisconnectRequested();
 
 	//机械臂控制信号
     void powerOnRequested();
@@ -37,8 +41,16 @@ signals:
     void stopDragRequested();
     void startTeleopRequested();
     void stopTeleopRequested();
+    void manualPreviewRequested(const std::array<int,3>& axes,double gain,double deadzone);
+    void singleStepRequested();
+    void continuousServoRequested(const std::array<int,3>& axes,double gain,double deadzone);
 
 private:
+    void setAxisChoice(int robotAxis,int sourceCode);
+    std::array<int,3> m_axisSelection{{0,5,1}}; // match working master ServoP axis convention
+    std::array<QComboBox*,3> m_axisCombos{{nullptr,nullptr,nullptr}};
+    QDoubleSpinBox* m_axisGain=nullptr;
+    QDoubleSpinBox* m_axisDeadzone=nullptr;
 
 	//touch控制按钮
     QPushButton* m_initializeButton = nullptr;
@@ -49,6 +61,8 @@ private:
 	//tcp连接管理
     QPushButton* m_robotConnectButton = nullptr;
     QPushButton* m_robotDisconnectButton = nullptr;
+    QPushButton* m_relayV2ConnectButton = nullptr;
+    QPushButton* m_relayV2DisconnectButton = nullptr;
     QLineEdit* m_transitIpEdit = nullptr;
     QSpinBox* m_transitPortSpin = nullptr;
 
@@ -62,15 +76,5 @@ private:
     QPushButton* m_stopDragButton = nullptr;
     QPushButton* m_startTeleopButton = nullptr;
     QPushButton* m_stopTeleopButton = nullptr;
-
-    //视频控制占位
-    QComboBox* m_videoSourceCombo = nullptr;
-    QLineEdit* m_videoSourceEdit = nullptr;
-    QSpinBox* m_videoFpsSpin = nullptr;
-    QCheckBox* m_videoMirrorCheck = nullptr;
-    QPushButton* m_videoStartButton = nullptr;
-    QPushButton* m_videoStopButton = nullptr;
-    QPushButton* m_videoSnapshotButton = nullptr;
-
 
 };

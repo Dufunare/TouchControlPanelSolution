@@ -1,5 +1,9 @@
 #include "pch.h"
+// Must precede Windows.h (including indirect project precompiled includes).
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include "CommunicationBackend.h"
+#include "RelayV2Frame.h"
 
 #include <atomic>
 #include <array>
@@ -73,6 +77,42 @@ namespace touchpanel
             }
 
             return trimSpace(trimmed.substr(0, bracket));
+        }
+
+        // Controller echos may use different float precision or omit
+        // optional parameters. Match the six motion target values instead
+        // of requiring byte-for-byte command equality.
+        bool sameMovLTarget(const std::string& sent,const std::string& echoed)
+        {
+            if(extractCommandName(sent)!="MovL" || extractCommandName(echoed)!="MovL")
+                return false;
+            const auto numbers=[](const std::string& command,
+                                  std::array<double,6>& out)->bool {
+                const auto open=command.find('(');
+                if(open==std::string::npos)return false;
+                auto start=open+1;
+                for(int i=0;i<6;++i) {
+                    const auto comma=command.find(',',start);
+                    const auto close=command.find(')',start);
+                    const auto stop=(comma==std::string::npos ||
+                        (close!=std::string::npos && close<comma))?close:comma;
+                    if(stop==std::string::npos)return false;
+                    const std::string token=trimSpace(command.substr(start,stop-start));
+                    try {
+                        std::size_t n=0;
+                        out[i]=std::stod(token,&n);
+                        if(n!=token.size() || !std::isfinite(out[i]))return false;
+                    } catch(...) {return false;}
+                    if(i<5 && stop==close)return false;
+                    start=stop+1;
+                }
+                return true;
+            };
+            std::array<double,6> expected{},actual{};
+            if(!numbers(sent,expected)||!numbers(echoed,actual))return false;
+            for(int i=0;i<6;++i)
+                if(std::abs(expected[i]-actual[i])>0.02)return false;
+            return true;
         }
 
         double clampValue(double value, double minValue, double maxValue)
@@ -192,6 +232,7 @@ namespace touchpanel
         TextCallback txCallback;
         TextCallback rxCallback;
         OperationCallback operationCallback;
+        JointSolutionCallback jointSolutionCallback;
 
         std::mutex callbackMutex;
 
@@ -297,6 +338,16 @@ namespace touchpanel
             }
         }
 
+        void emitJointSolution(bool success,const std::array<double,6>& joints,const std::string& detail)
+        {
+            JointSolutionCallback callback;
+            {
+                std::lock_guard<std::mutex> lock(callbackMutex);
+                callback=jointSolutionCallback;
+            }
+            if(callback)callback(success,joints,detail);
+        }
+
         void emitOperation(const std::string& operation, bool success, const std::string& detail)
         {
             OperationCallback callback;
@@ -396,6 +447,14 @@ namespace touchpanel
             }
         }
 
+        void invalidateRobotSnapshot()
+        {
+            std::lock_guard<std::mutex> lock(robotStateMutex);
+            lastRobotMode = -1;
+            hasLastPose = false;
+            lastPose.fill(0.0);
+        }
+
         void updateRobotSnapshot(const ParsedReply& parsed)
         {
             if (parsed.errorId != 0)
@@ -451,6 +510,9 @@ namespace touchpanel
             }
 
             emitOperation(operation, success, detail);
+            // IK queries run at the servo cadence: avoid flooding the GUI
+            // while preserving every failure and the callback result.
+            if(operation=="InverseSolution" && success)return;
             if (success)
             {
                 emitMessage("[OP] " + operation + " 执行成功：" + detail);
@@ -481,15 +543,29 @@ namespace touchpanel
 
         void onLineReceived(const std::string& rawLine)
         {
-            emitMessage("[TCP-RX] " + rawLine);
-            emitRx(rawLine);
-
-            const std::string detail = extractPayload(rawLine);
-            const auto parsed = parseTransitReply(detail.empty() ? rawLine : detail);
-            if (parsed.valid)
+            const std::string detail=extractPayload(rawLine);
+            const auto parsed=parseTransitReply(detail.empty()?rawLine:detail);
+            // This controller/relay combination DOES echo ServoJ replies
+            // even though ServoJ has no ordinary wait-for-reply contract.
+            // Treat successful echoes as telemetry, not as an unsolicited
+            // reply to a pending InverseSolution or ResetRobot request.
+            // A nonzero ServoJ error must remain visible and stop streaming.
+            if(parsed.valid && parsed.commandName=="ServoJ")
             {
-                updateRobotSnapshot(parsed);
+                if(parsed.errorId!=0) {
+                    emitMessage("[SERVOJ ERROR] ErrorID="+
+                        std::to_string(parsed.errorId)+" "+parsed.messageName);
+                    emitOperation("ServoJ",false,"ErrorID="+
+                        std::to_string(parsed.errorId)+" "+parsed.messageName);
+                }
+                return;
             }
+            if(rawLine.find("InverseSolution(")==std::string::npos) {
+                emitMessage("[TCP-RX] "+rawLine);
+                emitRx(rawLine);
+            }
+            if(parsed.valid)
+                updateRobotSnapshot(parsed);
 
             bool hasPending = false;
             std::string pendingOperation;
@@ -520,7 +596,28 @@ namespace touchpanel
                     return;
                 }
 
+                // A late reply from a previous MovL must never confirm a
+                // different movement target. Preserve the one-request slot.
+                if(pendingOperation=="MovL" &&
+                   !sameMovLTarget(pendingCommand,parsed.messageName))
+                {
+                    emitMessage("[OP] MovL reply target mismatch; ignoring potentially stale reply");
+                    return;
+                }
                 const bool success = (parsed.errorId == 0);
+                if(pendingOperation == "InverseSolution")
+                {
+                    std::array<double,6> joints{};
+                    const bool solutionValid=success && parsed.values.size()==6;
+                    if(solutionValid)for(int i=0;i<6;++i)joints[i]=parsed.values[i];
+                    bool finiteValues=solutionValid;
+                    for(double q:joints)if(!std::isfinite(q))finiteValues=false;
+                    finishPendingByReplyObserved(finiteValues,
+                        finiteValues ? "IK reply" : "InverseSolution error or incomplete joints");
+                    emitJointSolution(finiteValues,joints,
+                        finiteValues ? "InverseSolution" : "IK missing/invalid");
+                    return;
+                }
                 if (success)
                 {
                     finishPendingByReplyObserved(true, parsed.messageName);
@@ -539,7 +636,7 @@ namespace touchpanel
 
         void recvLoop()
         {
-            std::string buffer;
+            touchpanel::protocol::LegacyReplyFramer framer;
             std::vector<char> recvBuffer(4096);
 
             while (!stopRequested.load(std::memory_order_relaxed))
@@ -563,53 +660,19 @@ namespace touchpanel
                     break;
                 }
 
-                buffer.append(recvBuffer.data(), static_cast<size_t>(received));
-
-                while (true)
+                std::vector<std::string> frames;
+                if (!framer.feed(recvBuffer.data(), static_cast<size_t>(received), frames))
                 {
-                    const auto lineEnd = buffer.find_first_of("\r\n\0");
-                    if (lineEnd == std::string::npos)
-                    {
-                        break;
-                    }
-
-                    std::string line = buffer.substr(0, lineEnd);
-
-                    size_t eraseCount = lineEnd + 1;
-                    while (eraseCount < buffer.size() && (buffer[eraseCount] == '\r' || buffer[eraseCount] == '\n' || buffer[eraseCount] == '\0'))
-                    {
-                        ++eraseCount;
-                    }
-
-                    buffer.erase(0, eraseCount);
-
-                    line = trimCr(line);
-                    if (!line.empty())
-                    {
-                        onLineReceived(line);
-                    }
+                    emitMessage("TCP 回复超出缓存限制或分帧失败，断开连接。");
+                    break;
                 }
-
-                bool hasPending = false;
-                {
-                    std::lock_guard<std::mutex> lock(pendingMutex);
-                    hasPending = pending.active;
-                }
-
-                if (hasPending && !buffer.empty())
-                {
-                    std::string line = trimCr(buffer);
-                    buffer.clear();
-                    if (!line.empty())
-                    {
-                        onLineReceived(line);
-                    }
-                }
+                for (const auto& frame : frames) onLineReceived(frame);
             }
 
             if (!stopRequested.load(std::memory_order_relaxed))
             {
                 connected.store(false, std::memory_order_relaxed);
+                invalidateRobotSnapshot();
                 emitConnection(false);
                 emitMessage("中转站连接已断开。");
                 finishPendingAsCanceled("连接断开，命令未完成。");
@@ -663,7 +726,7 @@ namespace touchpanel
             }
         }
 
-        void sendRobotCommand(const std::string& operation, const std::string& command, int timeoutMs)
+        void sendRobotCommand(const std::string& operation, const std::string& command, int timeoutMs, std::uint16_t port=kRobotControlPort)
         {
             if (!connected.load(std::memory_order_relaxed))
             {
@@ -687,14 +750,17 @@ namespace touchpanel
                 pending.deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
             }
 
-            const std::string packet = std::to_string(kRobotControlPort) + "|" + command;
-            if (!sendLine(packet, true))
+            const std::string packet = std::to_string(port) + "|" + command;
+            // High-rate IK queries are control traffic, not UI trace events.
+            // Avoid filling the Qt event queue with one TX log per query.
+            if (!sendLine(packet,operation!="InverseSolution"))
             {
                 finishPendingAsCanceled("发送失败");
                 return;
             }
 
-            emitMessage("已发送 " + command + "，等待机械臂回复...");
+            if(operation!="InverseSolution")
+                emitMessage("已发送 " + command + "，等待机械臂回复...");
         }
     };
 
@@ -755,12 +821,20 @@ namespace touchpanel
         m_impl->operationCallback = std::move(callback);
     }
 
+    void CommunicationBackend::setJointSolutionCallback(JointSolutionCallback callback)
+    {
+        std::lock_guard<std::mutex> lock(m_impl->callbackMutex);
+        m_impl->jointSolutionCallback=std::move(callback);
+    }
+
+
     void CommunicationBackend::connectTransit(const std::string& ipOverride, std::uint16_t portOverride)
     {
         const std::string host = ipOverride.empty() ? m_impl->defaultIp : ipOverride;
         const std::uint16_t port = (portOverride == 0) ? m_impl->defaultPort : portOverride;
 
         disconnectTransitInternal(true);
+        m_impl->invalidateRobotSnapshot();
 
         m_impl->emitMessage("正在连接中转站 " + host + ":" + std::to_string(port) + " ...");
 
@@ -792,6 +866,22 @@ namespace touchpanel
         {
             ::closesocket(newSocket);
             m_impl->emitMessage("连接中转站失败：" + std::to_string(WSAGetLastError()));
+            return;
+        }
+
+        // Legacy 8888 carries tiny, latency-sensitive InverseSolution and
+        // ServoJ messages over a single TCP connection. Disable Nagle:
+        // otherwise small successive writes may be delayed until ACKs arrive
+        // and artificially inflate the IK round-trip towards ~500 ms.
+        BOOL noDelay=TRUE;
+        if(::setsockopt(newSocket,IPPROTO_TCP,TCP_NODELAY,
+                        reinterpret_cast<const char*>(&noDelay),
+                        static_cast<int>(sizeof(noDelay)))==SOCKET_ERROR)
+        {
+            const int err=WSAGetLastError();
+            ::closesocket(newSocket);
+            m_impl->emitMessage("8888 TCP_NODELAY 设置失败，拒绝建立实时控制连接：" +
+                                std::to_string(err));
             return;
         }
 
@@ -829,6 +919,7 @@ namespace touchpanel
         }
 
         m_impl->connected.store(false, std::memory_order_relaxed);
+        m_impl->invalidateRobotSnapshot();
 
         m_impl->stopThreads();
 
@@ -844,7 +935,68 @@ namespace touchpanel
 
     void CommunicationBackend::sendMotion(double x, double y, double z)
     {
-        m_impl->sendMotionCommand(x, y, z);
+        // Deliberately disable the former ServoP production entrypoint.
+        // Do not restore ServoP: one-shot MovL and IK-based ServoJ have
+        // separate explicit experimental entrypoints.
+        (void)x;
+        (void)y;
+        (void)z;
+        m_impl->emitMessage("ServoP 已禁用；请使用受控单步或 ServoJ 入口。");
+    }
+
+    void CommunicationBackend::requestInverseSolution(const std::array<double,6>& pose,int user,int tool,
+                                                       const std::array<double,6>& seed)
+    {
+        for(double x:pose)if(!std::isfinite(x))return;
+        for(double x:seed)if(!std::isfinite(x))return;
+        if(user<0||tool<0)return;
+        std::ostringstream c;
+        c<<"InverseSolution(";
+        for(double x:pose)c<<formatDouble3(x)<<",";
+        c<<user<<","<<tool<<",1,{";
+        for(std::size_t i=0;i<6;++i) {
+            if(i)c<<",";
+            c<<formatDouble3(seed[i]);
+        }
+        c<<"})";
+        m_impl->sendRobotCommand("InverseSolution",c.str(),1000);
+    }
+
+    void CommunicationBackend::sendLinearStep(const std::array<double,6>& pose,int user,int tool)
+    {
+        for(double x:pose)if(!std::isfinite(x))return;
+        if(user<0||tool<0)return;
+        std::ostringstream c;
+        c<<"MovL(";
+        for(double x:pose)c<<formatDouble3(x)<<",";
+        c<<"User="<<user<<",Tool="<<tool<<",SpeedL=10,AccL=10)";
+        m_impl->sendRobotCommand("MovL",c.str(),5000,kRobotMotionPort);
+    }
+
+    bool CommunicationBackend::sendServoJointTarget(const std::array<double,6>& joints)
+    {
+        for(double q:joints)if(!std::isfinite(q))return false;
+        if(!m_impl->connected.load(std::memory_order_relaxed))return false;
+        std::ostringstream c;
+        c<<"ServoJ(";
+        for(std::size_t i=0;i<6;++i) {
+            if(i)c<<",";
+            c<<formatDouble3(joints[i]);
+        }
+        // The 6-joint form works on older V3 controllers.
+        // Optional ServoJ parameters require firmware 3.5.5 or newer.
+        c<<")";
+        // ServoJ does not require blocking for a reply. Some controller
+        // firmware still emits success echoes; receive loop drops those only.
+        return m_impl->sendLine(std::to_string(kRobotMotionPort)+"|"+c.str(),false);
+    }
+
+    void CommunicationBackend::requestControlledStop()
+    {
+        // ResetRobot is explicitly documented to stop the robot and clear
+        // its planned motion queue. This is NOT a hardware E-stop.
+        m_impl->finishPendingAsCanceled("operator stop");
+        m_impl->sendRobotCommand("ResetRobot","ResetRobot()",3000);
     }
 
     void CommunicationBackend::requestRobotMode()
@@ -897,6 +1049,9 @@ namespace touchpanel
 
     void CommunicationBackend::emergencyStop()
     {
+        // Prevent the old single-slot pending request from silently rejecting Stop.
+        // This is still a software command, NOT a replacement for physical E-stop.
+        m_impl->finishPendingAsCanceled("被软件急停抢占");
         m_impl->sendRobotCommand("EmergencyStop", "EmergencyStop()", 5000);
     }
 
