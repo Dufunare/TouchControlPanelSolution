@@ -334,7 +334,10 @@ void DeviceController::setManualPreviewMapping(const touchpanel::teleop::ManualA
         return;
     }
     if(!touchpanel::teleop::validManualAxisMap(mapping)) {
-        emit backendMessageChanged(QStringLiteral("手动轴映射无效：三个输出轴应各对应不同的 Touch 轴"));
+        emit backendMessageChanged(
+            QStringLiteral("手动轴映射无效：机器人 X=%1、Y=%2、Z=%3（0/1/2=+X/+Y/+Z，3/4/5=-X/-Y/-Z）；比例=%4，死区=%5 mm")
+                .arg(mapping.output[0]).arg(mapping.output[1]).arg(mapping.output[2])
+                .arg(mapping.scale,0,'f',2).arg(mapping.deadzoneMm,0,'f',1));
         return;
     }
     m_manualMap=mapping;
