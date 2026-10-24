@@ -15,6 +15,7 @@
 #include <QPushButton>
 #include <QToolButton>
 #include <QMessageBox>
+#include <QCloseEvent>
 #include <QVBoxLayout>
 #include "widgets/ControlPanelWidget.h"
 #include "widgets/GLCoordinateWidget.h"
@@ -199,6 +200,10 @@ MainWindow::MainWindow(QWidget* parent)
                 statusBar()->showMessage(QStringLiteral("轴映射无效：每个 Touch 轴只能对应一个机器人轴"),5000);
                 return;
             }
+            if(m_controller->realMotionActive()) {
+                statusBar()->showMessage(QStringLiteral("先停止当前实体遥控模式"),5000);
+                return;
+            }
             const auto choice=QMessageBox::warning(this,QStringLiteral("真实连续遥控"),
                 QStringLiteral("即将允许 Touch Button1 控制真实机器人 ServoJ。\n"
                     "开始前请确保机械臂周围清空、安全范围已确认、物理急停可触及。\n"
@@ -245,3 +250,16 @@ MainWindow::MainWindow(QWidget* parent)
         });
 }
 
+
+void MainWindow::closeEvent(QCloseEvent* event)
+{
+    if(m_controller && m_controller->realMotionActive()) {
+        m_controller->stopTeleop();
+        QMessageBox::warning(this,QStringLiteral("已请求停止遥控"),
+            QStringLiteral("已发送软件停止请求，请确认 8891 反馈显示机器人停止。"
+                            "如运动未停止，请立即使用物理急停。确认后再关闭窗口。"));
+        event->ignore();
+        return;
+    }
+    QMainWindow::closeEvent(event);
+}
