@@ -60,7 +60,7 @@ inline std::array<double,6> limitedServoTarget(const RobotSnapshot& s,
                                                const std::array<double,6>& solved) {
     std::array<double,6> result=s.jointPosition;
     for(int i=0;i<6;++i)
-        result[i]+=std::clamp(solved[i]-s.jointPosition[i],-0.18,0.18);
+        result[i]+=std::clamp(solved[i]-s.jointPosition[i],-0.35,0.35);
     return result;
 }
 } // namespace touchpanel::teleop
