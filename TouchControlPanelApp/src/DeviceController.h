@@ -37,6 +37,7 @@ public:
 
 public slots:
     void invalidateTeleopBaseline();
+    void onRelayStateInvalidated();
     void checkTouchCalibration();
     // touch设备管理
     void initializeBackend();
