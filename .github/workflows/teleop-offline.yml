@@ -14,6 +14,7 @@ on:
       - 'shared/GlPoseMath.h'
       - 'shared/CalibrationCaptureQuality.h'
       - 'shared/RelativeMotionCalibration.h'
+      - 'shared/ManualTeleop.h'
       - '.github/workflows/teleop-offline.yml'
 jobs:
   cpp17-offline:
@@ -38,6 +39,8 @@ jobs:
         run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/calibration_capture_quality_tests.cpp -o /tmp/cal_capture_test
       - name: Build relative motion calibration test
         run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/relative_motion_calibration_tests.cpp -o /tmp/relative_motion_test
+      - name: Build manual teleop mapping test
+        run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/manual_teleop_tests.cpp -o /tmp/manual_teleop_test
       - name: Run tests
         run: |
           /tmp/teleop_geometry_test
@@ -49,3 +52,4 @@ jobs:
           /tmp/gl_pose_test
           /tmp/cal_capture_test
           /tmp/relative_motion_test
+          /tmp/manual_teleop_test
