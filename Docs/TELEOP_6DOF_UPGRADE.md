@@ -202,3 +202,26 @@ The current `mapClutchedPose()` requires a rotation and scale for **relative Tou
 Two distinct onsite routes remain open: (A) shared physical fiducials -> 8+ non-coplanar absolute point pairs and held-out verification; (B) workspaces do not overlap -> relative displacement direction/scale calibration with an independent safe teaching procedure and dedicated solver/UI still to be implemented. Do not use the existing absolute-pair dialog for B.
 
 Added pure C++ preflight helpers `shared/CalibrationCaptureQuality.h` and offline tests for joint/TCP stationary thresholds, short temporal-window repeatability, duplicate rejection and independent holdout residual. They are not yet wired into the Qt dialog; instantaneous capture is unchanged until the appropriate calibration mode is chosen. These tests do not authorize motion.
+
+## Separate-workspace relative calibration — Qt wizard, onsite procedure
+
+There are now two DIFFERENT UI entries:
+- 相对位移与方向标定（分离工作空间）: records paired start/end *displacements*, intended for independent workspaces
+- 绝对空间点对标定（仅共同基准点）: original shared-physical-landmark method. Do NOT use this for independently placed devices
+
+The new wizard is read-only. It NEVER issues robot motion commands. It estimates robot_delta = s * R * touch_delta with rotation and scale but no absolute translation.
+
+PRECONDITION: Pairs MUST represent real, deliberately matching movement directions and scale. Fix an EXTERNAL common directional convention (e.g. room-right/room-forward/up shown on each fixture, verified by operator). Arbitrary independent hand and robot movements are not correspondence and MUST NOT be fitted.
+
+1. Keep physical E-stop and an independently authorized low-speed teach workflow available. Verify clearance and correct TCP tool center. No one should rely on software E-stop alone.
+2. Initialize Touch, start samples, read-only check HDAPI calibration OK. Connect 8891, verify fresh LIVE seq and matching User/Tool.
+3. Both stationary: click ① Capture start (8 independent snapshots, 45ms period; reject excessive motion, stale feedback and session changes).
+4. Teach robot movement using a SEPARATE safe robot mechanism, not the wizard; move Touch manually through intentionally corresponding displacement direction/scale. Movements need not be simultaneous. Keep robot TCP orientation nearly constant.
+5. Both stationary: check manual correspondence checkbox and click ② Capture end. It checks >15 mm displacement on both devices, endpoint stability, <8° TCP orientation change, freshness and stable session/coordinates.
+6. Repeat for >=10 diverse movements, recommended 12–14: positive/negative world X,Y,Z and diagonals; ensure noncoplanar training data, avoid duplicates and narrow direction coverage. Last 2 gestures are reserved as independent holdouts.
+7. Click ③ Solve + validate + save. Zero-translation training residual gates: RMS <=6mm and max <=15mm; holdout residual RMS <=8mm and max <=12mm; scale in [0.15,6]. These thresholds are preliminary software test gates, NOT physical-motion approval.
+8. On success writes dedicated touch_robot_relative_calibration_v1.json with all delta pairs, rotation, scale, residuals, verified_for_motion=false and orientation_verified=false. Failed fit does not save or apply.
+9. Mapping applied only to current relay session and Touch calibration epoch for READ-ONLY Dry Run. Disconnection or changed Touch calibration epoch prevents reusing stale session mapping. Robot physical-motion output remains unconditionally disabled.
+10. Dry Run: with a separately confirmed safe idle robot and unchanged User/Tool, press Touch button 1 to capture the clutch baseline, then move Touch gently and inspect printed target coordinates, release to reset. Do NOT consider displayed Rx/Ry/Rz validated by the displacement fit. Verify orientation mapping independently before any future motion work.
+
+Important: A low mathematical residual can result from consistently wrong movement correspondences and is not evidence of safe movement. If the user cannot reliably establish shared directional meaning, stop capture and design a manual axis map / externally referenced alignment first. Qt Windows hardware integration remains untested.
