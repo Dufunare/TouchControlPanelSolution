@@ -115,6 +115,8 @@ private:
     bool m_stepReplyAccepted=false;
     bool m_ikPending=false;
     bool m_motionCommandSent=false;
+    bool m_haveServoTarget=false;
+    std::array<double,6> m_latestServoTarget{};
     bool m_continuousStopping=false;
     bool m_stopReplyAccepted=false;
     int m_releaseTicks=0;
