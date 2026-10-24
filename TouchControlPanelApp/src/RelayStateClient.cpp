@@ -70,6 +70,9 @@ void RelayStateClient::invalidate(const QString& why) {
     if(wasValid)emit stateInvalidated();
 }
 void RelayStateClient::sendHello() {
+    // Fresh 8891 robot_state/relay_status messages must not be held behind
+    // delayed ACK/Nagle on a latency-sensitive control feedback socket.
+    m_socket.setSocketOption(QAbstractSocket::LowDelayOption,1);
     m_codec.reset();m_session.clear();m_handshaken=false;m_ready=false;m_valid=false;
     m_snapshot=touchpanel::RobotSnapshot{};m_stateAge.invalidate();m_relayAge.invalidate();
     const QJsonObject hello{{"v",2},{"type","hello"},{"request_id","1"},
