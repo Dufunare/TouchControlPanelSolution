@@ -540,19 +540,29 @@ namespace touchpanel
 
         void onLineReceived(const std::string& rawLine)
         {
-            // The no-reply ServoJ stream still needs fast IK reads; raw
-            // InverseSolution traffic is intentionally not printed per tick.
+            const std::string detail=extractPayload(rawLine);
+            const auto parsed=parseTransitReply(detail.empty()?rawLine:detail);
+            // This controller/relay combination DOES echo ServoJ replies
+            // even though ServoJ has no ordinary wait-for-reply contract.
+            // Treat successful echoes as telemetry, not as an unsolicited
+            // reply to a pending InverseSolution or ResetRobot request.
+            // A nonzero ServoJ error must remain visible and stop streaming.
+            if(parsed.valid && parsed.commandName=="ServoJ")
+            {
+                if(parsed.errorId!=0) {
+                    emitMessage("[SERVOJ ERROR] ErrorID="+
+                        std::to_string(parsed.errorId)+" "+parsed.messageName);
+                    emitOperation("ServoJ",false,"ErrorID="+
+                        std::to_string(parsed.errorId)+" "+parsed.messageName);
+                }
+                return;
+            }
             if(rawLine.find("InverseSolution(")==std::string::npos) {
-                emitMessage("[TCP-RX] " + rawLine);
+                emitMessage("[TCP-RX] "+rawLine);
                 emitRx(rawLine);
             }
-
-            const std::string detail = extractPayload(rawLine);
-            const auto parsed = parseTransitReply(detail.empty() ? rawLine : detail);
-            if (parsed.valid)
-            {
+            if(parsed.valid)
                 updateRobotSnapshot(parsed);
-            }
 
             bool hasPending = false;
             std::string pendingOperation;
@@ -957,7 +967,8 @@ namespace touchpanel
         // The 6-joint form works on older V3 controllers.
         // Optional ServoJ parameters require firmware 3.5.5 or newer.
         c<<")";
-        // Dobot V3 ServoJ intentionally has NO normal command reply.
+        // ServoJ does not require blocking for a reply. Some controller
+        // firmware still emits success echoes; receive loop drops those only.
         return m_impl->sendLine(std::to_string(kRobotMotionPort)+"|"+c.str(),false);
     }
 
