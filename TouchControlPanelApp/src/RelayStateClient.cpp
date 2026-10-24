@@ -96,6 +96,9 @@ void RelayStateClient::readIncoming() {
             if(m_socket.state()!=QAbstractSocket::ConnectedState)return;
         }
     }
+    // Safety state transitions still invalidate immediately in handleFrame,
+    // but cosmetic status/telemetry text updates happen once per read.
+    refreshStatus();
 }
 void RelayStateClient::handleFrame(const QByteArray& bytes) {
     QJsonParseError error;
@@ -138,7 +141,7 @@ void RelayStateClient::handleFrame(const QByteArray& bytes) {
         m_snapshot.port29999Connected=o.value("port_29999_connected").toBool();
         m_snapshot.port30003Connected=o.value("port_30003_connected").toBool();
         m_snapshot.port30004Connected=o.value("port_30004_connected").toBool();
-        refreshStatus();return;
+        return;
     }
     if(type=="robot_state") {
         quint64 seq=0;std::array<double,6> pose{},joints{};
@@ -150,7 +153,7 @@ void RelayStateClient::handleFrame(const QByteArray& bytes) {
            !o.value("enable_status").isBool()||
            !o.value("drag_status").isBool()) {
             if(m_valid){m_valid=false;emit stateInvalidated();}
-            refreshStatus();return;
+            return;
         }
         // Prevent wraparound/reordered feedback within one v2 session.
         if(seq<=m_sequence)return;
@@ -162,7 +165,7 @@ void RelayStateClient::handleFrame(const QByteArray& bytes) {
            !six(o.value("q_target"),target)||!uv.isDouble()||!tv.isDouble()||
            !o.value("running_status").isBool()||!o.value("jog_status").isBool()||
            !o.value("pause_cmd_flag").isBool()||!o.value("run_queued_cmd").isBool()) {
-            m_valid=false;emit stateInvalidated();refreshStatus();return;
+            m_valid=false;emit stateInvalidated();return;
         }
         m_snapshot.feedbackSeen=true;m_snapshot.feedbackValid=true;
         m_snapshot.stateSeq=seq;m_snapshot.robotMode=rv.toInt(-1);
@@ -179,7 +182,7 @@ void RelayStateClient::handleFrame(const QByteArray& bytes) {
         m_snapshot.queuedMotion=o.value("run_queued_cmd").toBool();
         // Motion permission remains separately disabled: this is observation only.
         m_valid=true;m_stateAge.restart();
-        refreshStatus();return;
+        return;
     }
     if(type=="error") {
         m_status=QStringLiteral("v2 服务端错误: %1").arg(o.value("code").toString());
