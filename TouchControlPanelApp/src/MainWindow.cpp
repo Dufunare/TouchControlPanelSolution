@@ -14,6 +14,7 @@
 #include "RelativeCalibrationDialog.h"
 #include <QPushButton>
 #include <QToolButton>
+#include <QMessageBox>
 #include <QVBoxLayout>
 #include "widgets/ControlPanelWidget.h"
 #include "widgets/GLCoordinateWidget.h"
@@ -181,6 +182,32 @@ MainWindow::MainWindow(QWidget* parent)
             mapping.output=axes;mapping.scale=gain;mapping.deadzoneMm=deadzone;
             m_controller->setManualPreviewMapping(mapping);
             if(touchpanel::teleop::validManualAxisMap(mapping))m_controller->startManualPreview();
+        });
+    connect(m_controlPanel,&ControlPanelWidget::singleStepRequested,
+        m_controller,&DeviceController::prepareSingleStep);
+    connect(m_controller,&DeviceController::singleStepConfirmationNeeded,this,
+        [this](const QString& message){
+            if(QMessageBox::question(this,QStringLiteral("确认机器人单步运动"),
+                 message,QMessageBox::Yes|QMessageBox::No,QMessageBox::No)==QMessageBox::Yes)
+                m_controller->confirmSingleStep();
+        });
+    connect(m_controlPanel,&ControlPanelWidget::continuousServoRequested,this,
+        [this](const std::array<int,3>& axes,double gain,double deadzone){
+            touchpanel::teleop::ManualAxisMap mapping;
+            mapping.output=axes;mapping.scale=gain;mapping.deadzoneMm=deadzone;
+            if(!touchpanel::teleop::validManualAxisMap(mapping)) {
+                statusBar()->showMessage(QStringLiteral("轴映射无效：每个 Touch 轴只能对应一个机器人轴"),5000);
+                return;
+            }
+            const auto choice=QMessageBox::warning(this,QStringLiteral("真实连续遥控"),
+                QStringLiteral("即将允许 Touch Button1 控制真实机器人 ServoJ。\n"
+                    "开始前请确保机械臂周围清空、安全范围已确认、物理急停可触及。\n"
+                    "松开 Button1 将通过 ResetRobot 请求停止。\n"
+                    "仅启用平移；末端姿态锁定。是否继续？"),
+                QMessageBox::Yes|QMessageBox::No,QMessageBox::No);
+            if(choice!=QMessageBox::Yes)return;
+            m_controller->setManualPreviewMapping(mapping);
+            m_controller->startContinuousServo();
         });
     connect(m_controlPanel, &ControlPanelWidget::stopTeleopRequested,
         m_controller, &DeviceController::stopTeleop);
