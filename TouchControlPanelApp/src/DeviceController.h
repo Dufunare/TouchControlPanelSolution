@@ -124,4 +124,6 @@ private:
     QElapsedTimer m_ikTimer;
     QElapsedTimer m_servoTime;
     std::uint64_t m_stepStartSeq=0;
+    bool m_singleStepVerified=false;
+    std::uint64_t m_verifiedStepSession=0;
 };
