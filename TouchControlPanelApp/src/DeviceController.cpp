@@ -122,6 +122,14 @@ void DeviceController::applyPreviewCalibration(const touchpanel::teleop::Calibra
     emit backendMessageChanged(QStringLiteral("已启用本次会话相对位移标定（仅预览，不启用实体运动）；姿态约定仍待独立验证"));
 }
 
+void DeviceController::onRelayStateInvalidated()
+{
+    if(m_realMode!=RealMode::None)
+        haltRealMotion(QStringLiteral("8891 遥测失效，已终止实体运动"));
+    else
+        invalidateTeleopBaseline();
+}
+
 void DeviceController::invalidateTeleopBaseline()
 {
     m_lastButtonPressed = false;
