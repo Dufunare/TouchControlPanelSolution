@@ -41,6 +41,8 @@ signals:
     void startTeleopRequested();
     void stopTeleopRequested();
     void manualPreviewRequested(const std::array<int,3>& axes,double gain,double deadzone);
+    void singleStepRequested();
+    void continuousServoRequested(const std::array<int,3>& axes,double gain,double deadzone);
 
 private:
 
