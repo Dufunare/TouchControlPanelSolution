@@ -74,5 +74,13 @@ int main(){
     assert(!boundClutchTarget(fast,origin,bound));
     fast=origin;fast[0]+=40;
     assert(!boundClutchTarget(fast,origin,bound,100.0));
+    // The observed controller can take 480ms to answer InverseSolution.
+    // ServoJ must continue holding only its last VALIDATED target during
+    // this wait. A missing IK or stale physical feedback still expires.
+    static_assert(kIKReplyAcceptMs>=480,"IK latency seen onsite must be handled");
+    static_assert(kMaxValidatedSetpointHoldMs>=480,"Avoid ServoJ command gaps during IK RTT");
+    static_assert(kIKRequestTimeoutMs>kIKReplyAcceptMs,"Hard IK timeout must exceed reply acceptance");
+    static_assert(kContinuousRobotFeedbackAgeLimitMs<kIKReplyAcceptMs,
+                  "Realtime robot state must be fresher than cached IK");
     std::cout<<"Motion proposal and IK continuity tests passed\n";
 }
