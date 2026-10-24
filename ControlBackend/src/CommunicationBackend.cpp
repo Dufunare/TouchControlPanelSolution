@@ -471,6 +471,9 @@ namespace touchpanel
             }
 
             emitOperation(operation, success, detail);
+            // IK queries run at the servo cadence: avoid flooding the GUI
+            // while preserving every failure and the callback result.
+            if(operation=="InverseSolution" && success)return;
             if (success)
             {
                 emitMessage("[OP] " + operation + " 执行成功：" + detail);
@@ -501,8 +504,12 @@ namespace touchpanel
 
         void onLineReceived(const std::string& rawLine)
         {
-            emitMessage("[TCP-RX] " + rawLine);
-            emitRx(rawLine);
+            // The no-reply ServoJ stream still needs fast IK reads; raw
+            // InverseSolution traffic is intentionally not printed per tick.
+            if(rawLine.find("InverseSolution(")==std::string::npos) {
+                emitMessage("[TCP-RX] " + rawLine);
+                emitRx(rawLine);
+            }
 
             const std::string detail = extractPayload(rawLine);
             const auto parsed = parseTransitReply(detail.empty() ? rawLine : detail);
@@ -693,7 +700,8 @@ namespace touchpanel
                 return;
             }
 
-            emitMessage("已发送 " + command + "，等待机械臂回复...");
+            if(operation!="InverseSolution")
+                emitMessage("已发送 " + command + "，等待机械臂回复...");
         }
     };
 
