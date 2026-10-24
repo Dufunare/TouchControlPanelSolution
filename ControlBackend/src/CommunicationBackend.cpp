@@ -702,7 +702,9 @@ namespace touchpanel
             }
 
             const std::string packet = std::to_string(port) + "|" + command;
-            if (!sendLine(packet, true))
+            // High-rate IK queries are control traffic, not UI trace events.
+            // Avoid filling the Qt event queue with one TX log per query.
+            if (!sendLine(packet,operation!="InverseSolution"))
             {
                 finishPendingAsCanceled("发送失败");
                 return;
