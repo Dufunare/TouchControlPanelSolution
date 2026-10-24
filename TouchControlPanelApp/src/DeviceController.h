@@ -71,6 +71,7 @@ private:
     touchpanel::teleop::Calibration m_calibration{};
     bool m_calibrationApplied=false;
     int m_calibrationUser=-1,m_calibrationTool=-1;
+    std::uint64_t m_calibrationSessionEpoch=0,m_calibrationTouchEpoch=0;
     touchpanel::TouchBackend* m_backend = nullptr;
     touchpanel::CommunicationBackend* m_robotBackend = nullptr;
     QTimer m_pollTimer;
