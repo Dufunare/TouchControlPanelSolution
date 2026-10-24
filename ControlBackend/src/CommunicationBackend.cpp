@@ -902,8 +902,8 @@ namespace touchpanel
         std::ostringstream c;
         c<<"MovL(";
         for(double x:pose)c<<formatDouble3(x)<<",";
-        c<<"User="<<user<<",Tool="<<tool<<",SpeedL=1,AccL=1)";
-        m_impl->sendRobotCommand("MovL",c.str(),3000,kRobotMotionPort);
+        c<<"User="<<user<<",Tool="<<tool<<",SpeedL=10,AccL=10)";
+        m_impl->sendRobotCommand("MovL",c.str(),5000,kRobotMotionPort);
     }
 
     bool CommunicationBackend::sendServoJointTarget(const std::array<double,6>& joints)
