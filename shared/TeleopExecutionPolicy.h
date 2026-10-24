@@ -9,6 +9,12 @@ namespace touchpanel::teleop {
 // metadata, NOT the high-rate robot_state motion feedback. Give it several
 // heartbeat periods of tolerance, while the physical robot feedback stays
 // on a stricter 250ms bound. Never ignore a relay_ready=false event.
+// An IK RPC can take hundreds of ms on this controller, while ServoJ
+// expects continuous writes. A repeated, already validated joint setpoint
+// is safe only while the clutch and independent live-feedback gates hold.
+inline constexpr int kIKReplyAcceptMs=650;
+inline constexpr int kIKRequestTimeoutMs=700;
+inline constexpr int kMaxValidatedSetpointHoldMs=650;
 inline constexpr int kContinuousRobotFeedbackAgeLimitMs=250;
 inline constexpr int kContinuousRelayStatusAgeLimitMs=750;
 inline bool continuousTelemetryAgesHealthy(const RobotSnapshot& s) {
