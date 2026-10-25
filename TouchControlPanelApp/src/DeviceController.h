@@ -13,6 +13,7 @@
 #include "TouchBackend.h"
 #include "TeleopGeometry.h"
 #include "ManualTeleop.h"
+#include "RelativeServoP.h"
 
 #define DEVICE_CONTROLLER_POLL_INTERVAL_MS 8 // 约 125 FPS 的前端刷新频率
 #define DEVICE_CONTROLLER_MOTION_INTERVAL_MS 33 // 33ms 为机械臂官方文档推荐的远程控制发送频率
@@ -62,6 +63,7 @@ public slots:
     void prepareSingleStep();
     void confirmSingleStep();
     void startContinuousServo();
+    void startContinuousServoP();
     void stopTeleop();
 
 signals:
@@ -80,6 +82,7 @@ private slots:
     void handleRobotOperation(const QString& operation,bool success,const QString& detail);
     void handleInverseSolution(bool success,const std::array<double,6>& joints);
     void runContinuousTick();
+    void runServoPTick();
     void monitorSingleStep();
     void haltRealMotion(const QString& cause);
 
@@ -108,13 +111,19 @@ private:
     std::array<double, 3> m_robotOrigin{ 0.0, 0.0, 0.0 };
     std::array<double, 3> m_lastSent{ 0.0, 0.0, 0.0 };
     bool m_hasLastSent = false;
-    enum class RealMode { None, SingleStep, Continuous };
+    enum class RealMode { None, SingleStep, Continuous, CartesianServoP };
     RealMode m_realMode=RealMode::None;
     bool m_stepPrepared=false;
     bool m_stepAwaitingReply=false;
     bool m_stepReplyAccepted=false;
     bool m_ikPending=false;
     bool m_motionCommandSent=false;
+    touchpanel::teleop::RelativeServoP m_cartesianServoP;
+    QElapsedTimer m_servoPReleaseTimer;
+    QElapsedTimer m_servoPStatsTimer;
+    std::uint64_t m_servoPLastStateSeq=0;
+    int m_servoPSentPackets=0;
+    bool m_servoPWasSaturated=false;
     bool m_haveServoTarget=false;
     bool m_clutchRangeSaturated=false;
     std::array<double,6> m_latestServoTarget{};
