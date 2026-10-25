@@ -1,3 +1,5 @@
+> **2026-10-25 模式更新**：已经在最新 OpenCV 版 `relay_station/master` 重新放行 Legacy ServoP，并在本 PR 恢复可切换的相对平移 ServoP 控制。请先阅读 [ServoP 相对离合与实机验收契约](SERVOP_RELATIVE_MODE.md)。下文以 ServoJ 为中心的文字保留为实验模式及历史记录，不代表 ServoP 仍被禁用。
+
 **当前遥控验收与运行约束请优先阅读 [TELEOP_CONTROL_ACCEPTANCE.md](TELEOP_CONTROL_ACCEPTANCE.md)。下文保留阶段性研发记录，部分早期“实体运动禁用”描述反映的是历史状态。**
 
 # TouchControlPanel 六自由度遥操作升级：设计与分阶段落地
