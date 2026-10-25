@@ -14,6 +14,19 @@ namespace
     constexpr double kTeleopScaleY = 1.0;
     constexpr double kTeleopScaleZ = 1.0;
 
+    bool servoPMeasuredIdle(const touchpanel::RobotSnapshot& s)
+    {
+        if(s.robotMode!=5 || s.running || s.error || s.dragging ||
+           s.jogging || s.paused ||
+           !touchpanel::finiteSix(s.tcpVelocity) ||
+           !touchpanel::finiteSix(s.jointVelocity))
+            return false;
+        for(int i=0;i<3;++i)if(std::abs(s.tcpVelocity[i])>2.0)return false;
+        for(double velocity:s.jointVelocity)
+            if(std::abs(velocity)>1.0)return false;
+        return true;
+    }
+
     QString decodeBackendText(const std::string& text)
     {
         const QString utf8Text = QString::fromUtf8(text.c_str());
@@ -305,6 +318,7 @@ void DeviceController::emergencyStopRobot()
 {
     // Never permit the 33ms servo timer to re-issue motion after E-stop.
     m_realMode=RealMode::None;
+    m_cartesianServoP.reset();
     m_motionCommandSent=false;
     m_ikPending=false;
     m_stepPrepared=false;
@@ -455,6 +469,10 @@ void DeviceController::onMotionTick()
 {
     if(m_realMode==RealMode::SingleStep) {
         monitorSingleStep();
+        return;
+    }
+    if(m_realMode==RealMode::CartesianServoP) {
+        runServoPTick();
         return;
     }
     if(m_realMode==RealMode::Continuous) {
@@ -614,6 +632,52 @@ void DeviceController::confirmSingleStep()
     if(!m_motionTimer.isActive())m_motionTimer.start();
     m_robotBackend->sendLinearStep(m_stepProposal.pose,m_motionUser,m_motionTool);
     emit backendMessageChanged(QStringLiteral("单步 MovL 已下发；等待应答及 8891 到位确认"));
+}
+
+void DeviceController::startContinuousServoP()
+{
+    if(m_realMode!=RealMode::None || !m_backend ||
+       !m_backend->isRunning() || !m_relayStateClient || !m_robotBackend ||
+       !m_robotBackend->isTransitConnected() ||
+       !touchpanel::teleop::validManualAxisMap(m_manualMap)) {
+        emit backendMessageChanged(QStringLiteral(
+            "ServoP 未启动：请停止旧模式，确认 Touch/8888/8891 与轴映射"));
+        return;
+    }
+    const auto st=m_backend->latestState();
+    const auto s=m_relayStateClient->snapshot();
+    if(!st.valid || !st.deviceCalibrated || !st.schedulerRunning ||
+       !touchpanel::teleop::continuousTelemetryAgesHealthy(s) ||
+       !s.enabled || s.error || s.dragging || s.jogging || s.paused ||
+       !servoPMeasuredIdle(s)) {
+        emit backendMessageChanged(QStringLiteral(
+            "ServoP 未启动：需有效校准的 Touch、8891 新鲜状态及空闲已使能机器人"
+            "（Mode=%1, Running=%2, FeedbackAge=%3ms, RelayAge=%4ms）")
+            .arg(s.robotMode).arg(s.running)
+            .arg(s.feedbackAgeMs).arg(s.relayStatusAgeMs));
+        return;
+    }
+    m_realMode=RealMode::CartesianServoP;
+    m_motionSession=s.sessionEpoch;
+    m_motionUser=s.userIndex;
+    m_motionTool=s.toolIndex;
+    m_motionCommandSent=false;
+    m_manualPreview=false;
+    m_cartesianServoP.reset(); // NeedRelease until button is observed up.
+    m_servoPReleaseTimer.invalidate();
+    m_servoPStatsTimer.start();
+    m_servoPSentPackets=0;
+    m_servoPWasSaturated=false;
+    m_servoPHasTarget=false;
+    m_invalidTouchTicks=0;
+    m_staleTouchTicks=0;
+    m_lastTouchSampleCounter=st.sampleCounter;
+    invalidateTeleopBaseline();
+    if(!m_motionTimer.isActive())m_motionTimer.start();
+    emit backendMessageChanged(QStringLiteral(
+        "ServoP 相对遥控已待命：必须先松开 Button1；下次按下同步抓取 Touch 与机器人当前位姿。"
+        "按住连续运动，松开即不再下发目标；重新按下不追逐松开期间的 Touch 移动。"
+        "首次按下本身不下发运动。"));
 }
 
 void DeviceController::startContinuousServo()
@@ -1069,6 +1133,7 @@ void DeviceController::haltRealMotion(const QString& cause)
 {
     const bool sent=m_motionCommandSent;
     m_realMode=RealMode::None;
+    m_cartesianServoP.reset();
     m_motionCommandSent=false;
     m_haveServoTarget=false;
     m_clutchRangeSaturated=false;
