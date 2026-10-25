@@ -1,3 +1,5 @@
+> **2026-10-25 模式更新**：已经在最新 OpenCV 版 `relay_station/master` 重新放行 Legacy ServoP，并在本 PR 恢复可切换的相对平移 ServoP 控制。请先阅读 [ServoP 相对离合与实机验收契约](SERVOP_RELATIVE_MODE.md)。下文以 ServoJ 为中心的文字保留为实验模式及历史记录，不代表 ServoP 仍被禁用。
+
 # TouchControlPanel：遥控控制收口与实机验收
 
 本轮范围固定为两个目标：**受控单步**与**连续遥控**。不再增加标定系统、摄像头或 ServoP 对照工作。
