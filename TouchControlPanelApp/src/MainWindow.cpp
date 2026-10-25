@@ -184,6 +184,32 @@ MainWindow::MainWindow(QWidget* parent)
                  message,QMessageBox::Yes|QMessageBox::No,QMessageBox::No)==QMessageBox::Yes)
                 m_controller->confirmSingleStep();
         });
+    connect(m_controlPanel,&ControlPanelWidget::continuousServoPRequested,this,
+        [this](const std::array<int,3>& axes,double gain,double deadzone){
+            touchpanel::teleop::ManualAxisMap mapping;
+            mapping.output=axes;mapping.scale=gain;mapping.deadzoneMm=deadzone;
+            if(!touchpanel::teleop::validManualAxisMap(mapping)) {
+                statusBar()->showMessage(QStringLiteral("ServoP 轴映射或比例无效"),5000);
+                return;
+            }
+            if(m_controller->realMotionActive()) {
+                statusBar()->showMessage(QStringLiteral("先停止当前实体控制，再启动 ServoP"),5000);
+                return;
+            }
+            const auto choice=QMessageBox::warning(this,
+                QStringLiteral("确认 ServoP 实体连续遥控"),
+                QStringLiteral(
+                    "将通过 8888→30003 连续发送 ServoP，控制真实机械臂。\n"
+                    "按下 Button1 捕获此刻 Touch 与机器人坐标，按下当帧绝不发运动指令。\n"
+                    "松开立即停止发送；机械臂可能执行最后一个目标，"
+                    "必须等待反馈停稳，重新按下才捕获新的坐标基准。\n"
+                    "默认坐标映射 X←Touch X, Y←−Touch Z, Z←Touch Y，末端姿态固定在基准姿态。\n"
+                    "确认独立物理急停可用、周围无人、软件停止不是物理急停后再启动。"),
+                QMessageBox::Yes|QMessageBox::No,QMessageBox::No);
+            if(choice!=QMessageBox::Yes)return;
+            m_controller->setManualPreviewMapping(mapping);
+            m_controller->startContinuousServoP();
+        });
     connect(m_controlPanel,&ControlPanelWidget::continuousServoRequested,this,
         [this](const std::array<int,3>& axes,double gain,double deadzone){
             touchpanel::teleop::ManualAxisMap mapping;
