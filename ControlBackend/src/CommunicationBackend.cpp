@@ -991,6 +991,41 @@ namespace touchpanel
         return m_impl->sendLine(std::to_string(kRobotMotionPort)+"|"+c.str(),false);
     }
 
+    bool CommunicationBackend::sendServoCartesianTarget(const std::array<double,6>& pose)
+    {
+        if(!m_impl || !m_impl->connected.load(std::memory_order_relaxed))
+            return false;
+        for(double value:pose)
+            if(!std::isfinite(value))return false;
+        // Never silently clamp and redirect the robot onto a workspace
+        // boundary. The same legacy numeric bounds are retained as a hard
+        // reject; a field setup with different limits needs explicit review.
+        if(pose[0]<kMotionXMin || pose[0]>kMotionXMax ||
+           pose[1]<kMotionYMin || pose[1]>kMotionYMax ||
+           pose[2]<kMotionZMin || pose[2]>kMotionZMax)
+            return false;
+        for(int i=3;i<6;++i)
+            if(std::abs(pose[i])>360.0)return false;
+        std::ostringstream call;
+        call<<"ServoP("<<formatDouble3(pose[0])<<","<<formatDouble3(pose[1])
+            <<","<<formatDouble3(pose[2])<<","<<formatDouble3(pose[3])
+            <<","<<formatDouble3(pose[4])<<","<<formatDouble3(pose[5])<<")";
+        if(!m_impl->sendLine(std::to_string(kRobotMotionPort)+"|"+call.str(),false))
+            return false;
+        const auto now=std::chrono::steady_clock::now();
+        std::lock_guard<std::mutex> lock(m_impl->motionLogMutex);
+        ++m_impl->motionSentSinceLastLog;
+        if(m_impl->lastMotionLogTime.time_since_epoch().count()==0 ||
+           now-m_impl->lastMotionLogTime>=std::chrono::seconds(1)) {
+            m_impl->emitMessage("[SERVOP TX] 本周期已发送 "+
+                std::to_string(m_impl->motionSentSinceLastLog)+
+                " 个实时目标（固定当前机器人 RPY；无 IK/MovL）。");
+            m_impl->motionSentSinceLastLog=0;
+            m_impl->lastMotionLogTime=now;
+        }
+        return true;
+    }
+
     void CommunicationBackend::requestControlledStop()
     {
         // ResetRobot is explicitly documented to stop the robot and clear
