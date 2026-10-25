@@ -14,6 +14,7 @@ namespace touchpanel
         using ConnectionCallback = std::function<void(bool connected)>;
         using TextCallback = std::function<void(const std::string&)>;
         using OperationCallback = std::function<void(const std::string& operation, bool success, const std::string& detail)>;
+        using JointSolutionCallback = std::function<void(bool success, const std::array<double,6>& jointAngles, const std::string& detail)>;
 
         CommunicationBackend();
         ~CommunicationBackend();
@@ -27,12 +28,22 @@ namespace touchpanel
         void setTcpTxCallback(TextCallback callback);
         void setTcpRxCallback(TextCallback callback);
         void setOperationCallback(OperationCallback callback);
+        void setJointSolutionCallback(JointSolutionCallback callback);
 
         void connectTransit(const std::string& ipOverride = {}, std::uint16_t portOverride = 0);
         void disconnectTransit();
         bool isTransitConnected() const;
 
-        void sendMotion(double x, double y, double z);
+        void sendMotion(double x, double y, double z); // Deprecated ServoP: always disabled.
+        void requestInverseSolution(const std::array<double,6>& pose,int user,int tool,
+                                    const std::array<double,6>& seed);
+        void sendLinearStep(const std::array<double,6>& pose,int user,int tool);
+        bool sendServoJointTarget(const std::array<double,6>& joints);
+        // Field-proven online Cartesian ServoP over Legacy 8888 -> 30003.
+        // The caller must hold a freshly captured Touch/robot clutch and
+        // current robot feedback permission. NEVER silently clamp XYZ.
+        bool sendServoCartesianTarget(const std::array<double,6>& pose);
+        void requestControlledStop();
         void requestRobotMode();
         void requestCurrentPose();
         bool isRobotModeReady() const;

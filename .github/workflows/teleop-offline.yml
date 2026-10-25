@@ -1,0 +1,63 @@
+name: Teleop Offline Tests
+on:
+  push:
+    branches: [feat/teleop-6dof-calibration-safe-movl]
+  pull_request:
+    paths:
+      - 'shared/TeleopGeometry.h'
+      - 'shared/RelayV2Frame.h'
+      - 'tests/*'
+      - 'shared/RobotTelemetry.h'
+      - 'shared/MultiPointCalibration.h'
+      - 'shared/HapticCalibrationPolicy.h'
+      - 'shared/DisplayOrigin.h'
+      - 'shared/GlPoseMath.h'
+      - 'shared/CalibrationCaptureQuality.h'
+      - 'shared/RelativeMotionCalibration.h'
+      - 'shared/ManualTeleop.h'
+      - 'shared/RelativeServoP.h'
+      - 'shared/TeleopExecutionPolicy.h'
+      - '.github/workflows/teleop-offline.yml'
+jobs:
+  cpp17-offline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build geometry test
+        run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/teleop_geometry_tests.cpp -o /tmp/teleop_geometry_test
+      - name: Build protocol test
+        run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/relay_v2_frame_tests.cpp -o /tmp/relay_v2_test
+      - name: Build telemetry gate test
+        run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/robot_telemetry_tests.cpp -o /tmp/telemetry_test
+      - name: Build multi-point fit test
+        run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/multipoint_calibration_tests.cpp -o /tmp/multipoint_test
+      - name: Build haptic scheduler phase test
+        run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/haptic_calibration_policy_tests.cpp -o /tmp/haptic_policy_test
+      - name: Build GL display origin test
+        run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/display_origin_tests.cpp -o /tmp/display_origin_test
+      - name: Build 6DOF GL pose test
+        run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/gl_pose_tests.cpp -o /tmp/gl_pose_test
+      - name: Build calibration capture quality test
+        run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/calibration_capture_quality_tests.cpp -o /tmp/cal_capture_test
+      - name: Build relative motion calibration test
+        run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/relative_motion_calibration_tests.cpp -o /tmp/relative_motion_test
+      - name: Build manual teleop mapping test
+        run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/manual_teleop_tests.cpp -o /tmp/manual_teleop_test
+      - name: Build re-clutch ServoP control test
+        run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/relative_servop_tests.cpp -o /tmp/relative_servo_p_test
+      - name: Build teleop execution policy test
+        run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/teleop_execution_policy_tests.cpp -o /tmp/execution_policy_test
+      - name: Run tests
+        run: |
+          /tmp/teleop_geometry_test
+          /tmp/relay_v2_test
+          /tmp/telemetry_test
+          /tmp/multipoint_test
+          /tmp/haptic_policy_test
+          /tmp/display_origin_test
+          /tmp/gl_pose_test
+          /tmp/cal_capture_test
+          /tmp/relative_motion_test
+          /tmp/manual_teleop_test
+          /tmp/relative_servo_p_test
+          /tmp/execution_policy_test
