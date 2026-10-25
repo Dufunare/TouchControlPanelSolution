@@ -733,6 +733,11 @@ void DeviceController::handleRobotOperation(const QString& operation,bool succes
         haltRealMotion(QStringLiteral("ServoJ 控制器拒绝指令：")+detail);
         return;
     }
+    if(operation==QStringLiteral("ServoP") && !success &&
+       m_realMode==RealMode::CartesianServoP) {
+        haltRealMotion(QStringLiteral("ServoP 控制器拒绝指令：")+detail);
+        return;
+    }
     if(operation==QStringLiteral("MovL") && m_realMode==RealMode::SingleStep) {
         if(!success) {
             haltRealMotion(QStringLiteral("MovL 命令应答失败：")+detail);
