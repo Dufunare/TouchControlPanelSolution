@@ -545,17 +545,17 @@ namespace touchpanel
         {
             const std::string detail=extractPayload(rawLine);
             const auto parsed=parseTransitReply(detail.empty()?rawLine:detail);
-            // This controller/relay combination DOES echo ServoJ replies
-            // even though ServoJ has no ordinary wait-for-reply contract.
-            // Treat successful echoes as telemetry, not as an unsolicited
-            // reply to a pending InverseSolution or ResetRobot request.
-            // A nonzero ServoJ error must remain visible and stop streaming.
-            if(parsed.valid && parsed.commandName=="ServoJ")
+            // Online ServoP/ServoJ writes have no ordinary pending reply.
+            // Some controllers echo success. Such echoes must not consume
+            // a pending MovL/InverseSolution/ResetRobot response. Preserve
+            // nonzero error replies as asynchronous failures.
+            if(parsed.valid &&
+               (parsed.commandName=="ServoJ"||parsed.commandName=="ServoP"))
             {
                 if(parsed.errorId!=0) {
-                    emitMessage("[SERVOJ ERROR] ErrorID="+
-                        std::to_string(parsed.errorId)+" "+parsed.messageName);
-                    emitOperation("ServoJ",false,"ErrorID="+
+                    emitMessage("[ONLINE SERVO ERROR] "+parsed.commandName+
+                        " ErrorID="+std::to_string(parsed.errorId));
+                    emitOperation(parsed.commandName,false,"ErrorID="+
                         std::to_string(parsed.errorId)+" "+parsed.messageName);
                 }
                 return;
