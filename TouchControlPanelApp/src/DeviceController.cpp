@@ -888,6 +888,173 @@ void DeviceController::monitorSingleStep()
         .arg(s.stateSeq));
 }
 
+void DeviceController::runServoPTick()
+{
+    const bool touchRunning=m_backend && m_backend->isRunning();
+    const bool legacyConnected=m_robotBackend && m_robotBackend->isTransitConnected();
+    const bool feedbackFresh=m_relayStateClient && m_relayStateClient->hasFreshState();
+    const auto robot=m_relayStateClient
+        ? m_relayStateClient->snapshot() : touchpanel::RobotSnapshot{};
+    if(!touchRunning || !legacyConnected || !feedbackFresh ||
+       !touchpanel::teleop::continuousTelemetryAgesHealthy(robot)) {
+        const auto gate=touchpanel::evaluateRobotGate(robot,false);
+        haltRealMotion(QStringLiteral(
+            "ServoP 通路失效：Touch=%1 Legacy8888=%2 8891=%3 "
+            "状态=%4 feedbackAge=%5ms relayAge=%6ms")
+            .arg(touchRunning).arg(legacyConnected).arg(feedbackFresh)
+            .arg(QString::fromUtf8(touchpanel::gateReasonChinese(gate.reason)))
+            .arg(robot.feedbackAgeMs).arg(robot.relayStatusAgeMs));
+        return;
+    }
+    const auto st=m_backend->latestState();
+    if(!st.schedulerRunning || !st.deviceCalibrated ||
+       robot.sessionEpoch!=m_motionSession ||
+       robot.userIndex!=m_motionUser || robot.toolIndex!=m_motionTool ||
+       !robot.enabled || robot.error || robot.dragging || robot.jogging ||
+       robot.paused || (robot.robotMode!=5 && robot.robotMode!=7)) {
+        haltRealMotion(QStringLiteral(
+            "ServoP 状态变化：Mode=%1 Enabled=%2 Error=%3 Drag=%4 "
+            "Jog=%5 Pause=%6 Session=%7 User/Tool=%8/%9")
+            .arg(robot.robotMode).arg(robot.enabled).arg(robot.error)
+            .arg(robot.dragging).arg(robot.jogging).arg(robot.paused)
+            .arg(robot.sessionEpoch).arg(robot.userIndex).arg(robot.toolIndex));
+        return;
+    }
+    if(!st.valid) {
+        if(++m_invalidTouchTicks>=3)
+            haltRealMotion(QStringLiteral("ServoP：连续 3 次无有效 Touch XYZ，停止发送"));
+        return;
+    }
+    m_invalidTouchTicks=0;
+    if(st.sampleCounter<=m_lastTouchSampleCounter) {
+        if(++m_staleTouchTicks>=3)
+            haltRealMotion(QStringLiteral("ServoP：Touch 采样序号未增长，停止发送"));
+        return;
+    }
+    m_staleTouchTicks=0;
+    m_lastTouchSampleCounter=st.sampleCounter;
+    if(m_cartesianServoP.phase()==touchpanel::teleop::ServoPPhase::Active &&
+       st.calibrationEpoch!=m_clutchCalibrationEpoch) {
+        haltRealMotion(QStringLiteral("ServoP：Touch 校准代次变化"));
+        return;
+    }
+    const bool idle=servoPMeasuredIdle(robot);
+    // A missing idle transition after button release is not evidence of
+    // safety. The original ServoP stops sending without ResetRobot. Allow
+    // it to finish the last target, but demand a measured stop within 1.5s.
+    if(m_cartesianServoP.phase()==touchpanel::teleop::ServoPPhase::WaitingForIdle &&
+       m_servoPReleaseTimer.isValid() &&
+       m_servoPReleaseTimer.elapsed()>1500 && !idle) {
+        haltRealMotion(QStringLiteral(
+            "ServoP：Button1 松开后 1.5 秒仍未检测到机器人停稳；已请求软件停止"));
+        return;
+    }
+    const auto outcome=m_cartesianServoP.tick(
+        st.button1Pressed,st.positionMm,robot.tcpPose,idle,
+        robot.stateSeq,m_manualMap);
+    using Action=touchpanel::teleop::ServoPAction;
+    if(outcome.action==Action::Invalid) {
+        haltRealMotion(QStringLiteral("ServoP：相对映射参数/Touch 位姿无效"));
+        return;
+    }
+    if(outcome.action==Action::Ready) {
+        m_servoPReleaseTimer.invalidate();
+        emit backendMessageChanged(QStringLiteral(
+            "[SERVOP READY] 已检测到 Button1 松开及连续 8891 静止反馈；"
+            "下一次按下将重新捕获双方的当前坐标"));
+    } else if(outcome.action==Action::Captured) {
+        m_clutchCalibrationEpoch=st.calibrationEpoch;
+        m_servoPWasSaturated=false;
+        m_servoPHasTarget=false;
+        m_servoPSentPackets=0;
+        m_servoPStatsTimer.restart();
+        m_servoPReleaseTimer.invalidate();
+        const auto& p=m_cartesianServoP.anchorRobot();
+        const auto& h=m_cartesianServoP.anchorTouch();
+        emit backendMessageChanged(QStringLiteral(
+            "[SERVOP CLUTCH] 本次新基准：Robot=(%1,%2,%3) "
+            "RPY=(%4,%5,%6) Touch=(%7,%8,%9)。"
+            "按下这一帧不发送运动目标。")
+            .arg(p[0],0,'f',2).arg(p[1],0,'f',2).arg(p[2],0,'f',2)
+            .arg(p[3],0,'f',2).arg(p[4],0,'f',2).arg(p[5],0,'f',2)
+            .arg(h[0],0,'f',2).arg(h[1],0,'f',2).arg(h[2],0,'f',2));
+    } else if(outcome.action==Action::Released) {
+        m_servoPReleaseTimer.start();
+        m_servoPHasTarget=false;
+        emit backendMessageChanged(QStringLiteral(
+            "[SERVOP RELEASE] Button1 已松开，立即停止下发 ServoP；"
+            "机械臂可能完成最后一个目标，须待 8891 连续确认停稳后再按。"
+            "Touch 在释放期间移动不会改变机器人目标。"));
+    } else if(outcome.action==Action::Send) {
+        const auto& anchorPose=m_cartesianServoP.anchorRobot();
+        // Never silently change the already captured robot orientation.
+        for(int i=3;i<6;++i) {
+            if(std::abs(std::remainder(robot.tcpPose[i]-anchorPose[i],360.0))>8.0) {
+                haltRealMotion(QStringLiteral("ServoP：末端姿态偏离锁定基准超过 8°"));
+                return;
+            }
+        }
+        const touchpanel::teleop::Vec3 toRobot={
+            outcome.target[0]-robot.tcpPose[0],
+            outcome.target[1]-robot.tcpPose[1],
+            outcome.target[2]-robot.tcpPose[2]};
+        const double tracking=touchpanel::teleop::norm(toRobot);
+        if(!std::isfinite(tracking) ||
+           tracking>touchpanel::teleop::kServoPTrackingErrorMm) {
+            haltRealMotion(QStringLiteral(
+                "ServoP：指令目标与机器人实际 TCP 偏差 %1mm 超过 %2mm")
+                .arg(tracking,0,'f',2)
+                .arg(touchpanel::teleop::kServoPTrackingErrorMm,0,'f',1));
+            return;
+        }
+        if(!m_robotBackend->sendServoCartesianTarget(outcome.target)) {
+            haltRealMotion(QStringLiteral("ServoP：运动目标发送失败或超出明确工作空间"));
+            return;
+        }
+        m_motionCommandSent=true;
+        m_lastServoPCartesianTarget=outcome.target;
+        m_servoPHasTarget=true;
+        ++m_servoPSentPackets;
+    }
+    if(outcome.saturated && !m_servoPWasSaturated) {
+        emit backendMessageChanged(QStringLiteral(
+            "[SERVOP LIMIT] 本次 Touch 目标位移 %1mm；"
+            "ServoP 目标限制在本次基准 %2mm 内，达到限制不重置机械臂")
+            .arg(outcome.rawDistanceMm,0,'f',1)
+            .arg(touchpanel::teleop::kServoPClutchTravelMm,0,'f',1));
+    }
+    m_servoPWasSaturated=outcome.saturated;
+    if(m_cartesianServoP.phase()==touchpanel::teleop::ServoPPhase::Active &&
+       m_servoPStatsTimer.isValid() &&
+       m_servoPStatsTimer.elapsed()>=2000) {
+        const double seconds=m_servoPStatsTimer.elapsed()/1000.0;
+        const auto& anchorPose=m_cartesianServoP.anchorRobot();
+        const touchpanel::teleop::Vec3 actualDelta={
+            robot.tcpPose[0]-anchorPose[0],
+            robot.tcpPose[1]-anchorPose[1],
+            robot.tcpPose[2]-anchorPose[2]};
+        double error=0.0;
+        if(m_servoPHasTarget) {
+            const touchpanel::teleop::Vec3 pending={
+                m_lastServoPCartesianTarget[0]-robot.tcpPose[0],
+                m_lastServoPCartesianTarget[1]-robot.tcpPose[1],
+                m_lastServoPCartesianTarget[2]-robot.tcpPose[2]};
+            error=touchpanel::teleop::norm(pending);
+        }
+        emit backendMessageChanged(QStringLiteral(
+            "[SERVOP RATE] 实际发送=%1/s 机器人相对基准位移=%2mm "
+            "最新目标误差=%3mm，8891 Age=%4ms RelayAge=%5ms "
+            "RobotMode=%6 Button1=%7")
+            .arg(m_servoPSentPackets/seconds,0,'f',1)
+            .arg(touchpanel::teleop::norm(actualDelta),0,'f',2)
+            .arg(error,0,'f',2).arg(robot.feedbackAgeMs)
+            .arg(robot.relayStatusAgeMs).arg(robot.robotMode)
+            .arg(st.button1Pressed));
+        m_servoPStatsTimer.restart();
+        m_servoPSentPackets=0;
+    }
+}
+
 void DeviceController::runContinuousTick()
 {
     const bool touchRunning=m_backend && m_backend->isRunning();
