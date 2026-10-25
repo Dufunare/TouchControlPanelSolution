@@ -39,6 +39,10 @@ namespace touchpanel
                                     const std::array<double,6>& seed);
         void sendLinearStep(const std::array<double,6>& pose,int user,int tool);
         bool sendServoJointTarget(const std::array<double,6>& joints);
+        // Field-proven online Cartesian ServoP over Legacy 8888 -> 30003.
+        // The caller must hold a freshly captured Touch/robot clutch and
+        // current robot feedback permission. NEVER silently clamp XYZ.
+        bool sendServoCartesianTarget(const std::array<double,6>& pose);
         void requestControlledStop();
         void requestRobotMode();
         void requestCurrentPose();
