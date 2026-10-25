@@ -90,7 +90,7 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     m_startDragButton = new QPushButton("启动拖拽", robotGroup);
     m_stopDragButton = new QPushButton("停止拖拽", robotGroup);
     m_startTeleopButton = new QPushButton("六维预览（标定可选）", robotGroup);
-    m_stopTeleopButton = new QPushButton("停止预览", robotGroup);
+    m_stopTeleopButton = new QPushButton(QStringLiteral("停止预览 / 实体控制"), robotGroup);
 
     m_emergencyStopButton->setStyleSheet("background-color: red; color: white; font-weight: bold; height: 50px;");
     mainVLayout->addWidget(m_emergencyStopButton);
@@ -126,16 +126,39 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     connect(previewButton,&QPushButton::clicked,this,[this]{
         emit manualPreviewRequested(m_axisSelection,m_axisGain->value(),m_axisDeadzone->value());
     });
+    // One mutually exclusive physical mode selector. ServoP is the
+    // original field-tested Cartesian stream; the IK-based ServoJ path
+    // stays available as an explicit experimental alternative.
+    m_realModeSelector=new QComboBox(manualGroup);
+    m_realModeSelector->addItems({
+        QStringLiteral("ServoP · 直接平移跟随（原版改进）"),
+        QStringLiteral("ServoJ · 逆运动学连续跟随（实验）")});
+    m_realModeSelector->setCurrentIndex(0);
+    manualForm->addRow(QStringLiteral("实体控制模式"),m_realModeSelector);
     auto* actions=new QHBoxLayout();
     auto* stepButton=new QPushButton(QStringLiteral("执行单步（确认）"),manualGroup);
-    auto* servoButton=new QPushButton(QStringLiteral("连续遥控 ServoJ"),manualGroup);
+    auto* servoButton=new QPushButton(QStringLiteral("启动 ServoP 连续遥控"),manualGroup);
     stepButton->setToolTip(QStringLiteral("先用平移预览生成目标，按住 Touch 按钮时捕获一个小幅目标，再人工确认执行"));
-    servoButton->setToolTip(QStringLiteral("实机连续跟随：需要独立物理急停、机器人安全空间与空闲状态；Button1 按住运行，松开停止"));
+    servoButton->setToolTip(QStringLiteral("先松开 Touch Button1；重新按下时捕获当前机器人实际坐标。需要物理急停。"));
     actions->addWidget(stepButton);actions->addWidget(servoButton);
     manualForm->addRow(actions);
     connect(stepButton,&QPushButton::clicked,this,&ControlPanelWidget::singleStepRequested);
+    connect(m_realModeSelector,QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this,[this,servoButton](int mode){
+        // Changing mode while the robot is running cannot silently transfer
+        // control to another sender. Stop first; starting needs a new click.
+        emit stopTeleopRequested();
+        servoButton->setText(mode==0 ?
+            QStringLiteral("启动 ServoP 连续遥控"):
+            QStringLiteral("启动 ServoJ 连续遥控（实验）"));
+    });
     connect(servoButton,&QPushButton::clicked,this,[this]{
-        emit continuousServoRequested(m_axisSelection,m_axisGain->value(),m_axisDeadzone->value());
+        if(m_realModeSelector->currentIndex()==0)
+            emit continuousServoPRequested(
+                m_axisSelection,m_axisGain->value(),m_axisDeadzone->value());
+        else
+            emit continuousServoRequested(
+                m_axisSelection,m_axisGain->value(),m_axisDeadzone->value());
     });
     mainVLayout->addWidget(manualGroup);
 
