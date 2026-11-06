@@ -50,11 +50,15 @@ inline ServoPTrackingDecision servoPTrackingDecision(
         acceptedLagMm>kServoPTrackingResumeMm))
         return ServoPTrackingDecision::Abort;
 
-    if(candidateLagMm<=kServoPTrackingSoftHoldMm)
-        return ServoPTrackingDecision::Send;
-    if(candidateLagMm<=kServoPTrackingErrorMm &&
-       candidateLagMm+kServoPTrackingCorrectiveMarginMm<acceptedLagMm)
-        return ServoPTrackingDecision::Send;
-    return ServoPTrackingDecision::Hold;
+    // During a hold, wait until the existing target has caught up before
+    // resuming forward motion. Corrective motion may be allowed earlier.
+    if(alreadyHolding && acceptedLagMm>kServoPTrackingResumeMm) {
+        if(candidateLagMm<=kServoPTrackingErrorMm &&
+           candidateLagMm+kServoPTrackingCorrectiveMarginMm<acceptedLagMm)
+            return ServoPTrackingDecision::Send;
+        return ServoPTrackingDecision::Hold;
+    }
+    return candidateLagMm<=kServoPTrackingSoftHoldMm
+        ? ServoPTrackingDecision::Send : ServoPTrackingDecision::Hold;
 }
 } // namespace touchpanel::teleop
