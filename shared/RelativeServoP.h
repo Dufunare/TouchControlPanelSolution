@@ -28,6 +28,11 @@ inline constexpr double kServoPMaxSelectableFeedbackLeadMm=20.0;
 // boundary, certified velocity limit, or guarantee of smooth execution.
 inline constexpr double kServoPTrackingErrorMm=25.0;
 inline constexpr double kServoPCommandDeadbandMm=0.3;
+// Fast direct-response path: maps the CURRENT Touch position on every tick.
+// These bounds apply to a target SETPOINT, not to certified physical speed.
+// The independent 25mm last-sent/actual fail-stop is NOT raised.
+inline constexpr double kServoPDirectLeadMm=20.0;
+inline constexpr double kServoPDirectMaxJumpMm=20.0;
 
 enum class ServoPPhase { NeedRelease, Ready, Active, WaitingForIdle };
 enum class ServoPAction { None, Ready, Captured, Send, Released, Invalid };
@@ -61,7 +66,16 @@ public:
     ServoPPhase phase() const {return m_phase;}
     double clutchTravelLimitMm() const {return m_clutchTravelLimitMm;}
     double followSpeedLimitMmPerSec() const {return m_followSpeedLimitMmPerSec;}
-    double feedbackLeadLimitMm() const {return m_feedbackLeadLimitMm;}
+    double feedbackLeadLimitMm() const {
+        return m_directResponseEnabled?kServoPDirectLeadMm:m_feedbackLeadLimitMm;
+    }
+    bool directResponseEnabled() const {return m_directResponseEnabled;}
+    bool setDirectResponseEnabled(bool enabled) {
+        if(m_phase==ServoPPhase::Active||m_phase==ServoPPhase::WaitingForIdle)
+            return false;
+        m_directResponseEnabled=enabled;
+        return true;
+    }
     bool virtualWallSlideEnabled() const {return m_virtualWallSlideEnabled;}
     bool setVirtualWallSlideEnabled(bool enabled) {
         if(m_phase==ServoPPhase::Active||m_phase==ServoPPhase::WaitingForIdle)
@@ -182,6 +196,79 @@ public:
             result.action=ServoPAction::Invalid;return result;
         }
         result.rawDistanceMm=distance;
+        if(m_directResponseEnabled) {
+            // Restore master-like POSITION semantics: the latest Touch
+            // displacement is the desired target, not a distant waypoint
+            // consumed by a 60/120mm/s software trajectory integrator.
+            // Freeze unsafe axes BEFORE the spherical clutch bound so a
+            // huge outward Y request cannot starve valid X/Z movement.
+            result.wallHoldAxisMask=holdOutwardServoPAxes(desired,m_lastTarget);
+            const Vec3 validDisplacement={
+                desired[0]-m_anchorRobot[0],
+                desired[1]-m_anchorRobot[1],
+                desired[2]-m_anchorRobot[2]};
+            const double validDistance=norm(validDisplacement);
+            if(!std::isfinite(validDistance)) {
+                result.action=ServoPAction::Invalid;return result;
+            }
+            result.saturated=validDistance>m_clutchTravelLimitMm;
+            if(result.saturated) {
+                const double ratio=m_clutchTravelLimitMm/validDistance;
+                for(int i=0;i<3;++i)
+                    desired[i]=m_anchorRobot[i]+validDisplacement[i]*ratio;
+            }
+            result.boundedDistanceMm=std::min(validDistance,m_clutchTravelLimitMm);
+            result.wallHoldAxisMask|=holdOutwardServoPAxes(desired,m_lastTarget);
+
+            // Do not send arbitrary master-style 100mm setpoint leaps.
+            // Limit the request's lead over NEW, fresh 8891 actual TCP
+            // without using feedback as a rate-limiter or velocity
+            // integrator. The 25mm actual-v-last-sent stop remains intact.
+            const Vec3 fromActual={
+                desired[0]-robotPose[0],
+                desired[1]-robotPose[1],
+                desired[2]-robotPose[2]};
+            const double actualGap=norm(fromActual);
+            if(!std::isfinite(actualGap)) {
+                result.action=ServoPAction::Invalid;return result;
+            }
+            if(actualGap>kServoPDirectLeadMm) {
+                const double ratio=kServoPDirectLeadMm/actualGap;
+                for(int i=0;i<3;++i)
+                    desired[i]=robotPose[i]+fromActual[i]*ratio;
+                result.feedbackLimited=true;
+            }
+            // Limit a sudden change of direction relative to the latest
+            // successfully locally transmitted target; this is a *single*
+            // bounded jump, not the old ~2-4mm/tick slow chase.
+            const Vec3 fromLast={
+                desired[0]-m_lastTarget[0],
+                desired[1]-m_lastTarget[1],
+                desired[2]-m_lastTarget[2]};
+            const double jump=norm(fromLast);
+            if(!std::isfinite(jump)) {
+                result.action=ServoPAction::Invalid;return result;
+            }
+            if(jump>kServoPDirectMaxJumpMm) {
+                const double ratio=kServoPDirectMaxJumpMm/jump;
+                for(int i=0;i<3;++i)
+                    desired[i]=m_lastTarget[i]+fromLast[i]*ratio;
+            }
+            result.wallHoldAxisMask|=holdOutwardServoPAxes(desired,m_lastTarget);
+            const Vec3 delta={
+                desired[0]-m_lastTarget[0],
+                desired[1]-m_lastTarget[1],
+                desired[2]-m_lastTarget[2]};
+            if(norm(delta)<=kServoPCommandDeadbandMm)return result;
+            for(int i=3;i<6;++i)desired[i]=m_anchorRobot[i];
+            // Strict final geometry check still applies in
+            // CommunicationBackend::sendServoCartesianTarget().
+            m_pendingTarget=desired;
+            m_hasPending=true;
+            result.target=desired;
+            result.action=ServoPAction::Send;
+            return result;
+        }
         result.saturated=distance>m_clutchTravelLimitMm;
         if(result.saturated) {
             const auto ratio=m_clutchTravelLimitMm/distance;
@@ -256,6 +343,7 @@ private:
     double m_followSpeedLimitMmPerSec=kServoPDefaultFollowSpeedMmPerSec;
     double m_feedbackLeadLimitMm=kServoPFeedbackLeadLimitMm;
     bool m_virtualWallSlideEnabled=false;
+    bool m_directResponseEnabled=false; // UI arms direct response; legacy offline behavior remains available.
     std::uint64_t m_settleSeq=0;
     int m_settleCount=0;
 };
