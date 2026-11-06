@@ -116,6 +116,12 @@ bool DeviceController::setServoPFeedbackLeadLimit(double limitMm)
         m_cartesianServoP.setFeedbackLeadLimitMm(limitMm);
 }
 
+bool DeviceController::setServoPVirtualWallSlideEnabled(bool enabled)
+{
+    return !realMotionActive() &&
+        m_cartesianServoP.setVirtualWallSlideEnabled(enabled);
+}
+
 bool DeviceController::realMotionActive() const
 {
     return m_realMode!=RealMode::None;
@@ -695,6 +701,7 @@ void DeviceController::startContinuousServoP()
     m_servoPHasTarget=false;
     m_servoPWorkspaceBlocked=false;
     m_servoPWorkspaceAxis=-1;
+    m_servoPWallMask=0;
     m_servoPWorkspaceLogTimer.invalidate();
     m_invalidTouchTicks=0;
     m_staleTouchTicks=0;
@@ -1052,6 +1059,7 @@ void DeviceController::runServoPTick()
         m_servoPHasTarget=false;
         m_servoPWorkspaceBlocked=false;
         m_servoPWorkspaceAxis=-1;
+        m_servoPWallMask=0;
         m_servoPWorkspaceLogTimer.invalidate();
         m_servoPFollowMetrics.reset(robot.tcpPose,robot.stateSeq);
         m_servoPSentPackets=0;
@@ -1074,6 +1082,7 @@ void DeviceController::runServoPTick()
             .arg(p[3],0,'f',2).arg(p[4],0,'f',2).arg(p[5],0,'f',2)
             .arg(h[0],0,'f',2).arg(h[1],0,'f',2).arg(h[2],0,'f',2));
     } else if(outcome.action==Action::Released) {
+        m_servoPWallMask=0;
         m_servoPReleaseTimer.start();
         m_servoPHasTarget=false;
         m_servoPTrackingHolding=false;
@@ -1083,6 +1092,24 @@ void DeviceController::runServoPTick()
             "机械臂可能完成最后一个目标，须待 8891 连续确认停稳后再按。"
             "Touch 在释放期间移动不会改变机器人目标。"));
     } else if(outcome.action==Action::Send) {
+        // Optional virtual wall freezes outward axes at the last SENT
+        // safe target, not at the boundary. Other axes remain subject to
+        // speed, tracking, feedback and workspace checks.
+        if(outcome.wallHoldAxisMask!=m_servoPWallMask) {
+            if(outcome.wallHoldAxisMask) {
+                QStringList axes;
+                for(int i=0;i<3;++i)if(outcome.wallHoldAxisMask&(1U<<i))
+                    axes<<QStringLiteral("XYZ").mid(i,1);
+                emit backendMessageChanged(QStringLiteral(
+                    "[SERVOP WALL SLIDE] %1轴保持上次安全目标，其他轴可继续；"
+                    "不扩大软件边界，不等于物理防碰撞")
+                    .arg(axes.join(QStringLiteral(","))));
+            } else if(m_servoPWallMask) {
+                emit backendMessageChanged(QStringLiteral(
+                    "[SERVOP WALL RESUMED] 已退出边界切向保持"));
+            }
+            m_servoPWallMask=outcome.wallHoldAxisMask;
+        }
         // Read-only diagnostic: original master-style Touch mapped demand
         // before clutch saturation, live TCP lookahead and rate limiting.
         touchpanel::teleop::Pose6 directMapped{};
