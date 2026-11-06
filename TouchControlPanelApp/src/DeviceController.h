@@ -147,6 +147,7 @@ private:
     int m_servoPWorkspaceAxis=-1;
     unsigned m_servoPWallMask=0;
     QElapsedTimer m_servoPWorkspaceLogTimer;
+    QElapsedTimer m_servoPWallLogTimer;
     bool m_haveServoTarget=false;
     bool m_clutchRangeSaturated=false;
     std::array<double,6> m_latestServoTarget{};
