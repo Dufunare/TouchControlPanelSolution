@@ -3,6 +3,9 @@
 #include <array>
 #include <cmath>
 namespace touchpanel::teleop {
+// Higher gain is opt-in for direct Cartesian ServoP. ServoJ retains its own
+// conservative <=2x guard in the Qt entrypoint.
+inline constexpr double kManualTeleopMaximumScale=4.0;
 // Read-only position joystick: one signed Touch axis per robot axis.
 // Inputs 0..5 mean +X,+Y,+Z,-X,-Y,-Z, respectively.
 struct ManualAxisMap {
@@ -29,7 +32,7 @@ inline std::array<int,3> swapManualAxisSelection(
     return next;
 }
 inline bool validManualAxisMap(const ManualAxisMap& m) {
-    if(!std::isfinite(m.scale)||m.scale<0.05||m.scale>2.0||
+    if(!std::isfinite(m.scale)||m.scale<0.05||m.scale>kManualTeleopMaximumScale||
        !std::isfinite(m.deadzoneMm)||m.deadzoneMm<0||m.deadzoneMm>10)return false;
     bool used[3]={false,false,false};
     for(int code:m.output) {
