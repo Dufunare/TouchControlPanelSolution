@@ -682,6 +682,15 @@ void DeviceController::startContinuousServoP()
             .arg(s.feedbackAgeMs).arg(s.relayStatusAgeMs));
         return;
     }
+    // Restore the working master's position-target semantics, but do not
+    // copy its unbounded goal jumps or hardcoded RPY. This mode uses the
+    // CURRENT Touch sample and a bounded 20mm setpoint lead/jump, plus
+    // independent 8891 validity and 25mm last-sent hard tracking guard.
+    if(!m_cartesianServoP.setDirectResponseEnabled(true) ||
+       !m_cartesianServoP.setVirtualWallSlideEnabled(true)) {
+        emit backendMessageChanged(QStringLiteral("ServoP 直接跟随参数未能安全设置"));
+        return;
+    }
     m_realMode=RealMode::CartesianServoP;
     m_motionSession=s.sessionEpoch;
     m_motionUser=s.userIndex;
@@ -713,7 +722,8 @@ void DeviceController::startContinuousServoP()
     emit backendMessageChanged(QStringLiteral(
         "ServoP 相对遥控已待命：必须先松开 Button1；下次按下同步抓取 Touch 与机器人当前位姿。"
         "按住连续运动，松开即不再下发目标；重新按下不追逐松开期间的 Touch 移动。"
-        "首次按下本身不下发运动。"));
+        "首次按下本身不下发运动。当前为实时位置直接跟随，"
+        "旧版逐帧速度推进器已退出；保持软件空间和反馈异常停止保护。"));
 }
 
 void DeviceController::startContinuousServo()
@@ -1280,13 +1290,15 @@ void DeviceController::runServoPTick()
             "[SERVOP FOLLOW] 8891实际TCP路径速度=%1mm/s "
             "已发送设定点路径速度=%2mm/s 按发送次数=%3 "
             "FeedbackLead限幅=%4 TrackingHold帧=%5 WorkspaceHold帧=%6 "
-            "速度上限=%7mm/s 预瞄=%8mm 原始映射距实机=%9mm "
+            "目标模式=%7 前视限幅=%8mm 原始映射距实机=%9mm "
             "窗口峰值=%10mm（原始值未受离合/空间裁剪）")
             .arg(follow.actualPathMm/seconds,0,'f',1)
             .arg(follow.setpointPathMm/seconds,0,'f',1)
             .arg(follow.sent).arg(follow.leadLimited)
             .arg(follow.trackingHeld).arg(follow.workspaceHeld)
-            .arg(m_cartesianServoP.followSpeedLimitMmPerSec(),0,'f',1)
+            .arg(m_cartesianServoP.directResponseEnabled()?
+                 QStringLiteral("Touch直接映射（无逐帧速度追赶器）"):
+                 QStringLiteral("旧轨迹限制"))
             .arg(m_cartesianServoP.feedbackLeadLimitMm(),0,'f',1)
             .arg(follow.latestMappedLagMm,0,'f',1)
             .arg(follow.maxMappedLagMm,0,'f',1));
