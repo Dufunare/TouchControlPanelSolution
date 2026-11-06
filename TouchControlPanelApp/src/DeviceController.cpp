@@ -703,6 +703,7 @@ void DeviceController::startContinuousServoP()
     m_servoPWorkspaceBlocked=false;
     m_servoPWorkspaceAxis=-1;
     m_servoPWallMask=0;
+    m_servoPWallLogTimer.invalidate();
     m_servoPWorkspaceLogTimer.invalidate();
     m_invalidTouchTicks=0;
     m_staleTouchTicks=0;
@@ -1061,6 +1062,7 @@ void DeviceController::runServoPTick()
         m_servoPWorkspaceBlocked=false;
         m_servoPWorkspaceAxis=-1;
         m_servoPWallMask=0;
+        m_servoPWallLogTimer.invalidate();
         m_servoPWorkspaceLogTimer.invalidate();
         m_servoPFollowMetrics.reset(robot.tcpPose,robot.stateSeq);
         m_servoPSentPackets=0;
@@ -1097,7 +1099,9 @@ void DeviceController::runServoPTick()
         // safe target, not at the boundary. Other axes remain subject to
         // speed, tracking, feedback and workspace checks.
         if(outcome.wallHoldAxisMask!=m_servoPWallMask) {
-            if(outcome.wallHoldAxisMask) {
+            const bool reportWall=!m_servoPWallLogTimer.isValid() ||
+                m_servoPWallLogTimer.elapsed()>=2000;
+            if(outcome.wallHoldAxisMask && reportWall) {
                 QStringList axes;
                 for(int i=0;i<3;++i)if(outcome.wallHoldAxisMask&(1U<<i))
                     axes<<QStringLiteral("XYZ").mid(i,1);
@@ -1105,10 +1109,11 @@ void DeviceController::runServoPTick()
                     "[SERVOP WALL SLIDE] %1轴保持上次安全目标，其他轴可继续；"
                     "不扩大软件边界，不等于物理防碰撞")
                     .arg(axes.join(QStringLiteral(","))));
-            } else if(m_servoPWallMask) {
+            } else if(m_servoPWallMask && reportWall) {
                 emit backendMessageChanged(QStringLiteral(
                     "[SERVOP WALL RESUMED] 已退出边界切向保持"));
             }
+            if(reportWall)m_servoPWallLogTimer.restart();
             m_servoPWallMask=outcome.wallHoldAxisMask;
         }
         // Read-only diagnostic: original master-style Touch mapped demand
@@ -1191,9 +1196,9 @@ void DeviceController::runServoPTick()
             // the LAST SUCCESSFULLY SENT target as rate limiter origin,
             // so reversing the stylus can generate a safe setpoint.
             m_cartesianServoP.rejectUnsentTarget();
-            const bool report=!m_servoPWorkspaceBlocked ||
-                send.axis!=m_servoPWorkspaceAxis ||
-                !m_servoPWorkspaceLogTimer.isValid() ||
+            // Keep log suppression across HOLD/RESUMED flips. Continuous
+            // per-frame log changes can starve the Qt 8891 event loop.
+            const bool report=!m_servoPWorkspaceLogTimer.isValid() ||
                 m_servoPWorkspaceLogTimer.elapsed()>=2000;
             if(report) {
                 const QString axis=QStringLiteral("XYZ").mid(send.axis,1);
@@ -1230,12 +1235,15 @@ void DeviceController::runServoPTick()
         }
         m_servoPFollowMetrics.observeSent(sentFrom,outcome.target);
         if(m_servoPWorkspaceBlocked) {
-            emit backendMessageChanged(QStringLiteral(
-                "[SERVOP WORKSPACE RESUMED] 新目标已回到软件工作空间，"
-                "重新开始沿安全方向发送；未更改工作空间界限"));
+            if(!m_servoPWorkspaceLogTimer.isValid() ||
+               m_servoPWorkspaceLogTimer.elapsed()>=2000) {
+                emit backendMessageChanged(QStringLiteral(
+                    "[SERVOP WORKSPACE RESUMED] 新目标已回到软件工作空间，"
+                    "沿合法方向发送；未更改软件边界"));
+                m_servoPWorkspaceLogTimer.restart();
+            }
             m_servoPWorkspaceBlocked=false;
             m_servoPWorkspaceAxis=-1;
-            m_servoPWorkspaceLogTimer.invalidate();
         }
         m_motionCommandSent=true;
         m_lastServoPCartesianTarget=outcome.target;
