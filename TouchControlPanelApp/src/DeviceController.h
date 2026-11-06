@@ -126,6 +126,9 @@ private:
     std::array<double,6> m_lastServoPCartesianTarget{};
     bool m_servoPHasTarget=false;
     bool m_servoPWasSaturated=false;
+    bool m_servoPWorkspaceBlocked=false;
+    int m_servoPWorkspaceAxis=-1;
+    QElapsedTimer m_servoPWorkspaceLogTimer;
     bool m_haveServoTarget=false;
     bool m_clutchRangeSaturated=false;
     std::array<double,6> m_latestServoTarget{};
