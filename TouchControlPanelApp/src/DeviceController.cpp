@@ -921,6 +921,24 @@ void DeviceController::runServoPTick()
     const bool feedbackFresh=m_relayStateClient && m_relayStateClient->hasFreshState();
     const auto robot=m_relayStateClient
         ? m_relayStateClient->snapshot() : touchpanel::RobotSnapshot{};
+    // A brief feedback gap cannot authorize ANY new motion. Disarm
+    // clutch; existing 400ms watchdog still escalates persistent loss.
+    if(touchRunning && legacyConnected &&
+       touchpanel::teleop::servoPRecoverableFeedbackGap(
+           robot,m_motionSession,m_motionUser,m_motionTool)) {
+        if(!m_servoPFeedbackHolding) {
+            m_servoPFeedbackHolding=true;
+            m_cartesianServoP.reset();
+            m_servoPHasTarget=false;
+            m_servoPTrackingHolding=false;
+            m_servoPTrackingHoldTimer.invalidate();
+            emit backendMessageChanged(QStringLiteral(
+                "[SERVOP FEEDBACK HOLD] 8891年龄=%1ms；"
+                "立即停止下发并撤销离合。待恢复后须松开Button1并重新按下。")
+                .arg(robot.feedbackAgeMs));
+        }
+        return;
+    }
     if(!touchRunning || !legacyConnected || !feedbackFresh ||
        !touchpanel::teleop::continuousTelemetryAgesHealthy(robot)) {
         const auto gate=touchpanel::evaluateRobotGate(robot,false);
@@ -931,6 +949,12 @@ void DeviceController::runServoPTick()
             .arg(QString::fromUtf8(touchpanel::gateReasonChinese(gate.reason)))
             .arg(robot.feedbackAgeMs).arg(robot.relayStatusAgeMs));
         return;
+    }
+    if(m_servoPFeedbackHolding) {
+        m_servoPFeedbackHolding=false;
+        emit backendMessageChanged(QStringLiteral(
+            "[SERVOP FEEDBACK RECOVERED] 反馈已恢复；"
+            "必须松开Button1并等待机器人停稳，才可重新抓取基准"));
     }
     const auto st=m_backend->latestState();
     if(!st.schedulerRunning || !st.deviceCalibrated ||
@@ -996,6 +1020,9 @@ void DeviceController::runServoPTick()
         m_servoPWorkspaceAxis=-1;
         m_servoPWorkspaceLogTimer.invalidate();
         m_servoPSentPackets=0;
+        m_servoPTrackingHolding=false;
+        m_servoPTrackingHoldTimer.invalidate();
+        m_servoPTrackingLogTimer.invalidate();
         m_servoPStatsTimer.restart();
         m_servoPReleaseTimer.invalidate();
         m_servoPMaxTickGapMs=0;
@@ -1014,6 +1041,8 @@ void DeviceController::runServoPTick()
     } else if(outcome.action==Action::Released) {
         m_servoPReleaseTimer.start();
         m_servoPHasTarget=false;
+        m_servoPTrackingHolding=false;
+        m_servoPTrackingHoldTimer.invalidate();
         emit backendMessageChanged(QStringLiteral(
             "[SERVOP RELEASE] Button1 已松开，立即停止下发 ServoP；"
             "机械臂可能完成最后一个目标，须待 8891 连续确认停稳后再按。"
@@ -1032,13 +1061,47 @@ void DeviceController::runServoPTick()
             outcome.target[1]-robot.tcpPose[1],
             outcome.target[2]-robot.tcpPose[2]};
         const double tracking=touchpanel::teleop::norm(toRobot);
-        if(!std::isfinite(tracking) ||
-           tracking>touchpanel::teleop::kServoPTrackingErrorMm) {
+        const auto& accepted=m_cartesianServoP.lastAcceptedTarget();
+        const touchpanel::teleop::Vec3 lastError={
+            accepted[0]-robot.tcpPose[0],accepted[1]-robot.tcpPose[1],
+            accepted[2]-robot.tcpPose[2]};
+        const double lastLag=touchpanel::teleop::norm(lastError);
+        using TrackingDecision=touchpanel::teleop::ServoPTrackingDecision;
+        const auto decision=touchpanel::teleop::servoPTrackingDecision(
+            lastLag,tracking,m_servoPTrackingHolding,
+            m_servoPTrackingHoldTimer.isValid()?
+                static_cast<int>(m_servoPTrackingHoldTimer.elapsed()):0);
+        if(decision==TrackingDecision::Abort) {
             haltRealMotion(QStringLiteral(
-                "ServoP：指令目标与机器人实际 TCP 偏差 %1mm 超过 %2mm")
-                .arg(tracking,0,'f',2)
-                .arg(touchpanel::teleop::kServoPTrackingErrorMm,0,'f',1));
+                "ServoP 已发送目标跟踪失效：LastLag=%1mm "
+                "CandidateLag=%2mm Hold=%3ms")
+                .arg(lastLag,0,'f',2).arg(tracking,0,'f',2)
+                .arg(m_servoPTrackingHoldTimer.isValid()?
+                     m_servoPTrackingHoldTimer.elapsed():0));
             return;
+        }
+        if(decision==TrackingDecision::Hold) {
+            m_cartesianServoP.rejectUnsentTarget();
+            if(!m_servoPTrackingHolding) {
+                m_servoPTrackingHolding=true;
+                m_servoPTrackingHoldTimer.start();
+            }
+            if(!m_servoPTrackingLogTimer.isValid() ||
+               m_servoPTrackingLogTimer.elapsed()>=2000) {
+                emit backendMessageChanged(QStringLiteral(
+                    "[SERVOP TRACKING HOLD] LastLag=%1mm CandidateLag=%2mm；"
+                    "暂停更远的新目标，等待机器人跟上或向安全方向修正")
+                    .arg(lastLag,0,'f',2).arg(tracking,0,'f',2));
+                m_servoPTrackingLogTimer.restart();
+            }
+            return;
+        }
+        if(m_servoPTrackingHolding) {
+            m_servoPTrackingHolding=false;
+            m_servoPTrackingHoldTimer.invalidate();
+            m_servoPTrackingLogTimer.invalidate();
+            emit backendMessageChanged(QStringLiteral(
+                "[SERVOP TRACKING RESUMED] 跟踪恢复，继续限速发送"));
         }
         m_servoPSendTimer.start();
         const auto send=m_robotBackend->sendServoCartesianTarget(outcome.target);
@@ -1396,6 +1459,9 @@ void DeviceController::haltRealMotion(const QString& cause)
     const bool sent=m_motionCommandSent;
     m_realMode=RealMode::None;
     m_cartesianServoP.reset();
+    m_servoPTrackingHolding=false;
+    m_servoPFeedbackHolding=false;
+    m_servoPTrackingHoldTimer.invalidate();
     m_motionCommandSent=false;
     m_haveServoTarget=false;
     m_clutchRangeSaturated=false;
