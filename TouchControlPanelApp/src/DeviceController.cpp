@@ -1083,6 +1083,14 @@ void DeviceController::runServoPTick()
             "机械臂可能完成最后一个目标，须待 8891 连续确认停稳后再按。"
             "Touch 在释放期间移动不会改变机器人目标。"));
     } else if(outcome.action==Action::Send) {
+        // Read-only diagnostic: original master-style Touch mapped demand
+        // before clutch saturation, live TCP lookahead and rate limiting.
+        touchpanel::teleop::Pose6 directMapped{};
+        if(touchpanel::teleop::manualPositionPreview(
+               m_manualMap,
+               touchpanel::teleop::sub(st.positionMm,m_cartesianServoP.anchorTouch()),
+               m_cartesianServoP.anchorRobot(),directMapped))
+            m_servoPFollowMetrics.observeMappedDemand(directMapped,robot.tcpPose);
         if(outcome.feedbackLimited)m_servoPFollowMetrics.noteLeadLimit();
         const auto& anchorPose=m_cartesianServoP.anchorRobot();
         // Never silently change the already captured robot orientation.
@@ -1236,13 +1244,16 @@ void DeviceController::runServoPTick()
             "[SERVOP FOLLOW] 8891实际TCP路径速度=%1mm/s "
             "已发送设定点路径速度=%2mm/s 按发送次数=%3 "
             "FeedbackLead限幅=%4 TrackingHold帧=%5 WorkspaceHold帧=%6 "
-            "速度上限=%7mm/s 预瞄=%8mm（指令非真机速度）")
+            "速度上限=%7mm/s 预瞄=%8mm 原始映射距实机=%9mm "
+            "窗口峰值=%10mm（原始值未受离合/空间裁剪）")
             .arg(follow.actualPathMm/seconds,0,'f',1)
             .arg(follow.setpointPathMm/seconds,0,'f',1)
             .arg(follow.sent).arg(follow.leadLimited)
             .arg(follow.trackingHeld).arg(follow.workspaceHeld)
             .arg(m_cartesianServoP.followSpeedLimitMmPerSec(),0,'f',1)
-            .arg(m_cartesianServoP.feedbackLeadLimitMm(),0,'f',1));
+            .arg(m_cartesianServoP.feedbackLeadLimitMm(),0,'f',1)
+            .arg(follow.latestMappedLagMm,0,'f',1)
+            .arg(follow.maxMappedLagMm,0,'f',1));
         m_servoPFollowMetrics.clearWindow();
         emit backendMessageChanged(QStringLiteral(
             "[SERVOP RATE] 实际发送=%1/s 机器人相对基准位移=%2mm "
