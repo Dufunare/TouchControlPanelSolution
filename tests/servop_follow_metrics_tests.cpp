@@ -21,6 +21,12 @@ int main() {
     m.observeSent(b,c);
     assert(m.window().sent==2);
     assert(near(m.window().setpointPathMm,13.0));
+    m.observeMappedDemand(c,a);
+    assert(near(m.window().latestMappedLagMm,std::sqrt(153.0)));
+    assert(m.window().mappedSamples==1);
+    m.observeMappedDemand(b,a);
+    assert(near(m.window().maxMappedLagMm,std::sqrt(153.0)));
+    assert(m.window().mappedSamples==2);
     m.noteLeadLimit();
     m.noteLeadLimit();
     m.noteTrackingHold();
