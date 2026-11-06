@@ -14,7 +14,14 @@ inline constexpr double kServoPClutchTravelMm=60.0; // opt-in default
 inline constexpr double kServoPMaxClutchTravelMm=180.0;
 inline constexpr double kServoPNominalTickSeconds=0.033;
 inline constexpr double kServoPMaxCatchupSeconds=0.066;
-inline constexpr double kServoPMaxSetpointStepMm=2.0; // at nominal 33ms
+inline constexpr double kServoPMaxSetpointStepMm=2.0; // legacy nominal 33ms
+// This bounds the requested *setpoint*, not the robot's physical speed.
+inline constexpr double kServoPDefaultFollowSpeedMmPerSec=
+    kServoPMaxSetpointStepMm/kServoPNominalTickSeconds;
+inline constexpr double kServoPMaxSelectableFollowSpeedMmPerSec=120.0;
+// Keep the latest Cartesian setpoint near current measured TCP. The remaining
+// 25mm last-transmitted-target guard is independent and unchanged.
+inline constexpr double kServoPFeedbackLeadLimitMm=12.0;
 inline constexpr double kServoPTrackingErrorMm=25.0;
 inline constexpr double kServoPCommandDeadbandMm=0.3;
 
@@ -27,6 +34,7 @@ struct ServoPTick {
     double rawDistanceMm=0.0;
     double boundedDistanceMm=0.0;
     bool saturated=false;
+    bool feedbackLimited=false;
 };
 
 // State-only clutch: no TCP/network access, no Qt, no movement authority.
@@ -47,6 +55,15 @@ public:
     }
     ServoPPhase phase() const {return m_phase;}
     double clutchTravelLimitMm() const {return m_clutchTravelLimitMm;}
+    double followSpeedLimitMmPerSec() const {return m_followSpeedLimitMmPerSec;}
+    bool setFollowSpeedLimitMmPerSec(double speed) {
+        if(!std::isfinite(speed)||speed<kServoPDefaultFollowSpeedMmPerSec-0.01||
+           speed>kServoPMaxSelectableFollowSpeedMmPerSec||
+           m_phase==ServoPPhase::Active||m_phase==ServoPPhase::WaitingForIdle)
+            return false;
+        m_followSpeedLimitMmPerSec=speed;
+        return true;
+    }
     // Configuration is permitted only while disarmed; reset() preserves it.
     // Enlarging the clutch envelope is not enlarging the robot workspace.
     bool setClutchTravelLimitMm(double mm) {
@@ -149,6 +166,24 @@ public:
                 desired[i]=m_anchorRobot[i]+displacement[i]*ratio;
         }
         result.boundedDistanceMm=std::min(distance,m_clutchTravelLimitMm);
+        // Feedback-referenced preview horizon: after a sudden Touch jump,
+        // follow the CURRENT requested position by sending a nearby waypoint,
+        // rather than slowly walking an old queued absolute target forward.
+        // Do not treat the 8891 TCP pose as a reference when its age is stale:
+        // the caller must have passed the independent telemetry gates first.
+        const Vec3 fromActual={desired[0]-robotPose[0],
+                               desired[1]-robotPose[1],
+                               desired[2]-robotPose[2]};
+        const double desiredLag=norm(fromActual);
+        if(!std::isfinite(desiredLag)) {
+            result.action=ServoPAction::Invalid;return result;
+        }
+        result.feedbackLimited=desiredLag>kServoPFeedbackLeadLimitMm;
+        if(result.feedbackLimited) {
+            const double ratio=kServoPFeedbackLeadLimitMm/desiredLag;
+            for(int i=0;i<3;++i)
+                desired[i]=robotPose[i]+fromActual[i]*ratio;
+        }
         const Vec3 next={desired[0]-m_lastTarget[0],
                          desired[1]-m_lastTarget[1],
                          desired[2]-m_lastTarget[2]};
@@ -161,8 +196,7 @@ public:
         // actual 33ms tick runs late (e.g. 50ms). Never accumulate an
         // unbounded catch-up command after UI/network scheduling stalls.
         const double boundedSeconds=std::min(elapsedSeconds,kServoPMaxCatchupSeconds);
-        const double maxStep=kServoPMaxSetpointStepMm*
-            boundedSeconds/kServoPNominalTickSeconds;
+        const double maxStep=m_followSpeedLimitMmPerSec*boundedSeconds;
         if(toNext>maxStep) {
             for(int i=0;i<3;++i)
                 desired[i]=m_lastTarget[i]+next[i]*maxStep/toNext;
@@ -183,6 +217,7 @@ private:
     Pose6 m_anchorRobot{},m_lastTarget{},m_pendingTarget{};
     bool m_hasPending=false;
     double m_clutchTravelLimitMm=kServoPClutchTravelMm;
+    double m_followSpeedLimitMmPerSec=kServoPDefaultFollowSpeedMmPerSec;
     std::uint64_t m_settleSeq=0;
     int m_settleCount=0;
 };
