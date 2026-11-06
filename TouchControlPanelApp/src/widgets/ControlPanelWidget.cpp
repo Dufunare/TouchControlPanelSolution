@@ -134,6 +134,12 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     m_servoPFollowSpeed->setSuffix(QStringLiteral(" mm/s"));
     m_servoPFollowSpeed->setToolTip(QStringLiteral("仅为每秒目标推进上限，不代表机器人的实际运动速度。大值只可在验证后的安全实验中选用"));
     manualForm->addRow(QStringLiteral("ServoP 目标跟随速度上限"),m_servoPFollowSpeed);
+    m_servoPFeedbackLead=new QComboBox(manualGroup);
+    m_servoPFeedbackLead->addItem(QStringLiteral("12 mm · 保守（默认）"),12.0);
+    m_servoPFeedbackLead->addItem(QStringLiteral("16 mm · 响应对比"),16.0);
+    m_servoPFeedbackLead->addItem(QStringLiteral("20 mm · 高响应实验"),20.0);
+    m_servoPFeedbackLead->setToolTip(QStringLiteral("目标与8891实际TCP位置的最大超前距离；更大可能减少跟随迟滞，也可能引起冲击/抖动。必须先确认安全，逐档试验。不会提高25mm跟踪硬停止阈值"));
+    manualForm->addRow(QStringLiteral("ServoP 反馈预瞄距离"),m_servoPFeedbackLead);
     manualForm->addRow(QStringLiteral("死区"),m_axisDeadzone);
     auto* previewButton=new QPushButton(QStringLiteral("启用平移预览（不发送运动）"),manualGroup);
     manualForm->addRow(previewButton);
@@ -171,7 +177,8 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
             emit continuousServoPRequested(
                 m_axisSelection,m_axisGain->value(),m_axisDeadzone->value(),
                 m_servoPTravel->currentData().toDouble(),
-                m_servoPFollowSpeed->value());
+                m_servoPFollowSpeed->value(),
+                m_servoPFeedbackLead->currentData().toDouble());
         else
             emit continuousServoRequested(
                 m_axisSelection,m_axisGain->value(),m_axisDeadzone->value());
