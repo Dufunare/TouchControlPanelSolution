@@ -1060,7 +1060,25 @@ void DeviceController::runServoPTick()
         robot.stateSeq,m_manualMap,elapsedSeconds);
     using Action=touchpanel::teleop::ServoPAction;
     if(outcome.action==Action::Invalid) {
-        haltRealMotion(QStringLiteral("ServoP：相对映射参数/Touch 位姿无效"));
+        haltRealMotion(QStringLiteral("ServoP：相对映射/工作空间目标无效，已停止"));
+        return;
+    }
+    if(outcome.action==Action::TrackingHold) {
+        // The current Touch goal remains a goal, NOT a queued packet.
+        // Stop emitting farther-ahead targets until the actual robot
+        // catches up, or the operator moves back toward the last target.
+        m_servoPFollowMetrics.noteTrackingHold();
+        if(!m_servoPTrackingHolding) {
+            m_servoPTrackingHolding=true;
+            m_servoPTrackingHoldTimer.start();
+        }
+        if(!m_servoPTrackingLogTimer.isValid() ||
+           m_servoPTrackingLogTimer.elapsed()>=2000) {
+            emit backendMessageChanged(QStringLiteral(
+                "[SERVOP TRACKING HOLD] 最新Touch目标暂不可下发，"
+                "等待8891实际TCP跟上；不排队补发旧目标"));
+            m_servoPTrackingLogTimer.restart();
+        }
         return;
     }
     if(outcome.action==Action::Ready) {
@@ -1157,43 +1175,68 @@ void DeviceController::runServoPTick()
             accepted[2]-robot.tcpPose[2]};
         const double lastLag=touchpanel::teleop::norm(lastError);
         using TrackingDecision=touchpanel::teleop::ServoPTrackingDecision;
-        const auto decision=touchpanel::teleop::servoPTrackingDecision(
-            lastLag,tracking,m_servoPTrackingHolding,
-            m_servoPTrackingHoldTimer.isValid()?
-                static_cast<int>(m_servoPTrackingHoldTimer.elapsed()):0,
-            m_cartesianServoP.feedbackLeadLimitMm());
-        if(decision==TrackingDecision::Abort) {
-            haltRealMotion(QStringLiteral(
-                "ServoP 已发送目标跟踪失效：LastLag=%1mm "
-                "CandidateLag=%2mm Hold=%3ms")
-                .arg(lastLag,0,'f',2).arg(tracking,0,'f',2)
-                .arg(m_servoPTrackingHoldTimer.isValid()?
-                     m_servoPTrackingHoldTimer.elapsed():0));
-            return;
-        }
-        if(decision==TrackingDecision::Hold) {
-            m_servoPFollowMetrics.noteTrackingHold();
-            m_cartesianServoP.rejectUnsentTarget();
-            if(!m_servoPTrackingHolding) {
-                m_servoPTrackingHolding=true;
-                m_servoPTrackingHoldTimer.start();
+        // Direct mode performs its command/feedback arbitration in the
+        // dedicated planner. Do NOT reapply the old soft-hold hysteresis:
+        // it would make the robot repeatedly wait for 11mm lag even when
+        // the new latest-Touch command is already valid and corrective.
+        // A separate always-on check at the beginning of runServoPTick()
+        // still stops on >25mm LAST-SENT vs ACTUAL mismatch and on
+        // persistent lack of progress.
+        if(m_cartesianServoP.directResponseEnabled()) {
+            if(!std::isfinite(lastLag) ||
+               lastLag>touchpanel::teleop::kServoPTrackingErrorMm) {
+                haltRealMotion(QStringLiteral(
+                    "ServoP：已发送目标实际跟踪误差=%1mm 超过硬限制")
+                    .arg(lastLag,0,'f',2));
+                return;
             }
-            if(!m_servoPTrackingLogTimer.isValid() ||
-               m_servoPTrackingLogTimer.elapsed()>=2000) {
+            if(m_servoPTrackingHolding) {
+                m_servoPTrackingHolding=false;
+                m_servoPTrackingHoldTimer.invalidate();
+                m_servoPTrackingLogTimer.invalidate();
                 emit backendMessageChanged(QStringLiteral(
-                    "[SERVOP TRACKING HOLD] LastLag=%1mm CandidateLag=%2mm；"
-                    "暂停更远的新目标，等待机器人跟上或向安全方向修正")
-                    .arg(lastLag,0,'f',2).arg(tracking,0,'f',2));
-                m_servoPTrackingLogTimer.restart();
+                    "[SERVOP TRACKING RESUMED] 新Touch目标可安全下发"));
             }
-            return;
-        }
-        if(m_servoPTrackingHolding) {
-            m_servoPTrackingHolding=false;
-            m_servoPTrackingHoldTimer.invalidate();
-            m_servoPTrackingLogTimer.invalidate();
-            emit backendMessageChanged(QStringLiteral(
-                "[SERVOP TRACKING RESUMED] 跟踪恢复，继续限速发送"));
+        } else {
+            using TrackingDecision=touchpanel::teleop::ServoPTrackingDecision;
+            const auto decision=touchpanel::teleop::servoPTrackingDecision(
+                lastLag,tracking,m_servoPTrackingHolding,
+                m_servoPTrackingHoldTimer.isValid()?
+                    static_cast<int>(m_servoPTrackingHoldTimer.elapsed()):0,
+                m_cartesianServoP.feedbackLeadLimitMm());
+            if(decision==TrackingDecision::Abort) {
+                haltRealMotion(QStringLiteral(
+                    "ServoP 已发送目标跟踪失效：LastLag=%1mm "
+                    "CandidateLag=%2mm Hold=%3ms")
+                    .arg(lastLag,0,'f',2).arg(tracking,0,'f',2)
+                    .arg(m_servoPTrackingHoldTimer.isValid()?
+                         m_servoPTrackingHoldTimer.elapsed():0));
+                return;
+            }
+            if(decision==TrackingDecision::Hold) {
+                m_servoPFollowMetrics.noteTrackingHold();
+                m_cartesianServoP.rejectUnsentTarget();
+                if(!m_servoPTrackingHolding) {
+                    m_servoPTrackingHolding=true;
+                    m_servoPTrackingHoldTimer.start();
+                }
+                if(!m_servoPTrackingLogTimer.isValid() ||
+                   m_servoPTrackingLogTimer.elapsed()>=2000) {
+                    emit backendMessageChanged(QStringLiteral(
+                        "[SERVOP TRACKING HOLD] LastLag=%1mm "
+                        "CandidateLag=%2mm")
+                        .arg(lastLag,0,'f',2).arg(tracking,0,'f',2));
+                    m_servoPTrackingLogTimer.restart();
+                }
+                return;
+            }
+            if(m_servoPTrackingHolding) {
+                m_servoPTrackingHolding=false;
+                m_servoPTrackingHoldTimer.invalidate();
+                m_servoPTrackingLogTimer.invalidate();
+                emit backendMessageChanged(QStringLiteral(
+                    "[SERVOP TRACKING RESUMED] 跟踪恢复"));
+            }
         }
         m_servoPSendTimer.start();
         const auto send=m_robotBackend->sendServoCartesianTarget(outcome.target);
