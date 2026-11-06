@@ -16,6 +16,7 @@ on:
       - 'shared/RelativeMotionCalibration.h'
       - 'shared/ManualTeleop.h'
       - 'shared/RelativeServoP.h'
+      - 'shared/ServoPWorkspace.h'
       - 'shared/TeleopExecutionPolicy.h'
       - '.github/workflows/teleop-offline.yml'
 jobs:
