@@ -682,6 +682,10 @@ void DeviceController::startContinuousServoP()
             .arg(s.feedbackAgeMs).arg(s.relayStatusAgeMs));
         return;
     }
+    // Re-arm from a clean state after the previous release, aborted start or
+    // controlled stop. reset() preserves the configured mode but clears the
+    // clutch, its previous target, and pending motion candidates.
+    m_cartesianServoP.reset();
     // Restore the working master's position-target semantics, but do not
     // copy its unbounded goal jumps or hardcoded RPY. This mode uses the
     // CURRENT Touch sample and a bounded 20mm setpoint lead/jump, plus
@@ -697,7 +701,6 @@ void DeviceController::startContinuousServoP()
     m_motionTool=s.toolIndex;
     m_motionCommandSent=false;
     m_manualPreview=false;
-    m_cartesianServoP.reset(); // NeedRelease until button is observed up.
     m_servoPReleaseTimer.invalidate();
     m_servoPStatsTimer.start();
     m_servoPTickTimer.invalidate();
