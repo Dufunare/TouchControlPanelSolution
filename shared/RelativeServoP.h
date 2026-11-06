@@ -1,5 +1,6 @@
 #pragma once
 #include "ManualTeleop.h"
+#include "ServoPWorkspace.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -38,6 +39,7 @@ struct ServoPTick {
     double boundedDistanceMm=0.0;
     bool saturated=false;
     bool feedbackLimited=false;
+    unsigned wallHoldAxisMask=0;
 };
 
 // State-only clutch: no TCP/network access, no Qt, no movement authority.
@@ -60,6 +62,13 @@ public:
     double clutchTravelLimitMm() const {return m_clutchTravelLimitMm;}
     double followSpeedLimitMmPerSec() const {return m_followSpeedLimitMmPerSec;}
     double feedbackLeadLimitMm() const {return m_feedbackLeadLimitMm;}
+    bool virtualWallSlideEnabled() const {return m_virtualWallSlideEnabled;}
+    bool setVirtualWallSlideEnabled(bool enabled) {
+        if(m_phase==ServoPPhase::Active||m_phase==ServoPPhase::WaitingForIdle)
+            return false;
+        m_virtualWallSlideEnabled=enabled;
+        return true;
+    }
     // Only configure while disarmed. Both clutch re-anchors and reset()
     // preserve this setting; no operator action changes it mid-clutch.
     bool setFeedbackLeadLimitMm(double leadMm) {
@@ -215,6 +224,13 @@ public:
             for(int i=0;i<3;++i)
                 desired[i]=m_lastTarget[i]+next[i]*maxStep/toNext;
         }
+        if(m_virtualWallSlideEnabled) {
+            result.wallHoldAxisMask=holdOutwardServoPAxes(desired,m_lastTarget);
+            const Vec3 finalStep={desired[0]-m_lastTarget[0],
+                                  desired[1]-m_lastTarget[1],
+                                  desired[2]-m_lastTarget[2]};
+            if(norm(finalStep)<=kServoPCommandDeadbandMm)return result;
+        }
         // Orientation is the captured *actual* robot RPY. Never use the
         // original master code's hardcoded (150,0,90).
         for(int i=3;i<6;++i)desired[i]=m_anchorRobot[i];
@@ -233,6 +249,7 @@ private:
     double m_clutchTravelLimitMm=kServoPClutchTravelMm;
     double m_followSpeedLimitMmPerSec=kServoPDefaultFollowSpeedMmPerSec;
     double m_feedbackLeadLimitMm=kServoPFeedbackLeadLimitMm;
+    bool m_virtualWallSlideEnabled=false;
     std::uint64_t m_settleSeq=0;
     int m_settleCount=0;
 };
