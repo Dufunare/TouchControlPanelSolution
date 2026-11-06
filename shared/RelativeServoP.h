@@ -21,7 +21,10 @@ inline constexpr double kServoPDefaultFollowSpeedMmPerSec=
 inline constexpr double kServoPMaxSelectableFollowSpeedMmPerSec=120.0;
 // Keep the latest Cartesian setpoint near current measured TCP. The remaining
 // 25mm last-transmitted-target guard is independent and unchanged.
-inline constexpr double kServoPFeedbackLeadLimitMm=12.0;
+inline constexpr double kServoPFeedbackLeadLimitMm=12.0; // conservative default
+inline constexpr double kServoPMaxSelectableFeedbackLeadMm=20.0;
+// This is a feedback-relative software lookahead, not a robot collision
+// boundary, certified velocity limit, or guarantee of smooth execution.
 inline constexpr double kServoPTrackingErrorMm=25.0;
 inline constexpr double kServoPCommandDeadbandMm=0.3;
 
@@ -56,6 +59,17 @@ public:
     ServoPPhase phase() const {return m_phase;}
     double clutchTravelLimitMm() const {return m_clutchTravelLimitMm;}
     double followSpeedLimitMmPerSec() const {return m_followSpeedLimitMmPerSec;}
+    double feedbackLeadLimitMm() const {return m_feedbackLeadLimitMm;}
+    // Only configure while disarmed. Both clutch re-anchors and reset()
+    // preserve this setting; no operator action changes it mid-clutch.
+    bool setFeedbackLeadLimitMm(double leadMm) {
+        if(!std::isfinite(leadMm)||leadMm<kServoPFeedbackLeadLimitMm||
+           leadMm>kServoPMaxSelectableFeedbackLeadMm||
+           m_phase==ServoPPhase::Active||m_phase==ServoPPhase::WaitingForIdle)
+            return false;
+        m_feedbackLeadLimitMm=leadMm;
+        return true;
+    }
     bool setFollowSpeedLimitMmPerSec(double speed) {
         if(!std::isfinite(speed)||speed<kServoPDefaultFollowSpeedMmPerSec-0.01||
            speed>kServoPMaxSelectableFollowSpeedMmPerSec||
@@ -178,9 +192,9 @@ public:
         if(!std::isfinite(desiredLag)) {
             result.action=ServoPAction::Invalid;return result;
         }
-        result.feedbackLimited=desiredLag>kServoPFeedbackLeadLimitMm;
+        result.feedbackLimited=desiredLag>m_feedbackLeadLimitMm;
         if(result.feedbackLimited) {
-            const double ratio=kServoPFeedbackLeadLimitMm/desiredLag;
+            const double ratio=m_feedbackLeadLimitMm/desiredLag;
             for(int i=0;i<3;++i)
                 desired[i]=robotPose[i]+fromActual[i]*ratio;
         }
@@ -218,6 +232,7 @@ private:
     bool m_hasPending=false;
     double m_clutchTravelLimitMm=kServoPClutchTravelMm;
     double m_followSpeedLimitMmPerSec=kServoPDefaultFollowSpeedMmPerSec;
+    double m_feedbackLeadLimitMm=kServoPFeedbackLeadLimitMm;
     std::uint64_t m_settleSeq=0;
     int m_settleCount=0;
 };
