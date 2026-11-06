@@ -43,8 +43,12 @@ inline constexpr int kServoPTrackingHoldTimeoutMs=1500;
 enum class ServoPTrackingDecision { Send, Hold, Abort };
 inline ServoPTrackingDecision servoPTrackingDecision(
     double acceptedLagMm,double candidateLagMm,
-    bool alreadyHolding,int holdingMs) {
+    bool alreadyHolding,int holdingMs,
+    double feedbackLeadLimitMm=kServoPFeedbackLeadLimitMm) {
     if(!std::isfinite(acceptedLagMm) || !std::isfinite(candidateLagMm) ||
+       !std::isfinite(feedbackLeadLimitMm) ||
+       feedbackLeadLimitMm<kServoPFeedbackLeadLimitMm ||
+       feedbackLeadLimitMm>kServoPMaxSelectableFeedbackLeadMm ||
        acceptedLagMm<0.0 || candidateLagMm<0.0 ||
        acceptedLagMm>kServoPTrackingErrorMm ||
        (alreadyHolding && holdingMs>kServoPTrackingHoldTimeoutMs &&
@@ -59,7 +63,12 @@ inline ServoPTrackingDecision servoPTrackingDecision(
             return ServoPTrackingDecision::Send;
         return ServoPTrackingDecision::Hold;
     }
-    return candidateLagMm<=kServoPTrackingSoftHoldMm
+    // Under a deliberately selected larger feedback horizon, keep the
+    // soft hold compatible with the *already horizon-clipped* candidate.
+    // Always retain the independent 25mm last-transmitted-target HARD gate.
+    const double softHoldMm=std::max(kServoPTrackingSoftHoldMm,
+                                    feedbackLeadLimitMm+0.5);
+    return candidateLagMm<=softHoldMm
         ? ServoPTrackingDecision::Send : ServoPTrackingDecision::Hold;
 }
 } // namespace touchpanel::teleop
