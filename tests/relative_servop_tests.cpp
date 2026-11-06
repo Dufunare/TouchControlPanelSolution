@@ -1,4 +1,5 @@
 #include "../shared/RelativeServoP.h"
+#include "../shared/ServoPWorkspace.h"
 #include <cassert>
 #include <cmath>
 #include <iostream>
@@ -75,5 +76,47 @@ int main() {
     // Corrupt Touch inputs fail closed rather than silently moving the robot.
     got=drive.tick(true,{std::numeric_limits<double>::quiet_NaN(),0,0},secondPose,false,46,mapping);
     assert(got.action==ServoPAction::Invalid);
+    // Regression from real robot logs: Y=-349.79 is only 0.21mm inside
+    // the legacy Y lower bound (-350). An outward request must be rejected
+    // without losing the clutch or advancing an untransmitted setpoint.
+    const Pose6 edgePose={-79.02,-349.79,385.78,172.05,2.41,17.69};
+    const Vec3 edgeTouch={117.36,41.31,20.72};
+    RelativeServoP edge;
+    arm(edge,edgePose,edgeTouch,200);
+    assert(edge.tick(true,edgeTouch,edgePose,true,203,mapping).action==
+           ServoPAction::Captured);
+    auto outside=edge.tick(true,{117.36,41.31,35.72},edgePose,false,204,mapping);
+    assert(outside.action==ServoPAction::Send);
+    auto check=checkServoPWorkspace(outside.target);
+    assert(check.code==ServoPWorkspaceCode::XYZOutside);
+    assert(check.axis==1&&near(check.minimum,-350.0));
+    assert(outside.target[1]<-350.0);
+    edge.rejectUnsentTarget();
+    assert(edge.lastAcceptedTarget()==edgePose);
+    // A second outward sample remains blocked, not an accumulated command.
+    outside=edge.tick(true,{117.36,41.31,35.72},edgePose,false,205,mapping);
+    assert(outside.action==ServoPAction::Send);
+    assert(near(outside.target[1],edgePose[1]-kServoPMaxSetpointStepMm));
+    edge.rejectUnsentTarget();
+    // Reverse the Touch while STILL holding Button1; no restart or
+    // ResetRobot required. The next candidate is safe and can commit.
+    auto recovered=edge.tick(true,{117.36,41.31,12.72},edgePose,false,206,mapping);
+    assert(recovered.action==ServoPAction::Send);
+    assert(checkServoPWorkspace(recovered.target).code==ServoPWorkspaceCode::Allowed);
+    assert(recovered.target[1]>edgePose[1]);
+    assert(edge.acknowledgeSentTarget(recovered.target));
+    assert(edge.lastAcceptedTarget()==recovered.target);
+    const auto recoveredNext=edge.tick(true,{117.36,41.31,12.72},edgePose,false,207,mapping);
+    assert(recoveredNext.action==ServoPAction::Send);
+    assert(recoveredNext.target[1]>recovered.target[1]);
+    assert(norm({recoveredNext.target[0]-recovered.target[0],
+                 recoveredNext.target[1]-recovered.target[1],
+                 recoveredNext.target[2]-recovered.target[2]})
+           <=kServoPMaxSetpointStepMm+1e-9);
+    assert(edge.acknowledgeSentTarget(recoveredNext.target));
+    const Pose6 bad={-79.02,-349.79,385.78,172.05,2.41,
+                     std::numeric_limits<double>::quiet_NaN()};
+    assert(checkServoPWorkspace(bad).code==ServoPWorkspaceCode::NonFinite);
+    assert(checkServoPWorkspace(edgePose).code==ServoPWorkspaceCode::Allowed);
     std::cout<<"Relative ServoP clutch: no-jump, reanchor, axes, RPY and bounds passed\n";
 }
