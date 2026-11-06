@@ -200,6 +200,37 @@ int main() {
     assert(follow.lastAcceptedTarget()[0]>firstPose[0]+6.0);
     assert(!follow.setFollowSpeedLimitMmPerSec(121.0));
 
+    // Reproduce the live log: the 12mm cap fired on every update while
+    // the target traveled ~60mm/s despite a configured 120mm/s step cap.
+    // Higher lookahead must make a measurable difference to the *candidate*
+    // without removing the independent last-sent 25mm tracking guard.
+    RelativeServoP responsive;
+    assert(!responsive.setFeedbackLeadLimitMm(20.01));
+    assert(responsive.setFeedbackLeadLimitMm(20.0));
+    assert(responsive.setFollowSpeedLimitMmPerSec(120.0));
+    arm(responsive,firstPose,firstTouch,700);
+    assert(responsive.tick(true,firstTouch,firstPose,true,703,fastMap).action==
+           ServoPAction::Captured);
+    assert(!responsive.setFeedbackLeadLimitMm(16.0)); // cannot change live
+    got=responsive.tick(true,{30,-65,-88},firstPose,false,704,fastMap,0.05);
+    assert(got.action==ServoPAction::Send && got.feedbackLimited);
+    assert(got.target[0]-firstPose[0]<=6.0+1e-9); // speed still limits
+    assert(responsive.acknowledgeSentTarget(got.target));
+    // 2nd update with a fresh actual TCP position, so the setpoint can
+    // advance without being constrained by the older 12mm horizon.
+    Pose6 progress=firstPose;
+    progress[0]+=5.0;
+    got=responsive.tick(true,{30,-65,-88},progress,false,705,fastMap,0.05);
+    assert(got.action==ServoPAction::Send && got.feedbackLimited);
+    assert(got.target[0]-progress[0]<=20.0+1e-9);
+    assert(got.target[0]-firstPose[0]>6.0);
+    // Default 12mm still available and reset does not silently change it.
+    RelativeServoP unchanged;
+    assert(near(unchanged.feedbackLeadLimitMm(),12.0));
+    assert(unchanged.setFeedbackLeadLimitMm(16.0));
+    unchanged.reset();
+    assert(near(unchanged.feedbackLeadLimitMm(),16.0));
+
     const Pose6 bad={-79.02,-349.79,385.78,172.05,2.41,
                      std::numeric_limits<double>::quiet_NaN()};
     assert(checkServoPWorkspace(bad).code==ServoPWorkspaceCode::NonFinite);
