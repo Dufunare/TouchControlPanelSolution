@@ -126,24 +126,9 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     m_servoPTravel->addItem(QStringLiteral("180 mm · 扩展上限"),180.0);
     m_servoPTravel->setToolTip(QStringLiteral("仅影响单次按压的相对目标范围；不扩大XYZ工作空间边界"));
     manualForm->addRow(QStringLiteral("ServoP 单次离合范围"),m_servoPTravel);
-    m_servoPFollowSpeed=new QDoubleSpinBox(manualGroup);
-    m_servoPFollowSpeed->setRange(60.61,120.0);
-    m_servoPFollowSpeed->setDecimals(2);
-    m_servoPFollowSpeed->setSingleStep(5.0);
-    m_servoPFollowSpeed->setValue(60.61);
-    m_servoPFollowSpeed->setSuffix(QStringLiteral(" mm/s"));
-    m_servoPFollowSpeed->setToolTip(QStringLiteral("仅为每秒目标推进上限，不代表机器人的实际运动速度。大值只可在验证后的安全实验中选用"));
-    manualForm->addRow(QStringLiteral("ServoP 目标跟随速度上限"),m_servoPFollowSpeed);
-    m_servoPFeedbackLead=new QComboBox(manualGroup);
-    m_servoPFeedbackLead->addItem(QStringLiteral("12 mm · 保守（默认）"),12.0);
-    m_servoPFeedbackLead->addItem(QStringLiteral("16 mm · 响应对比"),16.0);
-    m_servoPFeedbackLead->addItem(QStringLiteral("20 mm · 高响应实验"),20.0);
-    m_servoPFeedbackLead->setToolTip(QStringLiteral("目标与8891实际TCP位置的最大超前距离；更大可能减少跟随迟滞，也可能引起冲击/抖动。必须先确认安全，逐档试验。不会提高25mm跟踪硬停止阈值"));
-    manualForm->addRow(QStringLiteral("ServoP 反馈预瞄距离"),m_servoPFeedbackLead);
-    m_servoPWallSlide=new QCheckBox(QStringLiteral("允许边界切向移动（仅实验）"),manualGroup);
-    m_servoPWallSlide->setChecked(false);
-    m_servoPWallSlide->setToolTip(QStringLiteral("越界轴保持上次已发送的安全位置，其他轴在现有限速和跟踪保护下继续；不扩大实验工作空间，不提供物理碰撞防护。默认关闭。"));
-    manualForm->addRow(QStringLiteral("ServoP 边界模式"),m_servoPWallSlide);
+    // ServoP now uses the latest Touch target directly, with a fixed
+    // bounded forward setpoint and independent hard 8891 safeguards.
+    // Do not expose ineffective legacy speed/feedback-horizon knobs.
     manualForm->addRow(QStringLiteral("死区"),m_axisDeadzone);
     auto* previewButton=new QPushButton(QStringLiteral("启用平移预览（不发送运动）"),manualGroup);
     manualForm->addRow(previewButton);
@@ -155,7 +140,7 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     // stays available as an explicit experimental alternative.
     m_realModeSelector=new QComboBox(manualGroup);
     m_realModeSelector->addItems({
-        QStringLiteral("ServoP · 直接平移跟随（原版改进）"),
+        QStringLiteral("ServoP · 实时位置直接跟随（受限）"),
         QStringLiteral("ServoJ · 逆运动学连续跟随（实验）")});
     m_realModeSelector->setCurrentIndex(0);
     manualForm->addRow(QStringLiteral("实体控制模式"),m_realModeSelector);
@@ -180,10 +165,7 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
         if(m_realModeSelector->currentIndex()==0)
             emit continuousServoPRequested(
                 m_axisSelection,m_axisGain->value(),m_axisDeadzone->value(),
-                m_servoPTravel->currentData().toDouble(),
-                m_servoPFollowSpeed->value(),
-                m_servoPFeedbackLead->currentData().toDouble(),
-                m_servoPWallSlide->isChecked());
+                m_servoPTravel->currentData().toDouble());
         else
             emit continuousServoRequested(
                 m_axisSelection,m_axisGain->value(),m_axisDeadzone->value());
