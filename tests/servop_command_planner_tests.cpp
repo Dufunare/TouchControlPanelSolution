@@ -75,26 +75,31 @@ int main() {
     assert(hand.acknowledgeSentTarget(t.target));
     assert(hand.tick(true,{15,10,20},origin,false,15,m).action==
            ServoPAction::None); // stationary Touch, no stale-goal replay
-    // Fresh Touch input while actual TCP has not progressed enters HOLD.
+    // Fresh Touch input moves right up to the safety-envelope boundary;
+    // with no new actual TCP progress, further packets are withheld.
     t=hand.tick(true,{45,10,20},origin,false,16,m);
+    assert(t.action==ServoPAction::Send);
+    assert(near(t.target[0],20.0));
+    assert(hand.acknowledgeSentTarget(t.target));
+    t=hand.tick(true,{45,10,20},origin,false,17,m);
     assert(t.action==ServoPAction::TrackingHold);
     actual=origin;actual[0]=10;
-    t=hand.tick(true,{45,10,20},actual,false,17,m);
+    t=hand.tick(true,{45,10,20},actual,false,18,m);
     assert(t.action==ServoPAction::Send);
     assert(t.target[0]>hand.lastAcceptedTarget()[0]);
     assert(hand.acknowledgeSentTarget(t.target));
     // Release and move Touch to a physical limit: zero new packets.
-    t=hand.tick(false,{200,10,20},actual,false,18,m);
+    t=hand.tick(false,{200,10,20},actual,false,19,m);
     assert(t.action==ServoPAction::Released);
-    assert(hand.tick(true,{200,10,20},actual,true,19,m).action==
+    assert(hand.tick(true,{200,10,20},actual,true,20,m).action==
            ServoPAction::None);
     Pose6 nextRobot=origin;nextRobot[0]=30;
-    for(std::uint64_t k=20;k<23;++k)
+    for(std::uint64_t k=21;k<24;++k)
         hand.tick(false,{0,0,0},nextRobot,true,k,m);
     assert(hand.phase()==ServoPPhase::Ready);
-    assert(hand.tick(true,{0,0,0},nextRobot,true,23,m).action==
+    assert(hand.tick(true,{0,0,0},nextRobot,true,24,m).action==
            ServoPAction::Captured);
-    assert(hand.tick(true,{0,0,0},nextRobot,false,24,m).action==
+    assert(hand.tick(true,{0,0,0},nextRobot,false,25,m).action==
            ServoPAction::None);
     assert(hand.anchorRobot()==nextRobot);
     assert(hand.anchorTouch()==(Vec3{0,0,0}));
