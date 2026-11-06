@@ -39,6 +39,7 @@ public:
     void setManualPreviewMapping(const touchpanel::teleop::ManualAxisMap& mapping);
     bool setServoPClutchTravelLimit(double limitMm);
     bool setServoPFollowSpeedLimit(double limitMmPerSec);
+    bool setServoPFeedbackLeadLimit(double limitMm);
 
 public slots:
     void invalidateTeleopBaseline();
