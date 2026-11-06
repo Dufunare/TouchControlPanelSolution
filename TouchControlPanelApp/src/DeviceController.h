@@ -35,6 +35,7 @@ public:
     bool realMotionActive() const;
     void applyPreviewCalibration(const touchpanel::teleop::Calibration& calibration,int user,int tool);
     void setManualPreviewMapping(const touchpanel::teleop::ManualAxisMap& mapping);
+    bool setServoPClutchTravelLimit(double limitMm);
 
 public slots:
     void invalidateTeleopBaseline();
@@ -121,6 +122,12 @@ private:
     touchpanel::teleop::RelativeServoP m_cartesianServoP;
     QElapsedTimer m_servoPReleaseTimer;
     QElapsedTimer m_servoPStatsTimer;
+    QElapsedTimer m_servoPTickTimer;
+    QElapsedTimer m_servoPSendTimer;
+    qint64 m_servoPMaxTickGapMs=0;
+    qint64 m_servoPMaxSendUs=0;
+    qint64 m_servoPTotalSendUs=0;
+    int m_servoPSendSamples=0;
     std::uint64_t m_servoPLastStateSeq=0;
     int m_servoPSentPackets=0;
     std::array<double,6> m_lastServoPCartesianTarget{};
