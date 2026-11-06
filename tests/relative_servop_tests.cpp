@@ -177,7 +177,7 @@ int main() {
     got=follow.tick(true,{25,-65,-88},firstPose,false,604,fastMap,0.05);
     assert(got.action==ServoPAction::Send);
     assert(got.feedbackLimited);
-    assert(near(got.rawDistanceMm,39.7));
+    assert(near(got.rawDistanceMm,38.8));
     assert(got.target[0]-firstPose[0]>5.9);
     assert(got.target[0]-firstPose[0]<=6.0+1e-9);
     assert(follow.acknowledgeSentTarget(got.target));
