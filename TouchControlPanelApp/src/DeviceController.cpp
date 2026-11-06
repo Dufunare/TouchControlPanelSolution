@@ -994,6 +994,7 @@ void DeviceController::runServoPTick()
         haltRealMotion(QStringLiteral("ServoP：Touch 校准代次变化"));
         return;
     }
+    m_servoPFollowMetrics.observeActual(robot.tcpPose,robot.stateSeq);
     const bool idle=servoPMeasuredIdle(robot);
     // Monitor the last transmitted setpoint even when no new candidate is
     // generated: an immobile stylus must not hide a persistent lag.
@@ -1046,6 +1047,7 @@ void DeviceController::runServoPTick()
         m_servoPWorkspaceBlocked=false;
         m_servoPWorkspaceAxis=-1;
         m_servoPWorkspaceLogTimer.invalidate();
+        m_servoPFollowMetrics.reset(robot.tcpPose,robot.stateSeq);
         m_servoPSentPackets=0;
         m_servoPTrackingHolding=false;
         m_servoPTrackingHoldTimer.invalidate();
@@ -1075,6 +1077,7 @@ void DeviceController::runServoPTick()
             "机械臂可能完成最后一个目标，须待 8891 连续确认停稳后再按。"
             "Touch 在释放期间移动不会改变机器人目标。"));
     } else if(outcome.action==Action::Send) {
+        if(outcome.feedbackLimited)m_servoPFollowMetrics.noteLeadLimit();
         const auto& anchorPose=m_cartesianServoP.anchorRobot();
         // Never silently change the already captured robot orientation.
         for(int i=3;i<6;++i) {
@@ -1108,6 +1111,7 @@ void DeviceController::runServoPTick()
             return;
         }
         if(decision==TrackingDecision::Hold) {
+            m_servoPFollowMetrics.noteTrackingHold();
             m_cartesianServoP.rejectUnsentTarget();
             if(!m_servoPTrackingHolding) {
                 m_servoPTrackingHolding=true;
@@ -1138,6 +1142,7 @@ void DeviceController::runServoPTick()
         ++m_servoPSendSamples;
         using SendCode=touchpanel::CommunicationBackend::ServoPSendCode;
         if(send.code==SendCode::OutsideWorkspace) {
+            m_servoPFollowMetrics.noteWorkspaceHold();
             // The requested target is unsafe but the control CHANNEL is
             // healthy. Do not ResetRobot on every outward attempt. Keep
             // the LAST SUCCESSFULLY SENT target as rate limiter origin,
@@ -1175,10 +1180,12 @@ void DeviceController::runServoPTick()
             haltRealMotion(QStringLiteral("ServoP：%1；按既有保护请求停止").arg(reason));
             return;
         }
+        const auto sentFrom=m_cartesianServoP.lastAcceptedTarget();
         if(!m_cartesianServoP.acknowledgeSentTarget(outcome.target)) {
             haltRealMotion(QStringLiteral("ServoP：已发送目标与离合状态不同步，停止"));
             return;
         }
+        m_servoPFollowMetrics.observeSent(sentFrom,outcome.target);
         if(m_servoPWorkspaceBlocked) {
             emit backendMessageChanged(QStringLiteral(
                 "[SERVOP WORKSPACE RESUMED] 新目标已回到软件工作空间，"
@@ -1217,6 +1224,18 @@ void DeviceController::runServoPTick()
                 m_lastServoPCartesianTarget[2]-robot.tcpPose[2]};
             error=touchpanel::teleop::norm(pending);
         }
+        const auto& follow=m_servoPFollowMetrics.window();
+        emit backendMessageChanged(QStringLiteral(
+            "[SERVOP FOLLOW] 8891实际TCP路径速度=%1mm/s "
+            "已发送设定点路径速度=%2mm/s 按发送次数=%3 "
+            "FeedbackLead限幅=%4 TrackingHold帧=%5 WorkspaceHold帧=%6 "
+            "速度上限=%7mm/s（指令非真机速度）")
+            .arg(follow.actualPathMm/seconds,0,'f',1)
+            .arg(follow.setpointPathMm/seconds,0,'f',1)
+            .arg(follow.sent).arg(follow.leadLimited)
+            .arg(follow.trackingHeld).arg(follow.workspaceHeld)
+            .arg(m_cartesianServoP.followSpeedLimitMmPerSec(),0,'f',1));
+        m_servoPFollowMetrics.clearWindow();
         emit backendMessageChanged(QStringLiteral(
             "[SERVOP RATE] 实际发送=%1/s 机器人相对基准位移=%2mm "
             "最新目标误差=%3mm，8891 Age=%4ms RelayAge=%5ms "
