@@ -189,6 +189,12 @@ public:
                 desired[i]=m_anchorRobot[i]+displacement[i]*ratio;
         }
         result.boundedDistanceMm=std::min(distance,m_clutchTravelLimitMm);
+        // First project the requested pose into the currently usable
+        // tangent directions. If we wait until AFTER the feedback horizon
+        // and setpoint step cap, a huge outward Y request dominates the
+        // 3D vector normalization and starves the valid X/Z movement.
+        if(m_virtualWallSlideEnabled)
+            result.wallHoldAxisMask=holdOutwardServoPAxes(desired,m_lastTarget);
         // Feedback-referenced preview horizon: after a sudden Touch jump,
         // follow the CURRENT requested position by sending a nearby waypoint,
         // rather than slowly walking an old queued absolute target forward.
@@ -225,7 +231,7 @@ public:
                 desired[i]=m_lastTarget[i]+next[i]*maxStep/toNext;
         }
         if(m_virtualWallSlideEnabled) {
-            result.wallHoldAxisMask=holdOutwardServoPAxes(desired,m_lastTarget);
+            result.wallHoldAxisMask|=holdOutwardServoPAxes(desired,m_lastTarget);
             const Vec3 finalStep={desired[0]-m_lastTarget[0],
                                   desired[1]-m_lastTarget[1],
                                   desired[2]-m_lastTarget[2]};
