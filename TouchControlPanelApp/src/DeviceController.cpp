@@ -669,6 +669,9 @@ void DeviceController::startContinuousServoP()
     m_servoPSentPackets=0;
     m_servoPWasSaturated=false;
     m_servoPHasTarget=false;
+    m_servoPWorkspaceBlocked=false;
+    m_servoPWorkspaceAxis=-1;
+    m_servoPWorkspaceLogTimer.invalidate();
     m_invalidTouchTicks=0;
     m_staleTouchTicks=0;
     m_lastTouchSampleCounter=st.sampleCounter;
@@ -971,6 +974,9 @@ void DeviceController::runServoPTick()
         m_clutchCalibrationEpoch=st.calibrationEpoch;
         m_servoPWasSaturated=false;
         m_servoPHasTarget=false;
+        m_servoPWorkspaceBlocked=false;
+        m_servoPWorkspaceAxis=-1;
+        m_servoPWorkspaceLogTimer.invalidate();
         m_servoPSentPackets=0;
         m_servoPStatsTimer.restart();
         m_servoPReleaseTimer.invalidate();
@@ -1012,9 +1018,57 @@ void DeviceController::runServoPTick()
                 .arg(touchpanel::teleop::kServoPTrackingErrorMm,0,'f',1));
             return;
         }
-        if(!m_robotBackend->sendServoCartesianTarget(outcome.target)) {
-            haltRealMotion(QStringLiteral("ServoP：运动目标发送失败或超出明确工作空间"));
+        const auto send=m_robotBackend->sendServoCartesianTarget(outcome.target);
+        using SendCode=touchpanel::CommunicationBackend::ServoPSendCode;
+        if(send.code==SendCode::OutsideWorkspace) {
+            // The requested target is unsafe but the control CHANNEL is
+            // healthy. Do not ResetRobot on every outward attempt. Keep
+            // the LAST SUCCESSFULLY SENT target as rate limiter origin,
+            // so reversing the stylus can generate a safe setpoint.
+            m_cartesianServoP.rejectUnsentTarget();
+            const bool report=!m_servoPWorkspaceBlocked ||
+                send.axis!=m_servoPWorkspaceAxis ||
+                !m_servoPWorkspaceLogTimer.isValid() ||
+                m_servoPWorkspaceLogTimer.elapsed()>=2000;
+            if(report) {
+                const QString axis=QStringLiteral("XYZ").mid(send.axis,1);
+                emit backendMessageChanged(QStringLiteral(
+                    "[SERVOP WORKSPACE HOLD] %1目标=%2mm，允许区间=[%3,%4]mm，"
+                    "当前机器人%1=%5mm。拒绝这帧越界命令，不下发、不重置；"
+                    "保持 Button1 向允许的方向移动可继续控制。")
+                    .arg(axis)
+                    .arg(send.value,0,'f',3)
+                    .arg(send.minimum,0,'f',3)
+                    .arg(send.maximum,0,'f',3)
+                    .arg(robot.tcpPose[send.axis],0,'f',3));
+                m_servoPWorkspaceLogTimer.restart();
+            }
+            m_servoPWorkspaceBlocked=true;
+            m_servoPWorkspaceAxis=send.axis;
             return;
+        }
+        if(send.code!=SendCode::Sent) {
+            m_cartesianServoP.rejectUnsentTarget();
+            const QString reason=
+                send.code==SendCode::Disconnected?
+                    QStringLiteral("8888 已断开"):
+                send.code==SendCode::InvalidTarget?
+                    QStringLiteral("ServoP 姿态/数值无效"):
+                    QStringLiteral("TCP 发送失败");
+            haltRealMotion(QStringLiteral("ServoP：%1；按既有保护请求停止").arg(reason));
+            return;
+        }
+        if(!m_cartesianServoP.acknowledgeSentTarget(outcome.target)) {
+            haltRealMotion(QStringLiteral("ServoP：已发送目标与离合状态不同步，停止"));
+            return;
+        }
+        if(m_servoPWorkspaceBlocked) {
+            emit backendMessageChanged(QStringLiteral(
+                "[SERVOP WORKSPACE RESUMED] 新目标已回到软件工作空间，"
+                "重新开始沿安全方向发送；未更改工作空间界限"));
+            m_servoPWorkspaceBlocked=false;
+            m_servoPWorkspaceAxis=-1;
+            m_servoPWorkspaceLogTimer.invalidate();
         }
         m_motionCommandSent=true;
         m_lastServoPCartesianTarget=outcome.target;
