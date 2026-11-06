@@ -98,6 +98,12 @@ void DeviceController::setRelayStateClient(RelayStateClient* client)
     m_relayStateClient = client;
 }
 
+bool DeviceController::setServoPClutchTravelLimit(double limitMm)
+{
+    return !realMotionActive() &&
+        m_cartesianServoP.setClutchTravelLimitMm(limitMm);
+}
+
 bool DeviceController::realMotionActive() const
 {
     return m_realMode!=RealMode::None;
@@ -666,6 +672,12 @@ void DeviceController::startContinuousServoP()
     m_cartesianServoP.reset(); // NeedRelease until button is observed up.
     m_servoPReleaseTimer.invalidate();
     m_servoPStatsTimer.start();
+    m_servoPTickTimer.invalidate();
+    m_servoPSendTimer.invalidate();
+    m_servoPMaxTickGapMs=0;
+    m_servoPMaxSendUs=0;
+    m_servoPTotalSendUs=0;
+    m_servoPSendSamples=0;
     m_servoPSentPackets=0;
     m_servoPWasSaturated=false;
     m_servoPHasTarget=false;
@@ -898,6 +910,12 @@ void DeviceController::monitorSingleStep()
 
 void DeviceController::runServoPTick()
 {
+    const qint64 actualGapMs=m_servoPTickTimer.isValid()?
+        m_servoPTickTimer.restart():DEVICE_CONTROLLER_MOTION_INTERVAL_MS;
+    if(!m_servoPTickTimer.isValid())m_servoPTickTimer.start();
+    m_servoPMaxTickGapMs=std::max(m_servoPMaxTickGapMs,actualGapMs);
+    // Normalize against the actual timer interval, but cap catch-up.
+    const double elapsedSeconds=std::max(0.001,actualGapMs/1000.0);
     const bool touchRunning=m_backend && m_backend->isRunning();
     const bool legacyConnected=m_robotBackend && m_robotBackend->isTransitConnected();
     const bool feedbackFresh=m_relayStateClient && m_relayStateClient->hasFreshState();
@@ -959,7 +977,7 @@ void DeviceController::runServoPTick()
     }
     const auto outcome=m_cartesianServoP.tick(
         st.button1Pressed,st.positionMm,robot.tcpPose,idle,
-        robot.stateSeq,m_manualMap);
+        robot.stateSeq,m_manualMap,elapsedSeconds);
     using Action=touchpanel::teleop::ServoPAction;
     if(outcome.action==Action::Invalid) {
         haltRealMotion(QStringLiteral("ServoP：相对映射参数/Touch 位姿无效"));
@@ -980,6 +998,10 @@ void DeviceController::runServoPTick()
         m_servoPSentPackets=0;
         m_servoPStatsTimer.restart();
         m_servoPReleaseTimer.invalidate();
+        m_servoPMaxTickGapMs=0;
+        m_servoPMaxSendUs=0;
+        m_servoPTotalSendUs=0;
+        m_servoPSendSamples=0;
         const auto& p=m_cartesianServoP.anchorRobot();
         const auto& h=m_cartesianServoP.anchorTouch();
         emit backendMessageChanged(QStringLiteral(
@@ -1018,7 +1040,12 @@ void DeviceController::runServoPTick()
                 .arg(touchpanel::teleop::kServoPTrackingErrorMm,0,'f',1));
             return;
         }
+        m_servoPSendTimer.start();
         const auto send=m_robotBackend->sendServoCartesianTarget(outcome.target);
+        const qint64 sendUs=m_servoPSendTimer.nsecsElapsed()/1000;
+        m_servoPMaxSendUs=std::max(m_servoPMaxSendUs,sendUs);
+        m_servoPTotalSendUs+=sendUs;
+        ++m_servoPSendSamples;
         using SendCode=touchpanel::CommunicationBackend::ServoPSendCode;
         if(send.code==SendCode::OutsideWorkspace) {
             // The requested target is unsafe but the control CHANNEL is
@@ -1080,7 +1107,7 @@ void DeviceController::runServoPTick()
             "[SERVOP LIMIT] 本次 Touch 目标位移 %1mm；"
             "ServoP 目标限制在本次基准 %2mm 内，达到限制不重置机械臂")
             .arg(outcome.rawDistanceMm,0,'f',1)
-            .arg(touchpanel::teleop::kServoPClutchTravelMm,0,'f',1));
+            .arg(m_cartesianServoP.clutchTravelLimitMm(),0,'f',1));
     }
     m_servoPWasSaturated=outcome.saturated;
     if(m_cartesianServoP.phase()==touchpanel::teleop::ServoPPhase::Active &&
@@ -1103,14 +1130,23 @@ void DeviceController::runServoPTick()
         emit backendMessageChanged(QStringLiteral(
             "[SERVOP RATE] 实际发送=%1/s 机器人相对基准位移=%2mm "
             "最新目标误差=%3mm，8891 Age=%4ms RelayAge=%5ms "
-            "RobotMode=%6 Button1=%7")
+            "RobotMode=%6 Button1=%7 TickGapMax=%8ms "
+            "TcpSendAvg=%9ms TcpSendMax=%10ms")
             .arg(m_servoPSentPackets/seconds,0,'f',1)
             .arg(touchpanel::teleop::norm(actualDelta),0,'f',2)
             .arg(error,0,'f',2).arg(robot.feedbackAgeMs)
             .arg(robot.relayStatusAgeMs).arg(robot.robotMode)
-            .arg(st.button1Pressed));
+            .arg(st.button1Pressed)
+            .arg(m_servoPMaxTickGapMs)
+            .arg(m_servoPSendSamples?
+                 m_servoPTotalSendUs/1000.0/m_servoPSendSamples:0.0,0,'f',2)
+            .arg(m_servoPMaxSendUs/1000.0,0,'f',2));
         m_servoPStatsTimer.restart();
         m_servoPSentPackets=0;
+        m_servoPMaxTickGapMs=0;
+        m_servoPMaxSendUs=0;
+        m_servoPTotalSendUs=0;
+        m_servoPSendSamples=0;
     }
 }
 
