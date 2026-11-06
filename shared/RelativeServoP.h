@@ -37,12 +37,28 @@ public:
         m_anchorTouch={};
         m_anchorRobot={};
         m_lastTarget={};
+        m_pendingTarget={};
+        m_hasPending=false;
         m_settleSeq=0;
         m_settleCount=0;
     }
     ServoPPhase phase() const {return m_phase;}
     const Pose6& anchorRobot() const {return m_anchorRobot;}
     const Vec3& anchorTouch() const {return m_anchorTouch;}
+    const Pose6& lastAcceptedTarget() const {return m_lastTarget;}
+
+    // The previous implementation advanced m_lastTarget before attempting
+    // the actual network send. A rejected workspace target then corrupted
+    // the rate-limiter origin and made reversing the Touch unpredictable.
+    // Only a successfully transmitted setpoint may advance this anchor.
+    bool acknowledgeSentTarget(const Pose6& target) {
+        if(m_phase!=ServoPPhase::Active || !m_hasPending ||
+           m_pendingTarget!=target)return false;
+        m_lastTarget=target;
+        m_hasPending=false;
+        return true;
+    }
+    void rejectUnsentTarget() {m_hasPending=false;}
 
     ServoPTick tick(bool pressed,Vec3 touch,const Pose6& robotPose,
                     bool robotIdle,std::uint64_t stateSeq,
@@ -84,11 +100,13 @@ public:
             m_anchorTouch=touch;
             m_anchorRobot=robotPose;
             m_lastTarget=robotPose;
+            m_hasPending=false;
             m_phase=ServoPPhase::Active;
             result.action=ServoPAction::Captured;
             return result; // No command on press -> no coordinate jump.
         }
         if(!pressed) {
+            m_hasPending=false;
             m_phase=ServoPPhase::WaitingForIdle;
             m_settleCount=0;
             m_settleSeq=stateSeq;
@@ -130,7 +148,8 @@ public:
         // Orientation is the captured *actual* robot RPY. Never use the
         // original master code's hardcoded (150,0,90).
         for(int i=3;i<6;++i)desired[i]=m_anchorRobot[i];
-        m_lastTarget=desired;
+        m_pendingTarget=desired;
+        m_hasPending=true;
         result.target=desired;
         result.action=ServoPAction::Send;
         return result;
@@ -139,7 +158,8 @@ public:
 private:
     ServoPPhase m_phase=ServoPPhase::NeedRelease;
     Vec3 m_anchorTouch{};
-    Pose6 m_anchorRobot{},m_lastTarget{};
+    Pose6 m_anchorRobot{},m_lastTarget{},m_pendingTarget{};
+    bool m_hasPending=false;
     std::uint64_t m_settleSeq=0;
     int m_settleCount=0;
 };
