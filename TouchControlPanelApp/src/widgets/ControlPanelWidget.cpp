@@ -114,12 +114,18 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
                 this,[this,i](int selected){setAxisChoice(i,selected);});
     }
     m_axisGain=new QDoubleSpinBox(manualGroup);
-    m_axisGain->setRange(0.05,2.0);m_axisGain->setDecimals(2);
+    m_axisGain->setRange(0.05,touchpanel::teleop::kManualTeleopMaximumScale);m_axisGain->setDecimals(2);
     m_axisGain->setSingleStep(0.05);m_axisGain->setValue(1.0);
     m_axisDeadzone=new QDoubleSpinBox(manualGroup);
     m_axisDeadzone->setRange(0,10);m_axisDeadzone->setSuffix(QStringLiteral(" mm"));
     m_axisDeadzone->setValue(0.3);
-    manualForm->addRow(QStringLiteral("比例"),m_axisGain);
+    manualForm->addRow(QStringLiteral("比例（高比例请先 Dry Run）"),m_axisGain);
+    m_servoPTravel=new QComboBox(manualGroup);
+    m_servoPTravel->addItem(QStringLiteral("60 mm · 默认"),60.0);
+    m_servoPTravel->addItem(QStringLiteral("120 mm · 扩展"),120.0);
+    m_servoPTravel->addItem(QStringLiteral("180 mm · 扩展上限"),180.0);
+    m_servoPTravel->setToolTip(QStringLiteral("仅影响单次按压的相对目标范围；不扩大XYZ工作空间边界"));
+    manualForm->addRow(QStringLiteral("ServoP 单次离合范围"),m_servoPTravel);
     manualForm->addRow(QStringLiteral("死区"),m_axisDeadzone);
     auto* previewButton=new QPushButton(QStringLiteral("启用平移预览（不发送运动）"),manualGroup);
     manualForm->addRow(previewButton);
@@ -155,7 +161,8 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     connect(servoButton,&QPushButton::clicked,this,[this]{
         if(m_realModeSelector->currentIndex()==0)
             emit continuousServoPRequested(
-                m_axisSelection,m_axisGain->value(),m_axisDeadzone->value());
+                m_axisSelection,m_axisGain->value(),m_axisDeadzone->value(),
+                m_servoPTravel->currentData().toDouble());
         else
             emit continuousServoRequested(
                 m_axisSelection,m_axisGain->value(),m_axisDeadzone->value());
