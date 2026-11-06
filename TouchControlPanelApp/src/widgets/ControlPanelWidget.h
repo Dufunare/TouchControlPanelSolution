@@ -44,7 +44,7 @@ signals:
     void manualPreviewRequested(const std::array<int,3>& axes,double gain,double deadzone);
     void singleStepRequested();
     void continuousServoRequested(const std::array<int,3>& axes,double gain,double deadzone);
-    void continuousServoPRequested(const std::array<int,3>& axes,double gain,double deadzone,double clutchTravelMm,double followSpeedMmPerSec,double feedbackLeadMm,bool wallSlide);
+    void continuousServoPRequested(const std::array<int,3>& axes,double gain,double deadzone,double clutchTravelMm);
 
 private:
     void setAxisChoice(int robotAxis,int sourceCode);
@@ -53,9 +53,6 @@ private:
     QDoubleSpinBox* m_axisGain=nullptr;
     QDoubleSpinBox* m_axisDeadzone=nullptr;
     QComboBox* m_servoPTravel=nullptr;
-    QDoubleSpinBox* m_servoPFollowSpeed=nullptr;
-    QComboBox* m_servoPFeedbackLead=nullptr;
-    QCheckBox* m_servoPWallSlide=nullptr;
     QComboBox* m_realModeSelector=nullptr;
 
 	//touch控制按钮
