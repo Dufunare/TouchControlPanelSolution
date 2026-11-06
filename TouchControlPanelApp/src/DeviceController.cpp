@@ -4,6 +4,7 @@
 
 #include <cmath>
 #include <QString>
+#include <QStringList>
 #include <QPointer>
 #include <QMetaObject>
 #include <algorithm>
