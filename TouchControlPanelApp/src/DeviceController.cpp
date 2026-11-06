@@ -989,6 +989,27 @@ void DeviceController::runServoPTick()
         return;
     }
     const bool idle=servoPMeasuredIdle(robot);
+    // Monitor the last transmitted setpoint even when no new candidate is
+    // generated: an immobile stylus must not hide a persistent lag.
+    if(m_cartesianServoP.phase()==touchpanel::teleop::ServoPPhase::Active &&
+       m_servoPHasTarget) {
+        const auto& accepted=m_cartesianServoP.lastAcceptedTarget();
+        const touchpanel::teleop::Vec3 actualError={
+            accepted[0]-robot.tcpPose[0],accepted[1]-robot.tcpPose[1],
+            accepted[2]-robot.tcpPose[2]};
+        const double lag=touchpanel::teleop::norm(actualError);
+        if(!std::isfinite(lag) ||
+           lag>touchpanel::teleop::kServoPTrackingErrorMm ||
+           (m_servoPTrackingHolding && m_servoPTrackingHoldTimer.isValid() &&
+            m_servoPTrackingHoldTimer.elapsed()>
+                touchpanel::teleop::kServoPTrackingHoldTimeoutMs &&
+            lag>touchpanel::teleop::kServoPTrackingResumeMm)) {
+            haltRealMotion(QStringLiteral(
+                "ServoP：已发送目标跟踪持续异常：LastLag=%1mm")
+                .arg(lag,0,'f',2));
+            return;
+        }
+    }
     // A missing idle transition after button release is not evidence of
     // safety. The original ServoP stops sending without ResetRobot. Allow
     // it to finish the last target, but demand a measured stop within 1.5s.
