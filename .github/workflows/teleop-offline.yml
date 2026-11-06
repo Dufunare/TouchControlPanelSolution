@@ -48,6 +48,8 @@ jobs:
         run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/manual_teleop_tests.cpp -o /tmp/manual_teleop_test
       - name: Build re-clutch ServoP control test
         run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/relative_servop_tests.cpp -o /tmp/relative_servo_p_test
+      - name: Build ServoP workspace boundary test
+        run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/servop_workspace_tests.cpp -o /tmp/servop_workspace_test
       - name: Build ServoP follow metrics test
         run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/servop_follow_metrics_tests.cpp -o /tmp/servop_follow_metrics_test
       - name: Build ServoP flow guard test
@@ -67,6 +69,7 @@ jobs:
           /tmp/relative_motion_test
           /tmp/manual_teleop_test
           /tmp/relative_servo_p_test
+          /tmp/servop_workspace_test
           /tmp/servop_follow_metrics_test
           /tmp/servop_flow_guard_test
           /tmp/execution_policy_test
