@@ -15,6 +15,7 @@
 #include "ManualTeleop.h"
 #include "RelativeServoP.h"
 #include "ServoPFlowGuard.h"
+#include "ServoPFollowMetrics.h"
 
 #define DEVICE_CONTROLLER_POLL_INTERVAL_MS 33 // 仅 UI 约30FPS；OpenHaptics 采样保持独立高频调度
 #define DEVICE_CONTROLLER_MOTION_INTERVAL_MS 33 // 33ms 为机械臂官方文档推荐的远程控制发送频率
@@ -122,6 +123,7 @@ private:
     bool m_ikPending=false;
     bool m_motionCommandSent=false;
     touchpanel::teleop::RelativeServoP m_cartesianServoP;
+    touchpanel::teleop::ServoPFollowMetrics m_servoPFollowMetrics;
     QElapsedTimer m_servoPReleaseTimer;
     QElapsedTimer m_servoPStatsTimer;
     QElapsedTimer m_servoPTickTimer;
