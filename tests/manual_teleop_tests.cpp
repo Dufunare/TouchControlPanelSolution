@@ -23,7 +23,13 @@ int main() {
     assert(out[0]==95.125);
     m.output={0,3,2};
     assert(!validManualAxisMap(m));
-    m.output={0,1,2};m.scale=100;
+    m.output={0,1,2};m.scale=4.0;
+    assert(validManualAxisMap(m));
+    assert(manualPositionPreview(m,{11.5,0,0},base,out));
+    assert(out[0]==140.0); // 4*(11.5-1.5) beyond the Touch displacement
+    m.scale=4.01;
+    assert(!validManualAxisMap(m));
+    m.scale=100;
     assert(!validManualAxisMap(m));
 
     // Regression for the Qt combo boxes: defaults MUST be accepted, and
