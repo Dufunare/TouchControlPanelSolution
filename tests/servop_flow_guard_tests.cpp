@@ -49,6 +49,16 @@ int main() {
            ServoPTrackingDecision::Send); // user reverses direction
     assert(servoPTrackingDecision(17.0,18.0,true,250)==
            ServoPTrackingDecision::Hold);
+    // With 20mm feedback lookahead, the old 16mm soft gate must not
+    // stop every outgoing target. 25mm hard lag still ends the motion.
+    assert(servoPTrackingDecision(10.0,20.0,false,0,20.0)==
+           ServoPTrackingDecision::Send);
+    assert(servoPTrackingDecision(10.0,21.0,false,0,20.0)==
+           ServoPTrackingDecision::Hold);
+    assert(servoPTrackingDecision(25.01,18.0,false,0,20.0)==
+           ServoPTrackingDecision::Abort);
+    assert(servoPTrackingDecision(10.0,12.0,false,0,21.0)==
+           ServoPTrackingDecision::Abort); // invalid configuration
     assert(servoPTrackingDecision(9.0,9.5,true,600)==
            ServoPTrackingDecision::Send);
     assert(servoPTrackingDecision(22.0,24.0,true,1600)==
