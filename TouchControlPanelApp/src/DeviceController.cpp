@@ -104,6 +104,12 @@ bool DeviceController::setServoPClutchTravelLimit(double limitMm)
         m_cartesianServoP.setClutchTravelLimitMm(limitMm);
 }
 
+bool DeviceController::setServoPFollowSpeedLimit(double limitMmPerSec)
+{
+    return !realMotionActive() &&
+        m_cartesianServoP.setFollowSpeedLimitMmPerSec(limitMmPerSec);
+}
+
 bool DeviceController::realMotionActive() const
 {
     return m_realMode!=RealMode::None;
