@@ -185,7 +185,7 @@ MainWindow::MainWindow(QWidget* parent)
                 m_controller->confirmSingleStep();
         });
     connect(m_controlPanel,&ControlPanelWidget::continuousServoPRequested,this,
-        [this](const std::array<int,3>& axes,double gain,double deadzone,double clutchTravelMm){
+        [this](const std::array<int,3>& axes,double gain,double deadzone,double clutchTravelMm,double followSpeedMmPerSec){
             touchpanel::teleop::ManualAxisMap mapping;
             mapping.output=axes;mapping.scale=gain;mapping.deadzoneMm=deadzone;
             if(!touchpanel::teleop::validManualAxisMap(mapping)) {
@@ -209,6 +209,10 @@ MainWindow::MainWindow(QWidget* parent)
             if(choice!=QMessageBox::Yes)return;
             if(!m_controller->setServoPClutchTravelLimit(clutchTravelMm)) {
                 statusBar()->showMessage(QStringLiteral("ServoP 单次离合范围无效"),5000);
+                return;
+            }
+            if(!m_controller->setServoPFollowSpeedLimit(followSpeedMmPerSec)) {
+                statusBar()->showMessage(QStringLiteral("ServoP 目标速度上限无效"),5000);
                 return;
             }
             m_controller->setManualPreviewMapping(mapping);
