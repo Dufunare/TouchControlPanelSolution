@@ -185,7 +185,7 @@ MainWindow::MainWindow(QWidget* parent)
                 m_controller->confirmSingleStep();
         });
     connect(m_controlPanel,&ControlPanelWidget::continuousServoPRequested,this,
-        [this](const std::array<int,3>& axes,double gain,double deadzone,double clutchTravelMm,double followSpeedMmPerSec,double feedbackLeadMm,bool wallSlide){
+        [this](const std::array<int,3>& axes,double gain,double deadzone,double clutchTravelMm){
             touchpanel::teleop::ManualAxisMap mapping;
             mapping.output=axes;mapping.scale=gain;mapping.deadzoneMm=deadzone;
             if(!touchpanel::teleop::validManualAxisMap(mapping)) {
@@ -204,23 +204,13 @@ MainWindow::MainWindow(QWidget* parent)
                     "松开立即停止发送；机械臂可能执行最后一个目标，"
                     "必须等待反馈停稳，重新按下才捕获新的坐标基准。\n"
                     "默认坐标映射 X←Touch X, Y←−Touch Z, Z←Touch Y，末端姿态固定在基准姿态。\n"
-                    "确认独立物理急停可用、周围无人、软件停止不是物理急停后再启动。"),
+                    "本版为实时位置直接响应（不再使用旧版速度追赶器）；"
+                    "单次目标跳变和实际TCP超前均限制为20mm，仍可能有突发动作。\n"
+                    "先在隔离的安全空间内确认方向；独立物理急停必须随手可用。"),
                 QMessageBox::Yes|QMessageBox::No,QMessageBox::No);
             if(choice!=QMessageBox::Yes)return;
             if(!m_controller->setServoPClutchTravelLimit(clutchTravelMm)) {
                 statusBar()->showMessage(QStringLiteral("ServoP 单次离合范围无效"),5000);
-                return;
-            }
-            if(!m_controller->setServoPFollowSpeedLimit(followSpeedMmPerSec)) {
-                statusBar()->showMessage(QStringLiteral("ServoP 目标速度上限无效"),5000);
-                return;
-            }
-            if(!m_controller->setServoPFeedbackLeadLimit(feedbackLeadMm)) {
-                statusBar()->showMessage(QStringLiteral("ServoP 反馈预瞄距离无效"),5000);
-                return;
-            }
-            if(!m_controller->setServoPVirtualWallSlideEnabled(wallSlide)) {
-                statusBar()->showMessage(QStringLiteral("ServoP 边界模式无法修改"),5000);
                 return;
             }
             m_controller->setManualPreviewMapping(mapping);
