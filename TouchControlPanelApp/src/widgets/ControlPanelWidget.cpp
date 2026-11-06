@@ -140,6 +140,10 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     m_servoPFeedbackLead->addItem(QStringLiteral("20 mm · 高响应实验"),20.0);
     m_servoPFeedbackLead->setToolTip(QStringLiteral("目标与8891实际TCP位置的最大超前距离；更大可能减少跟随迟滞，也可能引起冲击/抖动。必须先确认安全，逐档试验。不会提高25mm跟踪硬停止阈值"));
     manualForm->addRow(QStringLiteral("ServoP 反馈预瞄距离"),m_servoPFeedbackLead);
+    m_servoPWallSlide=new QCheckBox(QStringLiteral("允许边界切向移动（仅实验）"),manualGroup);
+    m_servoPWallSlide->setChecked(false);
+    m_servoPWallSlide->setToolTip(QStringLiteral("越界轴保持上次已发送的安全位置，其他轴在现有限速和跟踪保护下继续；不扩大实验工作空间，不提供物理碰撞防护。默认关闭。"));
+    manualForm->addRow(QStringLiteral("ServoP 边界模式"),m_servoPWallSlide);
     manualForm->addRow(QStringLiteral("死区"),m_axisDeadzone);
     auto* previewButton=new QPushButton(QStringLiteral("启用平移预览（不发送运动）"),manualGroup);
     manualForm->addRow(previewButton);
@@ -178,7 +182,8 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
                 m_axisSelection,m_axisGain->value(),m_axisDeadzone->value(),
                 m_servoPTravel->currentData().toDouble(),
                 m_servoPFollowSpeed->value(),
-                m_servoPFeedbackLead->currentData().toDouble());
+                m_servoPFeedbackLead->currentData().toDouble(),
+                m_servoPWallSlide->isChecked());
         else
             emit continuousServoRequested(
                 m_axisSelection,m_axisGain->value(),m_axisDeadzone->value());
