@@ -164,6 +164,42 @@ int main() {
            ServoPAction::None);
     got=repeat.tick(true,{3.0,0.0,0.0},regrabPose,false,511,mapping);
     assert(got.action==ServoPAction::Send&&got.target[0]>regrabPose[0]);
+    // Reported 4x gain still moves at ~60.6mm/s under the former fixed
+    // 2mm/tick rate. The new separate follow speed can advance faster,
+    // while each command stays within a 12mm *feedback* preview horizon.
+    RelativeServoP follow;
+    ManualAxisMap fastMap=mapping;
+    fastMap.scale=4.0;
+    assert(follow.setFollowSpeedLimitMmPerSec(120.0));
+    arm(follow,firstPose,firstTouch,600);
+    assert(follow.tick(true,firstTouch,firstPose,true,603,fastMap).action==
+           ServoPAction::Captured);
+    got=follow.tick(true,{25,-65,-88},firstPose,false,604,fastMap,0.05);
+    assert(got.action==ServoPAction::Send);
+    assert(got.feedbackLimited);
+    assert(near(got.rawDistanceMm,39.7));
+    assert(got.target[0]-firstPose[0]>5.9);
+    assert(got.target[0]-firstPose[0]<=6.0+1e-9);
+    assert(follow.acknowledgeSentTarget(got.target));
+    // Robot actually makes progress; a stationary stylus still receives
+    // updated waypoints, but never a remote 40mm command in one jump.
+    Pose6 movedPose=firstPose;
+    movedPose[0]+=6.0;
+    got=follow.tick(true,{25,-65,-88},movedPose,false,605,fastMap,0.05);
+    assert(got.action==ServoPAction::Send && got.feedbackLimited);
+    assert(got.target[0]-movedPose[0]<=kServoPFeedbackLeadLimitMm+1e-9);
+    assert(got.target[0]-firstPose[0]>6.0);
+    assert(!follow.setFollowSpeedLimitMmPerSec(90.0)); // no live changes
+    assert(follow.acknowledgeSentTarget(got.target));
+    // Reversing the Touch uses the latest absolute Touch mapping, not a
+    // backlog of prior targets; pending targets are not committed.
+    got=follow.tick(true,firstTouch,movedPose,false,606,fastMap,0.05);
+    assert(got.action==ServoPAction::Send);
+    assert(got.target[0]<follow.lastAcceptedTarget()[0]);
+    follow.rejectUnsentTarget();
+    assert(follow.lastAcceptedTarget()[0]>firstPose[0]+6.0);
+    assert(!follow.setFollowSpeedLimitMmPerSec(121.0));
+
     const Pose6 bad={-79.02,-349.79,385.78,172.05,2.41,
                      std::numeric_limits<double>::quiet_NaN()};
     assert(checkServoPWorkspace(bad).code==ServoPWorkspaceCode::NonFinite);
