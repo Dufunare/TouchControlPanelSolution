@@ -10,6 +10,31 @@ namespace touchpanel::teleop {
 inline constexpr std::array<double,3> kServoPWorkspaceMinimum{-350.0,-350.0,50.0};
 inline constexpr std::array<double,3> kServoPWorkspaceMaximum{ 650.0, 350.0,500.0};
 
+// Optional virtual-wall experiment: when a mapped POSITION request crosses
+// one or more XYZ software boundaries, hold ONLY those axes at the last
+// successfully transmitted target and leave other axes as requested.
+// Never project TO the workspace boundary, change the physical workspace,
+// override an invalid last target, or authorize movement on its own.
+// Caller remains responsible for feedback freshness, speed, hard tracking,
+// and final checkServoPWorkspace() before any actual send.
+inline unsigned holdOutwardServoPAxes(std::array<double,6>& desired,
+                                      const std::array<double,6>& lastSent) {
+    unsigned mask=0;
+    for(int axis=0;axis<3;++axis) {
+        if(!std::isfinite(desired[axis])||!std::isfinite(lastSent[axis]))
+            continue; // The final validator rejects nonfinite targets.
+        const double lo=kServoPWorkspaceMinimum[axis];
+        const double hi=kServoPWorkspaceMaximum[axis];
+        if(desired[axis]<lo||desired[axis]>hi) {
+            if(lastSent[axis]<lo||lastSent[axis]>hi)
+                continue; // Never launder an unsafe last-sent position.
+            desired[axis]=lastSent[axis];
+            mask|=1U<<axis;
+        }
+    }
+    return mask;
+}
+
 enum class ServoPWorkspaceCode { Allowed, NonFinite, XYZOutside, RotationOutside };
 
 struct ServoPWorkspaceResult {
