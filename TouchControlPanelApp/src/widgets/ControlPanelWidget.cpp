@@ -126,6 +126,14 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     m_servoPTravel->addItem(QStringLiteral("180 mm · 扩展上限"),180.0);
     m_servoPTravel->setToolTip(QStringLiteral("仅影响单次按压的相对目标范围；不扩大XYZ工作空间边界"));
     manualForm->addRow(QStringLiteral("ServoP 单次离合范围"),m_servoPTravel);
+    m_servoPFollowSpeed=new QDoubleSpinBox(manualGroup);
+    m_servoPFollowSpeed->setRange(60.61,120.0);
+    m_servoPFollowSpeed->setDecimals(2);
+    m_servoPFollowSpeed->setSingleStep(5.0);
+    m_servoPFollowSpeed->setValue(60.61);
+    m_servoPFollowSpeed->setSuffix(QStringLiteral(" mm/s"));
+    m_servoPFollowSpeed->setToolTip(QStringLiteral("仅为每秒目标推进上限，不代表机器人的实际运动速度。大值只可在验证后的安全实验中选用"));
+    manualForm->addRow(QStringLiteral("ServoP 目标跟随速度上限"),m_servoPFollowSpeed);
     manualForm->addRow(QStringLiteral("死区"),m_axisDeadzone);
     auto* previewButton=new QPushButton(QStringLiteral("启用平移预览（不发送运动）"),manualGroup);
     manualForm->addRow(previewButton);
@@ -162,7 +170,8 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
         if(m_realModeSelector->currentIndex()==0)
             emit continuousServoPRequested(
                 m_axisSelection,m_axisGain->value(),m_axisDeadzone->value(),
-                m_servoPTravel->currentData().toDouble());
+                m_servoPTravel->currentData().toDouble(),
+                m_servoPFollowSpeed->value());
         else
             emit continuousServoRequested(
                 m_axisSelection,m_axisGain->value(),m_axisDeadzone->value());
