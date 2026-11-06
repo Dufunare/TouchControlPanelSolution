@@ -247,7 +247,8 @@ int main() {
     assert(got.action==ServoPAction::Send);
     assert((got.wallHoldAxisMask & (1U<<1))!=0);
     assert(near(got.target[1],nearBoundary[1]));
-    assert(got.target[0]>nearBoundary[0]);
+    assert(got.target[0]>nearBoundary[0]+1.8); // Y must not dilute the valid X step
+    assert(got.target[0]-nearBoundary[0]<=kServoPMaxSetpointStepMm+1e-9);
     assert(checkServoPWorkspace(got.target).code==ServoPWorkspaceCode::Allowed);
     assert(wall.acknowledgeSentTarget(got.target));
     // Entirely outward Y with no tangent delta is held with no network send.
