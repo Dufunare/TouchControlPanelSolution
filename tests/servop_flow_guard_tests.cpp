@@ -41,6 +41,10 @@ int main() {
            ServoPTrackingDecision::Hold);
     assert(servoPTrackingDecision(17.0,15.5,true,250)==
            ServoPTrackingDecision::Send);
+    assert(servoPTrackingDecision(12.0,15.0,true,250)==
+           ServoPTrackingDecision::Hold); // hysteresis until <=11mm
+    assert(servoPTrackingDecision(10.5,14.0,true,250)==
+           ServoPTrackingDecision::Send);
     assert(servoPTrackingDecision(19.0,17.0,true,250)==
            ServoPTrackingDecision::Send); // user reverses direction
     assert(servoPTrackingDecision(17.0,18.0,true,250)==
