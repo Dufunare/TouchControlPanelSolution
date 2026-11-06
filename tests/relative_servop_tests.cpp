@@ -114,6 +114,56 @@ int main() {
                  recoveredNext.target[2]-recovered.target[2]})
            <=kServoPMaxSetpointStepMm+1e-9);
     assert(edge.acknowledgeSentTarget(recoveredNext.target));
+    // An operator can opt into a larger *relative* gesture without changing
+    // base coordinates or the separately enforced XYZ software workspace.
+    RelativeServoP extended;
+    assert(!extended.setClutchTravelLimitMm(181.0));
+    assert(extended.setClutchTravelLimitMm(120.0));
+    arm(extended,firstPose,firstTouch,300);
+    assert(extended.tick(true,firstTouch,firstPose,true,303,mapping).action==
+           ServoPAction::Captured);
+    assert(!extended.setClutchTravelLimitMm(180.0)); // no live gain jump
+    got=extended.tick(true,{300,-65,-88},firstPose,false,304,mapping);
+    assert(got.saturated&&near(got.boundedDistanceMm,120.0));
+    assert(norm({got.target[0]-firstPose[0],got.target[1]-firstPose[1],
+                 got.target[2]-firstPose[2]})<=kServoPMaxSetpointStepMm+1e-9);
+    // At 50ms, advance 50/33 of the nominal 2mm (not just 2mm).
+    RelativeServoP delayed;
+    arm(delayed,firstPose,firstTouch,400);
+    assert(delayed.tick(true,firstTouch,firstPose,true,403,mapping).action==
+           ServoPAction::Captured);
+    got=delayed.tick(true,{100,-65,-88},firstPose,false,404,mapping,0.05);
+    const double advanced=got.target[0]-firstPose[0];
+    assert(got.action==ServoPAction::Send&&advanced>2.9&&advanced<3.1);
+    delayed.rejectUnsentTarget();
+    got=delayed.tick(true,{100,-65,-88},firstPose,false,405,mapping,0.5);
+    assert(got.action==ServoPAction::Send);
+    assert(got.target[0]-firstPose[0]<=4.0+1e-9); // no huge catch-up
+    delayed.rejectUnsentTarget();
+    // Re-grab at arbitrary Touch positions after hitting its physical edge.
+    // The second press must anchor at the *current robot position*, not
+    // chase a prior virtual absolute Touch position.
+    RelativeServoP repeat;
+    const Vec3 touchEdge{155.0,-30.0,40.0};
+    arm(repeat,firstPose,touchEdge,500);
+    assert(repeat.tick(true,touchEdge,firstPose,true,503,mapping).action==
+           ServoPAction::Captured);
+    got=repeat.tick(true,{158.0,-30.0,40.0},firstPose,false,504,mapping);
+    assert(got.action==ServoPAction::Send);
+    assert(repeat.acknowledgeSentTarget(got.target));
+    assert(repeat.tick(false,{158.0,-30.0,40.0},firstPose,false,505,mapping).action==
+           ServoPAction::Released);
+    const Pose6 regrabPose={-149.0,-310.0,300.0,-178.0,-0.5,-163.0};
+    const Vec3 touchCenter{0.0,0.0,0.0};
+    arm(repeat,regrabPose,touchCenter,506);
+    assert(repeat.tick(true,touchCenter,regrabPose,true,509,mapping).action==
+           ServoPAction::Captured);
+    assert(repeat.anchorRobot()==regrabPose);
+    assert(repeat.anchorTouch()==touchCenter);
+    assert(repeat.tick(true,touchCenter,regrabPose,false,510,mapping).action==
+           ServoPAction::None);
+    got=repeat.tick(true,{3.0,0.0,0.0},regrabPose,false,511,mapping);
+    assert(got.action==ServoPAction::Send&&got.target[0]>regrabPose[0]);
     const Pose6 bad={-79.02,-349.79,385.78,172.05,2.41,
                      std::numeric_limits<double>::quiet_NaN()};
     assert(checkServoPWorkspace(bad).code==ServoPWorkspaceCode::NonFinite);
