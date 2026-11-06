@@ -81,12 +81,14 @@ inline ServoPCommandPlan planServoPCommand(const Pose6& latestTouchGoal,
         out.leadRestricted=true;
         const double previousLag=servoPCartesianDistance(lastSent,actualTcp);
         if(previousLag>kServoPCommandLeadMm) {
-            // Once the measured TCP has fallen behind, permit only true
-            // corrective movement, never an outward target or an old goal.
-            if(candidateLag>=previousLag-0.25) {
-                out.disposition=ServoPCommandDisposition::TrackingHold;
-                return out;
-            }
+            // A last-sent target already outside the soft lead is not
+            // permission to extend it or issue another distant command.
+            // This branch cannot silently exceed the 20mm envelope.
+            // The operator may reverse enough to create an in-envelope
+            // candidate on a following tick; otherwise wait for fresh
+            // robot progress. The 25mm hard gate remains independent.
+            out.disposition=ServoPCommandDisposition::TrackingHold;
+            return out;
         } else {
             // Furthest point ON THE SEGMENT lastSent -> candidate within
             // the feedback envelope. This avoids popping to actual+lead,
