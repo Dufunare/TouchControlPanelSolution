@@ -231,6 +231,47 @@ int main() {
     unchanged.reset();
     assert(near(unchanged.feedbackLeadLimitMm(),16.0));
 
+    // Regression: at Y=-349.97, the former all-or-nothing workspace
+    // rejection blocked X and Z even if they were well within their range.
+    // The opt-in virtual wall must freeze the unsafe Y at last-sent Y,
+    // permit the independent X direction, and never change the limits.
+    const Pose6 nearBoundary={14.0,-349.97,405.0,-178.0,5.0,101.0};
+    const Vec3 nearTouch={100.0,0.0,0.0};
+    RelativeServoP wall;
+    assert(!wall.virtualWallSlideEnabled());
+    assert(wall.setVirtualWallSlideEnabled(true));
+    arm(wall,nearBoundary,nearTouch,800);
+    assert(wall.tick(true,nearTouch,nearBoundary,true,803,mapping).action==ServoPAction::Captured);
+    assert(!wall.setVirtualWallSlideEnabled(false)); // no live mode flip
+    got=wall.tick(true,{110,0,15},nearBoundary,false,804,mapping);
+    assert(got.action==ServoPAction::Send);
+    assert((got.wallHoldAxisMask & (1U<<1))!=0);
+    assert(near(got.target[1],nearBoundary[1]));
+    assert(got.target[0]>nearBoundary[0]);
+    assert(checkServoPWorkspace(got.target).code==ServoPWorkspaceCode::Allowed);
+    assert(wall.acknowledgeSentTarget(got.target));
+    // Entirely outward Y with no tangent delta is held with no network send.
+    RelativeServoP onlyOut;
+    assert(onlyOut.setVirtualWallSlideEnabled(true));
+    arm(onlyOut,nearBoundary,nearTouch,810);
+    assert(onlyOut.tick(true,nearTouch,nearBoundary,true,813,mapping).action==ServoPAction::Captured);
+    got=onlyOut.tick(true,{100,0,15},nearBoundary,false,814,mapping);
+    assert(got.action==ServoPAction::None);
+    assert(onlyOut.lastAcceptedTarget()==nearBoundary);
+    // Move back into the software workspace without releasing the clutch.
+    got=onlyOut.tick(true,{100,0,-15},nearBoundary,false,815,mapping);
+    assert(got.action==ServoPAction::Send);
+    assert(got.target[1]>nearBoundary[1]);
+    assert(checkServoPWorkspace(got.target).code==ServoPWorkspaceCode::Allowed);
+    // Off by default: the same diagonal candidate is still rejected.
+    RelativeServoP original;
+    arm(original,nearBoundary,nearTouch,820);
+    assert(original.tick(true,nearTouch,nearBoundary,true,823,mapping).action==ServoPAction::Captured);
+    got=original.tick(true,{110,0,15},nearBoundary,false,824,mapping);
+    assert(got.action==ServoPAction::Send);
+    assert(got.wallHoldAxisMask==0);
+    assert(checkServoPWorkspace(got.target).code==ServoPWorkspaceCode::XYZOutside);
+
     const Pose6 bad={-79.02,-349.79,385.78,172.05,2.41,
                      std::numeric_limits<double>::quiet_NaN()};
     assert(checkServoPWorkspace(bad).code==ServoPWorkspaceCode::NonFinite);
