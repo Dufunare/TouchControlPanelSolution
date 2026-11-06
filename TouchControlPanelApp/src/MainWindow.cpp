@@ -185,7 +185,7 @@ MainWindow::MainWindow(QWidget* parent)
                 m_controller->confirmSingleStep();
         });
     connect(m_controlPanel,&ControlPanelWidget::continuousServoPRequested,this,
-        [this](const std::array<int,3>& axes,double gain,double deadzone){
+        [this](const std::array<int,3>& axes,double gain,double deadzone,double clutchTravelMm){
             touchpanel::teleop::ManualAxisMap mapping;
             mapping.output=axes;mapping.scale=gain;mapping.deadzoneMm=deadzone;
             if(!touchpanel::teleop::validManualAxisMap(mapping)) {
@@ -207,6 +207,10 @@ MainWindow::MainWindow(QWidget* parent)
                     "确认独立物理急停可用、周围无人、软件停止不是物理急停后再启动。"),
                 QMessageBox::Yes|QMessageBox::No,QMessageBox::No);
             if(choice!=QMessageBox::Yes)return;
+            if(!m_controller->setServoPClutchTravelLimit(clutchTravelMm)) {
+                statusBar()->showMessage(QStringLiteral("ServoP 单次离合范围无效"),5000);
+                return;
+            }
             m_controller->setManualPreviewMapping(mapping);
             m_controller->startContinuousServoP();
         });
@@ -214,8 +218,8 @@ MainWindow::MainWindow(QWidget* parent)
         [this](const std::array<int,3>& axes,double gain,double deadzone){
             touchpanel::teleop::ManualAxisMap mapping;
             mapping.output=axes;mapping.scale=gain;mapping.deadzoneMm=deadzone;
-            if(!touchpanel::teleop::validManualAxisMap(mapping)) {
-                statusBar()->showMessage(QStringLiteral("轴映射无效：每个 Touch 轴只能对应一个机器人轴"),5000);
+            if(!touchpanel::teleop::validManualAxisMap(mapping) || gain>2.0) {
+                statusBar()->showMessage(QStringLiteral("ServoJ 比例仍限制为2倍，且每个 Touch 轴只能使用一次"),5000);
                 return;
             }
             if(m_controller->realMotionActive()) {
