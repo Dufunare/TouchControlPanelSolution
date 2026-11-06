@@ -4,6 +4,7 @@
 #include <ws2tcpip.h>
 #include "CommunicationBackend.h"
 #include "RelayV2Frame.h"
+#include "ServoPWorkspace.h"
 
 #include <atomic>
 #include <array>
@@ -991,27 +992,24 @@ namespace touchpanel
         return m_impl->sendLine(std::to_string(kRobotMotionPort)+"|"+c.str(),false);
     }
 
-    bool CommunicationBackend::sendServoCartesianTarget(const std::array<double,6>& pose)
+    CommunicationBackend::ServoPSendResult
+    CommunicationBackend::sendServoCartesianTarget(const std::array<double,6>& pose)
     {
+        using Code=CommunicationBackend::ServoPSendCode;
         if(!m_impl || !m_impl->connected.load(std::memory_order_relaxed))
-            return false;
-        for(double value:pose)
-            if(!std::isfinite(value))return false;
-        // Never silently clamp and redirect the robot onto a workspace
-        // boundary. The same legacy numeric bounds are retained as a hard
-        // reject; a field setup with different limits needs explicit review.
-        if(pose[0]<kMotionXMin || pose[0]>kMotionXMax ||
-           pose[1]<kMotionYMin || pose[1]>kMotionYMax ||
-           pose[2]<kMotionZMin || pose[2]>kMotionZMax)
-            return false;
-        for(int i=3;i<6;++i)
-            if(std::abs(pose[i])>360.0)return false;
+            return {Code::Disconnected};
+        const auto check=touchpanel::teleop::checkServoPWorkspace(pose);
+        if(check.code!=touchpanel::teleop::ServoPWorkspaceCode::Allowed) {
+            const Code code=check.code==touchpanel::teleop::ServoPWorkspaceCode::XYZOutside
+                ? Code::OutsideWorkspace : Code::InvalidTarget;
+            return {code,check.axis,check.value,check.minimum,check.maximum};
+        }
         std::ostringstream call;
         call<<"ServoP("<<formatDouble3(pose[0])<<","<<formatDouble3(pose[1])
             <<","<<formatDouble3(pose[2])<<","<<formatDouble3(pose[3])
             <<","<<formatDouble3(pose[4])<<","<<formatDouble3(pose[5])<<")";
         if(!m_impl->sendLine(std::to_string(kRobotMotionPort)+"|"+call.str(),false))
-            return false;
+            return {Code::TransportFailed};
         const auto now=std::chrono::steady_clock::now();
         std::lock_guard<std::mutex> lock(m_impl->motionLogMutex);
         ++m_impl->motionSentSinceLastLog;
@@ -1023,7 +1021,7 @@ namespace touchpanel
             m_impl->motionSentSinceLastLog=0;
             m_impl->lastMotionLogTime=now;
         }
-        return true;
+        return {Code::Sent};
     }
 
     void CommunicationBackend::requestControlledStop()
