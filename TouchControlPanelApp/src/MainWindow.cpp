@@ -185,7 +185,7 @@ MainWindow::MainWindow(QWidget* parent)
                 m_controller->confirmSingleStep();
         });
     connect(m_controlPanel,&ControlPanelWidget::continuousServoPRequested,this,
-        [this](const std::array<int,3>& axes,double gain,double deadzone,double clutchTravelMm,double followSpeedMmPerSec){
+        [this](const std::array<int,3>& axes,double gain,double deadzone,double clutchTravelMm,double followSpeedMmPerSec,double feedbackLeadMm){
             touchpanel::teleop::ManualAxisMap mapping;
             mapping.output=axes;mapping.scale=gain;mapping.deadzoneMm=deadzone;
             if(!touchpanel::teleop::validManualAxisMap(mapping)) {
@@ -213,6 +213,10 @@ MainWindow::MainWindow(QWidget* parent)
             }
             if(!m_controller->setServoPFollowSpeedLimit(followSpeedMmPerSec)) {
                 statusBar()->showMessage(QStringLiteral("ServoP 目标速度上限无效"),5000);
+                return;
+            }
+            if(!m_controller->setServoPFeedbackLeadLimit(feedbackLeadMm)) {
+                statusBar()->showMessage(QStringLiteral("ServoP 反馈预瞄距离无效"),5000);
                 return;
             }
             m_controller->setManualPreviewMapping(mapping);
