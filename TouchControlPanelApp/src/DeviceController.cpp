@@ -110,6 +110,12 @@ bool DeviceController::setServoPFollowSpeedLimit(double limitMmPerSec)
         m_cartesianServoP.setFollowSpeedLimitMmPerSec(limitMmPerSec);
 }
 
+bool DeviceController::setServoPFeedbackLeadLimit(double limitMm)
+{
+    return !realMotionActive() &&
+        m_cartesianServoP.setFeedbackLeadLimitMm(limitMm);
+}
+
 bool DeviceController::realMotionActive() const
 {
     return m_realMode!=RealMode::None;
@@ -1100,7 +1106,8 @@ void DeviceController::runServoPTick()
         const auto decision=touchpanel::teleop::servoPTrackingDecision(
             lastLag,tracking,m_servoPTrackingHolding,
             m_servoPTrackingHoldTimer.isValid()?
-                static_cast<int>(m_servoPTrackingHoldTimer.elapsed()):0);
+                static_cast<int>(m_servoPTrackingHoldTimer.elapsed()):0,
+            m_cartesianServoP.feedbackLeadLimitMm());
         if(decision==TrackingDecision::Abort) {
             haltRealMotion(QStringLiteral(
                 "ServoP 已发送目标跟踪失效：LastLag=%1mm "
@@ -1229,12 +1236,13 @@ void DeviceController::runServoPTick()
             "[SERVOP FOLLOW] 8891实际TCP路径速度=%1mm/s "
             "已发送设定点路径速度=%2mm/s 按发送次数=%3 "
             "FeedbackLead限幅=%4 TrackingHold帧=%5 WorkspaceHold帧=%6 "
-            "速度上限=%7mm/s（指令非真机速度）")
+            "速度上限=%7mm/s 预瞄=%8mm（指令非真机速度）")
             .arg(follow.actualPathMm/seconds,0,'f',1)
             .arg(follow.setpointPathMm/seconds,0,'f',1)
             .arg(follow.sent).arg(follow.leadLimited)
             .arg(follow.trackingHeld).arg(follow.workspaceHeld)
-            .arg(m_cartesianServoP.followSpeedLimitMmPerSec(),0,'f',1));
+            .arg(m_cartesianServoP.followSpeedLimitMmPerSec(),0,'f',1)
+            .arg(m_cartesianServoP.feedbackLeadLimitMm(),0,'f',1));
         m_servoPFollowMetrics.clearWindow();
         emit backendMessageChanged(QStringLiteral(
             "[SERVOP RATE] 实际发送=%1/s 机器人相对基准位移=%2mm "
