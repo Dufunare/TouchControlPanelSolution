@@ -18,6 +18,7 @@ on:
       - 'shared/RelativeServoP.h'
       - 'shared/ServoPWorkspace.h'
       - 'shared/ServoPFlowGuard.h'
+      - 'shared/ServoPFollowMetrics.h'
       - 'shared/TeleopExecutionPolicy.h'
       - '.github/workflows/teleop-offline.yml'
 jobs:
@@ -47,6 +48,8 @@ jobs:
         run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/manual_teleop_tests.cpp -o /tmp/manual_teleop_test
       - name: Build re-clutch ServoP control test
         run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/relative_servop_tests.cpp -o /tmp/relative_servo_p_test
+      - name: Build ServoP follow metrics test
+        run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/servop_follow_metrics_tests.cpp -o /tmp/servop_follow_metrics_test
       - name: Build ServoP flow guard test
         run: g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/servop_flow_guard_tests.cpp -o /tmp/servop_flow_guard_test
       - name: Build teleop execution policy test
@@ -64,5 +67,6 @@ jobs:
           /tmp/relative_motion_test
           /tmp/manual_teleop_test
           /tmp/relative_servo_p_test
+          /tmp/servop_follow_metrics_test
           /tmp/servop_flow_guard_test
           /tmp/execution_policy_test
