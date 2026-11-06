@@ -14,6 +14,7 @@
 #include "TeleopGeometry.h"
 #include "ManualTeleop.h"
 #include "RelativeServoP.h"
+#include "ServoPFlowGuard.h"
 
 #define DEVICE_CONTROLLER_POLL_INTERVAL_MS 8 // 约 125 FPS 的前端刷新频率
 #define DEVICE_CONTROLLER_MOTION_INTERVAL_MS 33 // 33ms 为机械臂官方文档推荐的远程控制发送频率
@@ -124,6 +125,10 @@ private:
     QElapsedTimer m_servoPStatsTimer;
     QElapsedTimer m_servoPTickTimer;
     QElapsedTimer m_servoPSendTimer;
+    QElapsedTimer m_servoPTrackingHoldTimer;
+    QElapsedTimer m_servoPTrackingLogTimer;
+    bool m_servoPTrackingHolding=false;
+    bool m_servoPFeedbackHolding=false;
     qint64 m_servoPMaxTickGapMs=0;
     qint64 m_servoPMaxSendUs=0;
     qint64 m_servoPTotalSendUs=0;
