@@ -1,6 +1,7 @@
 #pragma once
 #include "ManualTeleop.h"
 #include <cmath>
+#include <algorithm>
 #include <cstdint>
 
 namespace touchpanel::teleop {
@@ -16,6 +17,9 @@ struct ServoPFollowWindow {
     std::uint32_t leadLimited=0;
     std::uint32_t trackingHeld=0;
     std::uint32_t workspaceHeld=0;
+    double latestMappedLagMm=0.0;
+    double maxMappedLagMm=0.0;
+    std::uint32_t mappedSamples=0;
 };
 class ServoPFollowMetrics {
 public:
@@ -45,6 +49,15 @@ public:
         if(!std::isfinite(d))return;
         m_window.setpointPathMm+=d;
         ++m_window.sent;
+    }
+    void observeMappedDemand(const Pose6& mapped,const Pose6& actual) {
+        if(!m_active||!finiteSixValues(mapped)||!finiteSixValues(actual))return;
+        const Vec3 d={mapped[0]-actual[0],mapped[1]-actual[1],mapped[2]-actual[2]};
+        const double distance=norm(d);
+        if(!std::isfinite(distance))return;
+        m_window.latestMappedLagMm=distance;
+        m_window.maxMappedLagMm=std::max(distance,m_window.maxMappedLagMm);
+        ++m_window.mappedSamples;
     }
     void noteLeadLimit() {if(m_active)++m_window.leadLimited;}
     void noteTrackingHold() {if(m_active)++m_window.trackingHeld;}
