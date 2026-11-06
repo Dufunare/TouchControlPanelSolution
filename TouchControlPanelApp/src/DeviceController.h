@@ -40,6 +40,7 @@ public:
     bool setServoPClutchTravelLimit(double limitMm);
     bool setServoPFollowSpeedLimit(double limitMmPerSec);
     bool setServoPFeedbackLeadLimit(double limitMm);
+    bool setServoPVirtualWallSlideEnabled(bool enabled);
 
 public slots:
     void invalidateTeleopBaseline();
@@ -144,6 +145,7 @@ private:
     bool m_servoPWasSaturated=false;
     bool m_servoPWorkspaceBlocked=false;
     int m_servoPWorkspaceAxis=-1;
+    unsigned m_servoPWallMask=0;
     QElapsedTimer m_servoPWorkspaceLogTimer;
     bool m_haveServoTarget=false;
     bool m_clutchRangeSaturated=false;
