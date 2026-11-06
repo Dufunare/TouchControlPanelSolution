@@ -8,6 +8,8 @@
 #include <QVBoxLayout>
 #include <QDateTime>
 #include <QTextOption>
+#include <QFont>
+#include <QToolButton>
 
 namespace
 {
@@ -34,11 +36,13 @@ StatusPanelWidget::StatusPanelWidget(QWidget* parent)
     m_schedulerValue = createValueLabel("未启动");
     m_validValue = createValueLabel("无效");
     m_counterValue = createValueLabel("0");
+    m_touchCalibrationValue = createValueLabel("待确认");
 
     stateLayout->addRow("是否初始化：", m_initializedValue);
     stateLayout->addRow("采样循环：", m_schedulerValue);
     stateLayout->addRow("数据有效性：", m_validValue);
     stateLayout->addRow("采样计数：", m_counterValue);
+    stateLayout->addRow("设备自身校准：", m_touchCalibrationValue);
 
     auto* messageGroup = new QGroupBox("消息输出", this);
     auto* messageLayout = new QVBoxLayout(messageGroup);
@@ -50,8 +54,19 @@ StatusPanelWidget::StatusPanelWidget(QWidget* parent)
     commStateLayout->addRow("TCP 状态：", m_tcpStateValue);
     commStateLayout->addRow("机械臂状态：", m_robotStateValue);
 
+    auto* telemetryGroup = new QGroupBox("机器人实时反馈（8891，只读）", this);
+    auto* telemetryLayout = new QVBoxLayout(telemetryGroup);
+    m_robotTelemetryValue = createValueLabel("等待 8891 遥测…");
+    m_robotTelemetryValue->setMinimumWidth(0);
+    m_robotTelemetryValue->setWordWrap(true);
+    m_robotTelemetryValue->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    QFont telemetryFont(QStringLiteral("Consolas")); telemetryFont.setPointSize(8);
+    m_robotTelemetryValue->setFont(telemetryFont);
+    telemetryLayout->addWidget(m_robotTelemetryValue);
+
     m_messageValue = new QPlainTextEdit(messageGroup);
     m_messageValue->setReadOnly(true);
+    m_messageValue->setMinimumHeight(110);
     m_messageValue->setMaximumBlockCount(500);
     m_messageValue->setLineWrapMode(QPlainTextEdit::WidgetWidth);
     m_messageValue->setWordWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
@@ -75,6 +90,7 @@ StatusPanelWidget::StatusPanelWidget(QWidget* parent)
     auto* txLayout = new QVBoxLayout(txGroup);
     m_txValue = new QPlainTextEdit(txGroup);
     m_txValue->setReadOnly(true);
+    m_txValue->setMinimumHeight(135);
     m_txValue->setMaximumBlockCount(500);
     m_txValue->setPlaceholderText("发送报文将显示在这里...");
     txLayout->addWidget(m_txValue);
@@ -83,6 +99,7 @@ StatusPanelWidget::StatusPanelWidget(QWidget* parent)
     auto* rxLayout = new QVBoxLayout(rxGroup);
     m_rxValue = new QPlainTextEdit(rxGroup);
     m_rxValue->setReadOnly(true);
+    m_rxValue->setMinimumHeight(135);
     m_rxValue->setMaximumBlockCount(500);
     m_rxValue->setPlaceholderText("接收报文将显示在这里...");
     rxLayout->addWidget(m_rxValue);
@@ -105,10 +122,27 @@ StatusPanelWidget::StatusPanelWidget(QWidget* parent)
 
     rootLayout->addWidget(stateGroup);
     rootLayout->addWidget(commStateGroup);
-    rootLayout->addWidget(txGroup);
-    rootLayout->addWidget(rxGroup);
-    rootLayout->addStretch(1);
+    rootLayout->addWidget(telemetryGroup);
     rootLayout->addWidget(messageGroup);
+
+    auto* rawToggle=new QToolButton(this);
+    rawToggle->setText(QStringLiteral("TCP 原始收发报文 · 高级"));
+    rawToggle->setCheckable(true);
+    rawToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    rawToggle->setArrowType(Qt::RightArrow);
+    auto* rawPanel=new QWidget(this);
+    auto* rawLayout=new QVBoxLayout(rawPanel);
+    rawLayout->setContentsMargins(0,0,0,0);
+    rawLayout->addWidget(txGroup);
+    rawLayout->addWidget(rxGroup);
+    rootLayout->addWidget(rawToggle);
+    rootLayout->addWidget(rawPanel);
+    rawPanel->setVisible(false);
+    connect(rawToggle,&QToolButton::toggled,rawPanel,&QWidget::setVisible);
+    connect(rawToggle,&QToolButton::toggled,rawToggle,
+        [rawToggle](bool expanded){
+            rawToggle->setArrowType(expanded?Qt::DownArrow:Qt::RightArrow);
+        });
 }
 
 void StatusPanelWidget::setDeviceState(const touchpanel::DeviceState& state)
@@ -117,6 +151,17 @@ void StatusPanelWidget::setDeviceState(const touchpanel::DeviceState& state)
     m_schedulerValue->setText(state.schedulerRunning ? "运行中" : "已停止");
     m_validValue->setText(state.valid ? "有效" : "无效");
     m_counterValue->setText(QString::number(state.sampleCounter));
+    switch(state.calibrationStatus) {
+    case touchpanel::TouchCalibrationStatus::Ok:
+        m_touchCalibrationValue->setText(QStringLiteral("HDAPI 已确认校准")); break;
+    case touchpanel::TouchCalibrationStatus::NeedsUpdate:
+        m_touchCalibrationValue->setText(QStringLiteral("需更新校准（未执行）")); break;
+    case touchpanel::TouchCalibrationStatus::NeedsManualInput:
+        m_touchCalibrationValue->setText(QStringLiteral("需要笔筒/手动操作")); break;
+    case touchpanel::TouchCalibrationStatus::CheckError:
+        m_touchCalibrationValue->setText(QStringLiteral("校准查询失败")); break;
+    default: m_touchCalibrationValue->setText(QStringLiteral("尚未检查（自动更新关闭）")); break;
+    }
 }
 
 void StatusPanelWidget::setBackendMessage(const QString& text)
@@ -133,6 +178,11 @@ void StatusPanelWidget::setTcpConnected(bool connected)
 void StatusPanelWidget::setRobotStatusText(const QString& text)
 {
     m_robotStateValue->setText(text);
+}
+
+void StatusPanelWidget::setRobotTelemetryText(const QString& text)
+{
+    m_robotTelemetryValue->setText(text);
 }
 
 void StatusPanelWidget::appendTcpTxMessage(const QString& text)

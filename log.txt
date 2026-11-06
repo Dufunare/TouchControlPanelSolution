@@ -1,0 +1,364 @@
+commit 894ff8fda2bb4d82f00e277e6452ec20725feecf
+Author: Duchenyu <1525139014@qq.com>
+Date:   Wed Apr 29 16:41:14 2026 +0800
+
+    rc:add a icon
+
+commit 422d31c1cf88942e020a4b37bc92c00231330227
+Author: Duchenyu <1525139014@qq.com>
+Date:   Wed Apr 29 15:47:15 2026 +0800
+
+    chore:add some comments
+
+commit fd8e6916055e0ef93e3afed625542b0b0849dfea
+Author: Duchenyu <1525139014@qq.com>
+Date:   Sun Apr 19 22:43:28 2026 +0800
+
+    chore:change Qtimer from hard coding to MAcro
+
+commit 971af45b70b7470a11a8cb08c3681e92a8253c6c
+Author: Duchenyu <1525139014@qq.com>
+Date:   Sun Apr 19 00:49:11 2026 +0800
+
+    fix:add status update broadcast when backend is initialized and litely change some layout
+
+commit 0d6f401d511ca644d5a1a7dde694e15da6eb97ee
+Author: Duchenyu <1525139014@qq.com>
+Date:   Sat Apr 18 23:34:21 2026 +0800
+
+    comment:add comment and adjust code block for beatification
+
+commit 858f3cc5aeb0cb29d11280a74ca7f3b8c7ee0d5f
+Author: Chenyu <funare2022@gmail.com>
+Date:   Sat Apr 18 21:12:19 2026 +0800
+
+    feat(control-panel): 添加视频控制占位分组与基础控件布局
+    • 在 ControlPanelWidget 新增 视频控制 QGroupBox 占位区域
+    • 添加视频相关基础控件：信号源类型下拉、地址输入、FPS 设置、镜像复选框
+    • 添加占位操作按钮：开始采集、停止采集、抓拍（含提示 toolTip）
+    • 更新根布局，将视频控制分组插入控制面板现有结构
+    • 补充对应头文件与成员变量声明，保持当前工程可编译
+
+commit 5361ad77d63ada9bc611b91bffa2672129a5cc5f
+Author: Chenyu <funare2022@gmail.com>
+Date:   Sat Apr 18 21:03:09 2026 +0800
+
+    change(controlpanel.cpp):chaneg layout more softly
+
+commit 68dfe180ea0b28340f3bf8a7af0bd15bbab819f2
+Author: Duchenyu <1525139014@qq.com>
+Date:   Thu Apr 16 23:27:10 2026 +0800
+
+    docs:add some docs
+
+commit bb96a11c270e76bfd79fdb4074a035a2cdc7e123
+Author: Duchenyu <1525139014@qq.com>
+Date:   Thu Apr 16 22:30:31 2026 +0800
+
+    fix(comm): 修复请求响应错配、部分发送与连接前静默断开
+    • 修复请求-响应错配风险（pending 匹配增强）
+    • 在 pending 期间不再“收到任意回包即结束”
+    • 从待命令 pending.command 提取命令名并与回包 parsed.commandName 严格匹配
+    • 命令名不匹配的异步回包仅记录日志并继续等待，不结束 pending
+    • 优化未知回包处理
+    • pending 期间遇到不可解析回包不再直接结束命令
+    • 改为记录“未识别回包，继续等待”以降低误判
+    • 修复 TCP 发送未处理部分发送的问题
+    • sendLine() 改为循环 send()，直到完整发送所有字节
+    • 处理 SOCKET_ERROR 与 sent == 0（连接关闭）失败分支
+    • 降低 connect 前断开噪音日志
+    • 新增 disconnectTransitInternal(bool silentIfNotConnected)
+    • connectTransit() 改为调用 disconnectTransitInternal(true)，避免“未连接”提示刷屏
+    • 对外 disconnectTransit() 仍保留显式提示行为
+    • 构建验证
+    • x64 生成成功
+
+commit 41f4c3a17d38b7ee848c5b50a7ebdaac49098917
+Author: Chenyu <funare2022@gmail.com>
+Date:   Thu Apr 16 21:14:11 2026 +0800
+
+    feat(comm+teleop): 完成中转站通信链路并接入 Touch 跟随控制
+    • 新增中转站 TCP 通信能力：连接/断开、收发回调、状态回调、操作回调。
+    • 修复连接后卡死问题：recv 不再在持锁状态下阻塞，避免 UI 线程发送/断开被互斥锁卡住。
+    • 增强回包处理兼容性：支持 \r/\n/\0 分隔及无分隔分片，修复“已回包但前端超时/不显示 RX”问题。
+    • 按中转站协议解析回复：ErrorID,{...},Message(...)，以 errorId 判定命令成功/失败并更新日志/状态。
+    • 新增机械臂控制命令：DisableRobot()、ClearError()，并打通 UI→Controller→Backend 全链路。
+    • 新增高频运动接口：sendMotion(x,y,z)，组包 30003|ServoP(x,y,z,150,0,90)，采用 fire-and-forget（不占用 pending）。
+    • 新增机器人状态查询接口：isTransitConnected()、requestRobotMode()、requestCurrentPose()、isRobotModeReady()、tryGetLastPose()。
+    • 新增 Touch 跟随桥接：DeviceController 增加 33ms m_motionTimer，实现 startTeleop()/stopTeleop() 与 onMotionTick()。
+    • 实现安全门控：仅在 Touch 运行 + TCP 已连接 + 按住按钮时进入发送；按下边沿触发 RobotMode/GetPose 同步；释放即停。
+    • Touch 底层接入按钮状态：在伺服回调帧内读取 HD_CURRENT_BUTTONS 并透传 button1Pressed 到 DeviceState。
+    • 加入运动阈值去抖与日志节流，降低中转站压力。
+    • 调整初始坐标映射与软限位，并修复 X 轴被下限钳制导致长期固定在 150 的问题。
+    • 补充调试日志：输出基准同步时的 Robot/Touch 原点，便于排查坐标映射问题。
+
+commit 03180d8d152083b9de4f88cb24f32ae612c99b4b
+Author: Chenyu <funare2022@gmail.com>
+Date:   Thu Apr 16 19:58:25 2026 +0800
+
+    feat:add some control option
+
+commit 5bd6cd8d0bba4c6e8e8f48cf8be283e2312c9256
+Author: Duchenyu <1525139014@qq.com>
+Date:   Thu Apr 16 18:25:57 2026 +0800
+
+    fix:change Qlabel to Chinese
+
+commit 6a0c617aac65a9782d354e8acbafab27a7e3c42c
+Author: Duchenyu <1525139014@qq.com>
+Date:   Thu Apr 16 16:44:38 2026 +0800
+
+    fix(comm): 切换为回包观测模式并修复断开/判定语义
+    • 修复请求-响应错配风险：不再将“收到任意回包”直接判定为成功
+    • 将命令完成策略降级为观测模式：
+    • timeout -> 明确失败
+    • got_reply -> 已收到回包但结果待规则确认（不判成功）
+    • 调整 pending 结束路径：
+    • 新增超时结束、回包观测结束、取消结束三类统一处理函数
+    • 断开连接时统一清理 pending，避免悬挂状态
+    • 完善断开语义：
+    • 未连接时返回“当前并未连接中转站。”
+    • 已连接断开后统一发出断开消息并清理未完成命令
+    • 增强观测日志输出（便于采样归纳协议）：
+    • [TCP-TX] 发送报文
+    • [TCP-RX] 接收报文
+    • [OP] 命令状态日志
+    • 常量集中化：
+    • kTransitDefaultPort = 9000
+    • kRobotControlPort = 29999
+    • 移除相关魔法数字使用
+    • 构建验证：x64 生成成功
+
+commit 4f94fff410c631a0b79ed938fd86ab0a9b7cc2ac
+Author: Duchenyu <1525139014@qq.com>
+Date:   Thu Apr 16 16:19:42 2026 +0800
+
+    refactor(app): 将 CommunicationBackend 持有权上移至 MainWindow 并改为引用注入 DeviceController
+    • 调整通信后端对象生命周期与持有位置：
+    • CommunicationBackend 不再由 DeviceController 值对象持有
+    • 改为由 MainWindow 以值对象持有（与 TouchBackend 同级）
+    • 重构 DeviceController 构造与成员：
+    • 构造函数新增 touchpanel::CommunicationBackend& 参数
+    • 内部成员改为通信后端引用，避免重复实例化与职责混杂
+    • 更新创建与注入链路：
+    • MainWindow 新增 m_communicationBackend
+    • MainWindow.cpp 在构造 DeviceController 时注入通信后端引用
+    • 保持现有 UI 信号槽与通信行为不变，仅优化架构依赖关系与对象所有权边界
+
+commit dc32c2a0ce563e2b9efafaaa84383fe99426b02b
+Author: Duchenyu <1525139014@qq.com>
+Date:   Thu Apr 16 13:11:30 2026 +0800
+
+    feat(comm): 重构通信后端为中转站三层架构并接入UI控制面板
+    • 新增通信后端模块（前后端解耦）
+    • TransitTcpWorker：独立线程内维护单一 QTcpSocket，负责连接/断开/按行收发
+    • TransitTcpClient：QThread + moveToThread 封装，转发 TCP 状态与报文信号
+    • TransitProtocolParser：实现 端口|指令 打包与回包解包
+    • RobotControllerFacade：提供业务接口并隐藏中转站细节
+    • 实现机械臂控制指令接口（固定机械臂端口 29999）
+    • PowerOn()（长超时）
+    • EnableRobot()
+    • EmergencyStop()
+    • StartDrag()
+    • StopDrag()
+    • 增加命令等待机制
+    • 发送命令后进入 pending，等待 TCP 回包再反馈执行结果
+    • 支持超时失败与连接断开失败回传
+    • 扩展 DeviceController 作为前后端桥接层
+    • 新增中转站连接/断开与机械臂操作槽函数
+    • 转发通信状态、收发报文与后端消息信号给 UI
+    • 更新控制面板 ControlPanelWidget
+    • 新增中转站 IP/端口输入（空/0 使用默认，填写覆盖默认）
+    • 新增按钮：建立/断开 TCP、PowerOn、EnableRobot、EmergencyStop、StartDrag、StopDrag
+    • 更新状态面板 StatusPanelWidget
+    • 新增通信状态分组（TCP 状态、机械臂状态占位）
+    • 新增 TCP 发送/接收报文实时窗口
+    • 更新 MainWindow 信号槽连接
+    • 接入新通信控制与状态展示链路
+    • 工程与构建修复
+    • TouchControlPanelApp.vcxproj 注册新增源码与 Qt MOC 头
+    • 启用 Qt network 模块
+    • 修复空文件 ControlBackend/src/CommunicationBackend.cpp 的 PCH 编译问题
+    • 构建结果
+    • x64 构建通过
+
+commit 86eaad240de0821b743e2b61988a29f38cc07c08
+Author: Duchenyu <1525139014@qq.com>
+Date:   Thu Apr 16 12:07:32 2026 +0800
+
+    delete:delete robot control backend
+
+commit f49c3e0a89f4221172d61d158573ac8e49a1b47d
+Author: Duchenyu <1525139014@qq.com>
+Date:   Thu Apr 16 11:39:29 2026 +0800
+
+    feat:add a reset button to reset touch connection
+
+commit 76cb44286be531354fbea0c385a5436ec93a93e4
+Author: Duchenyu <1525139014@qq.com>
+Date:   Thu Apr 16 11:15:25 2026 +0800
+
+    fix:change the sdl check
+
+commit 413eb8729117e5fef2ca1d5b8781485044b5da15
+Author: Chenyu <funare2022@gmail.com>
+Date:   Wed Apr 15 21:14:56 2026 +0800
+
+    refactor(ui): split controls into dedicated left panel and keep status panel display-only
+    
+    - add `ControlPanelWidget` as a dedicated left-side control panel
+    - move touch control buttons (initialize/start/stop) out of `StatusPanelWidget`
+    - reserve a separate robot-arm control section in `ControlPanelWidget`
+    - keep `StatusPanelWidget` focused on backend status + message output only
+    - update `MainWindow` layout to three-pane horizontal splitter:
+      - left: `ControlPanelWidget`
+      - center: video + 3D view
+      - right: `StatusPanelWidget`
+    - rewire control signal connections from `StatusPanelWidget` to `ControlPanelWidget`
+
+commit 484fef9a00b22115c2bae70930f75b04f40a3113
+Author: Chenyu <funare2022@gmail.com>
+Date:   Wed Apr 15 20:26:38 2026 +0800
+
+    delete:delete introbox in statuspanel and add a stretch
+
+commit e3f3c5997628ecaa22831bb6caa23d7d1bfdd2cf
+Author: Chenyu <funare2022@gmail.com>
+Date:   Wed Apr 15 19:40:15 2026 +0800
+
+    refactor(control-backend): harden Dobot threading and socket reconnect reliability
+    
+    - remove nested lock path in `DobotDirectStrategy::sendCoordinate`:
+      - read feedback state under `m_feedbackMutex`
+      - set error text under `m_errorMutex` outside feedback lock
+    - improve thread-stop memory semantics:
+      - use acquire/release for `m_feedbackRunning` in feedback loop lifecycle
+    - make `CDobotClient::Connect` reconnect-safe:
+      - on connect failure, close socket and reset to `INVALID_SOCKET`
+    - keep behavior unchanged for x64-only project target
+
+commit ec927903a34e59447dd095cfe92024e6d8d2f62e
+Author: Chenyu <funare2022@gmail.com>
+Date:   Wed Apr 15 19:22:03 2026 +0800
+
+    refactor(control-backend): harden Dobot comms lifecycle and remove UB in bit conversion
+    
+    - make WinSock init/cleanup symmetric with guarded ref-counted `InitNet`/`UninitNet`
+    - align `DobotDirectStrategy::connect(ip, port)` semantics:
+      - use provided control port (0 => default 29999)
+      - derive feedback port from control port (+5)
+      - ensure cleanup on partial connect failures
+    - remove C++ UB in `BitConverter`:
+      - replace union type-punning in `ToFloat`/`ToDouble` with `std::memcpy`
+    - clean header hygiene:
+      - drop redundant WinSock includes from `dobot/DobotClient.h` (provided by project PCH)
+    - keep behavior scoped to current x64-only project setup
+
+commit bcd2d6a3db04f3faa13037b3fd64d76393b54d00
+Merge: 9b2398f b04b97d
+Author: Chenyu Du <funare2022@gmail.com>
+Date:   Wed Apr 15 18:28:24 2026 +0800
+
+    Merge pull request #1 from Dufunare/copilot/implement-communication-module
+    
+    feat: implement communication module with Strategy Pattern and ported Dobot TCP API
+
+commit b04b97dc031ec8dfe82ea571778e01383f30d4b7
+Author: copilot-swe-agent[bot] <198982749+Copilot@users.noreply.github.com>
+Date:   Wed Apr 15 09:38:28 2026 +0000
+
+    fix: address code review - fix ToUInt64 sign extension bug, correct spelling typos
+    
+    Agent-Logs-Url: https://github.com/Dufunare/TouchControlPanelSolution/sessions/db959916-578d-4114-9aa9-e5528ae25142
+    
+    Co-authored-by: Dufunare <223224354+Dufunare@users.noreply.github.com>
+
+commit 6e786e7f9645e24f74c6daadaae9e0ffcc5440d3
+Author: copilot-swe-agent[bot] <198982749+Copilot@users.noreply.github.com>
+Date:   Wed Apr 15 09:35:49 2026 +0000
+
+    feat: implement communication module with Strategy Pattern and Dobot TCP port
+    
+    - Add ICommunicationStrategy pure virtual interface (connect, sendCoordinate, disconnect)
+    - Add CommunicationThread for 33Hz independent network send loop with thread-safe cache
+    - Add DobotDirectStrategy implementing ICommunicationStrategy with coordinate mapping/clamping
+    - Port Dobot TCP-IP-CR-CPP-V4 core classes (DobotClient, Dashboard, Feedback, BitConverter, FeedbackData, DescartesPoint)
+    - Dashboard connects to port 29999 for ServoP commands
+    - Feedback connects to port 30004 for error/collision monitoring
+    - Update pch.h to include WinSock2 before Windows.h
+    - Update ControlBackend.vcxproj and .filters with all new files and ws2_32.lib
+    
+    Agent-Logs-Url: https://github.com/Dufunare/TouchControlPanelSolution/sessions/db959916-578d-4114-9aa9-e5528ae25142
+    
+    Co-authored-by: Dufunare <223224354+Dufunare@users.noreply.github.com>
+
+commit bec50f6b9b2a3f5fbc275b156414cbd47e0df9cc
+Author: copilot-swe-agent[bot] <198982749+Copilot@users.noreply.github.com>
+Date:   Wed Apr 15 09:25:37 2026 +0000
+
+    Initial plan
+
+commit 9b2398f6fea42171a5426802a0990fbf4d9310a1
+Author: Chenyu <funare2022@gmail.com>
+Date:   Wed Apr 15 12:56:57 2026 +0800
+
+    config/name/doc:change backend lib's name and update some docs, chaneg some config
+
+commit aa68c6192597a5be9bf218d56bd0e4a9374ac431
+Author: Chenyu <funare2022@gmail.com>
+Date:   Wed Apr 15 00:51:51 2026 +0800
+
+    refactor(ui): move realtime XYZ display to GL overlay and streamline status panel
+    
+    - remove realtime coordinate section from `StatusPanelWidget`
+    - render current `X/Y/Z` values as floating text in `GLCoordinateWidget`
+    - switch overlay to text-only style (no background/border) to avoid occluding 3D scene
+    - keep backend status and log console focused in right panel
+
+commit 3a102995b58d4a60ac32be603efd89846ef41ef3
+Author: Chenyu <funare2022@gmail.com>
+Date:   Wed Apr 15 00:37:00 2026 +0800
+
+    feat(status-panel): upgrade message output to terminal-style log view with wrap and clear action
+    
+    - replace single-line message display with append-only log behavior
+    - keep timestamped entries for backend messages
+    - apply terminal-like dark theme and monospace font
+    - enable auto-wrap to fit widget width (no horizontal scrollbar)
+    - add right-click context menu action to clear logs
+
+commit 8287bed1106e2cd3badda0b446b186c9cdf96da4
+Author: Chenyu <funare2022@gmail.com>
+Date:   Wed Apr 15 00:00:49 2026 +0800
+
+    fix(bug):strenghen the initializition error detection
+
+commit 47f7969e975a91a42292dc228087e3101fc5a118
+Author: Chenyu <funare2022@gmail.com>
+Date:   Tue Apr 14 21:59:50 2026 +0800
+
+    feat:add videowidget and finetone glwidget
+
+commit daac77e08e7a126e5d09991dd21636a95deeca40
+Author: Chenyu <funare2022@gmail.com>
+Date:   Tue Apr 14 20:59:23 2026 +0800
+
+    chore(text):finetone error info
+
+commit f1a47514fb7e57c7d4bbf77093bb4c6e0873a11e
+Author: Chenyu <funare2022@gmail.com>
+Date:   Tue Apr 14 20:57:33 2026 +0800
+
+    chore(text):chaneg error text to english
+
+commit e14a773a7ef8079f88e4ba0432bcab51d2725d50
+Author: Chenyu <funare2022@gmail.com>
+Date:   Tue Apr 14 15:40:35 2026 +0800
+
+    doc:add some docs
+
+commit 41e59c686f94cf9395d48e14b0b0b13a7b90da2e
+Author: Chenyu <funare2022@gmail.com>
+Date:   Tue Apr 14 11:56:28 2026 +0800
+
+    initial commit
