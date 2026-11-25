@@ -3,9 +3,11 @@
 #include <cstdint>
 #include <mutex>
 #include <QImage>
+#include <QPixmap>
 #include <QWidget>
 
 class QPaintEvent;
+class QResizeEvent;
 namespace cv { class Mat; }
 
 // setFrame()/showNoSignal() are mailbox-only and safe on the video worker.
@@ -27,6 +29,7 @@ public:
 
 protected:
     void paintEvent(QPaintEvent* event) override;
+    void resizeEvent(QResizeEvent* event) override;
 
 private:
     mutable std::mutex m_frameMutex;
@@ -35,4 +38,8 @@ private:
     QImage m_displayFrame;
     std::uint64_t m_displayRevision=0;
     bool m_mirrored=false;
+    QPixmap m_scaledFrame;
+    QSize m_cachedSize;
+    qreal m_cachedDpr=0;
+    void rebuildDisplayCache();
 };
