@@ -3,6 +3,7 @@
 #include <memory>
 #include <vector>
 #include <QMatrix4x4>
+#include <QElapsedTimer>
 #include <QOpenGLBuffer>
 #include <QOpenGLFunctions>
 #include <QOpenGLShaderProgram>
@@ -25,6 +26,8 @@ public:
     ~GLCoordinateWidget() override;
 
     void setDeviceState(const touchpanel::DeviceState& state);
+    // Presentation only; never affects Touch acquisition or motion timers.
+    void setVideoActive(bool active);
     bool captureDisplayOrigin();
     void clearDisplayOrigin();
     void resetCamera();
@@ -57,6 +60,8 @@ private:
     touchpanel::visualization::DisplayOrigin m_origin;
     std::deque<QVector3D> m_trail;
     bool m_trailDirty=true;
+    bool m_videoActive=false;
+    QElapsedTimer m_previewRefreshAge;
     bool m_haveValidPose=false;
     bool m_follow=false;
     QVector3D m_cameraTarget{};
