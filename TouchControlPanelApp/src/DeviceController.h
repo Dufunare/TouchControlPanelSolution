@@ -67,6 +67,7 @@ public slots:
     void startManualPreview();
     void startFixedAxisPosePreview();
     void captureOrientationEvidence();
+    void probeRotationCandidate();
     void resetOrientationEvidence();
     void prepareSingleStep();
     void confirmSingleStep();
