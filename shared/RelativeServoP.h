@@ -166,6 +166,12 @@ public:
                 m_settleCount=0;
                 return result;
             }
+            // A fresh idle pose is not necessarily inside the project's
+            // experimental workspace. Refuse it before capturing a baseline.
+            if(m_directResponseEnabled &&
+               checkServoPWorkspace(robotPose).code!=ServoPWorkspaceCode::Allowed) {
+                result.action=ServoPAction::Invalid;return result;
+            }
             m_anchorTouch=touch;
             m_anchorRobot=robotPose;
             m_lastTarget=robotPose;
