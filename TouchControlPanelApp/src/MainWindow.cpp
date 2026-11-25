@@ -385,7 +385,48 @@ MainWindow::MainWindow(QWidget* parent)
                     .arg(QStringLiteral("XYZ").mid(code%3,1));
             }
             const auto choice=QMessageBox::warning(this,
-                QStringLiteral("确认固定轴 ServoP 遥控"),
+                QStringLiteral("确认六自由度 ServoP 遥控"),
+                QStringLiteral(
+                    "%1\n移动比例：%2×；每轴输入死区：%3 mm\n"
+                    "同一离合同时跟随 XYZ 和 Rx/Ry/Rz，旋转比例1:1；需当前会话 ZYX 实测证据与 User/Tool=0。\n"
+                    "按住前先确认离合就绪；首次按下只记录两端实际位置，不发送运动。\n"
+                    "master 式直接位置目标；保护层丢弃的位移不补偿，实际总位移可能小于比例。\n"
+                    "松开停发，发过运动指令时请求 ResetRobot 软件停止；"
+                    "应答和实测停稳后才能重新按下。\n"
+                    "不限制单次离合总行程；原工作空间、位置/角度指令限制、关节和反馈异常停止仍有效，"
+                    "均不是物理碰撞保护。必须确认方向和独立物理急停。")
+                    .arg(mappingDescription).arg(gain,0,'f',2).arg(deadzone,0,'f',2),
+                QMessageBox::Yes|QMessageBox::No,QMessageBox::No);
+            if(choice!=QMessageBox::Yes)return;
+            QMetaObject::invokeMethod(m_controller,[controller=m_controller,mapping]{
+                if(controller->realMotionActive())return;
+                controller->setManualPreviewMapping(mapping);
+                controller->startContinuousServoP();
+            },Qt::QueuedConnection);
+        });
+    connect(m_controlPanel,&ControlPanelWidget::translationServoPRequested,this,
+        [this](const std::array<int,3>& axes,double gain,double deadzone){
+            touchpanel::teleop::ManualAxisMap mapping;
+            mapping.output=axes;mapping.scale=gain;mapping.deadzoneMm=deadzone;
+            if(!touchpanel::teleop::validManualAxisMap(mapping)) {
+                statusBar()->showMessage(QStringLiteral("ServoP 轴映射或比例无效"),5000);
+                return;
+            }
+            if(m_controller->realMotionActive()) {
+                statusBar()->showMessage(QStringLiteral("先停止当前实体控制，再启动 ServoP"),5000);
+                return;
+            }
+            QString mappingDescription;
+            for(int axis=0;axis<3;++axis) {
+                const int code=axes[axis];
+                if(axis)mappingDescription+=QStringLiteral("；");
+                mappingDescription+=QStringLiteral("机器人 %1 ← %2Touch %3")
+                    .arg(QStringLiteral("XYZ").mid(axis,1))
+                    .arg(code>=3?QStringLiteral("−"):QStringLiteral("+"))
+                    .arg(QStringLiteral("XYZ").mid(code%3,1));
+            }
+            const auto choice=QMessageBox::warning(this,
+                QStringLiteral("确认仅平移 ServoP 遥控"),
                 QStringLiteral(
                     "%1\n移动比例：%2×；每轴输入死区：%3 mm\n"
                     "使用当前机器人 User/Tool 坐标约定及固定末端姿态，不需要设备间点对标定。\n"
@@ -401,31 +442,7 @@ MainWindow::MainWindow(QWidget* parent)
             QMetaObject::invokeMethod(m_controller,[controller=m_controller,mapping]{
                 if(controller->realMotionActive())return;
                 controller->setManualPreviewMapping(mapping);
-                controller->startContinuousServoP();
-            },Qt::QueuedConnection);
-        });
-    connect(m_controlPanel,&ControlPanelWidget::rotationServoPRequested,this,
-        [this](const std::array<int,3>& axes,double gain,double deadzone){
-            touchpanel::teleop::ManualAxisMap mapping;
-            mapping.output=axes;mapping.scale=gain;mapping.deadzoneMm=deadzone;
-            if(!touchpanel::teleop::validManualAxisMap(mapping) || m_controller->realMotionActive()) {
-                statusBar()->showMessage(QStringLiteral("先停止实体控制并确认固定轴映射"),5000);
-                return;
-            }
-            const auto choice=QMessageBox::warning(this,
-                QStringLiteral("确认 CR3 实体旋转小角试验"),
-                QStringLiteral("这将启用真实机械臂运动，而非预览。\n"
-                    "固定当前 TCP 的 XYZ；触控笔旋转按所选固定轴映射，平移比例不影响角度。\n"
-                    "本次启动的姿态目标总范围2°，每帧0.20°，松开 Button1 停发并请求软件停止。\n"
-                    "已由现场合格人员验证本局部试验区域、实际控制器限位、负载、碰撞/奇异风险和独立物理急停，"
-                    "隔离人员并确认能够安全停止；数值约束不能替代这些防护。\n"
-                    "需要本次会话 ZYX 实测证据。是否确认进入试验待命？"),
-                QMessageBox::Yes|QMessageBox::No,QMessageBox::No);
-            if(choice!=QMessageBox::Yes)return;
-            QMetaObject::invokeMethod(m_controller,[controller=m_controller,mapping]{
-                if(controller->realMotionActive())return;
-                controller->setManualPreviewMapping(mapping);
-                controller->startRotationServoP();
+                controller->startTranslationServoP();
             },Qt::QueuedConnection);
         });
     connect(m_controlPanel,&ControlPanelWidget::continuousServoRequested,this,
