@@ -168,6 +168,7 @@ void DeviceController::applyPreviewCalibration(const touchpanel::teleop::Calibra
 
 void DeviceController::onRelayStateInvalidated()
 {
+    m_orientationAudit.clear();
     m_singleStepVerified=false;
     if(m_realMode!=RealMode::None)
         haltRealMotion(QStringLiteral("8891 遥测失效，已终止实体运动"));
@@ -414,6 +415,50 @@ void DeviceController::startManualPreview()
     invalidateTeleopBaseline();
     if(!m_motionTimer.isActive())m_motionTimer.start();
     emit backendMessageChanged(QStringLiteral("手动三轴预览已开启：Button1 离合，锁定 TCP 姿态，不下发实体运动"));
+}
+
+void DeviceController::resetOrientationEvidence()
+{
+    m_orientationAudit.clear();
+    emit backendMessageChanged(QStringLiteral("[ROTATION AUDIT] 已清除本会话姿态证据；不发送运动"));
+}
+
+void DeviceController::captureOrientationEvidence()
+{
+    using namespace touchpanel::teleop;
+    if(realMotionActive() || !m_relayStateClient) {
+        emit backendMessageChanged(QStringLiteral("[ROTATION AUDIT] 请先停止实体遥控；只读取反馈"));
+        return;
+    }
+    const auto state=m_relayStateClient->snapshot();
+    const auto captured=m_orientationAudit.capture(state);
+    if(captured==OrientationCapture::Invalid) {
+        emit backendMessageChanged(QStringLiteral(
+            "[ROTATION AUDIT] 拒绝采样：需要 User=0/Tool=0、新鲜空闲反馈、"
+            "有效 ActualQuaternion 及静止关节；不自动切换坐标系"));
+        return;
+    }
+    const auto report=m_orientationAudit.report();
+    QStringList errors;
+    for(std::size_t i=0;i<kRotationOrders.size();++i)
+        errors<<QStringLiteral("%1=%2°").arg(QString::fromLatin1(kRotationOrders[i].data(),3))
+            .arg(report.worstError[i],0,'f',3);
+    const auto& pose=state.tcpPose;
+    const auto& q=state.actualQuaternion;
+    const QString status=report.unique?
+        QStringLiteral("候选 %1 与样本一致（仅姿态数值证据，不授权运动）")
+            .arg(QString::fromLatin1(kRotationOrders[report.bestOrder].data(),3)):
+        QStringLiteral("证据不足/约定不匹配，实体旋转仍未授权");
+    emit backendMessageChanged(QStringLiteral(
+        "[ROTATION AUDIT] session=%1 seq=%2 %3 distinct=%4 "
+        "RPY=(%5,%6,%7) Q=(%8,%9,%10,%11) | %12 | %13")
+        .arg(state.sessionEpoch).arg(state.stateSeq)
+        .arg(captured==OrientationCapture::Added?QStringLiteral("采集"):
+             captured==OrientationCapture::Duplicate?QStringLiteral("重复姿态"):QStringLiteral("样本已满"))
+        .arg(report.count).arg(pose[3],0,'f',4).arg(pose[4],0,'f',4)
+        .arg(pose[5],0,'f',4).arg(q[0],0,'f',7).arg(q[1],0,'f',7)
+        .arg(q[2],0,'f',7).arg(q[3],0,'f',7)
+        .arg(errors.join(QStringLiteral(" "))).arg(status));
 }
 
 void DeviceController::startFixedAxisPosePreview()
