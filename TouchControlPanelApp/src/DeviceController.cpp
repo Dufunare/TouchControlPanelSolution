@@ -396,9 +396,35 @@ void DeviceController::startManualPreview()
         return;
     }
     m_manualPreview=true;
+    m_fixedAxisPosePreview=false;
     invalidateTeleopBaseline();
     if(!m_motionTimer.isActive())m_motionTimer.start();
     emit backendMessageChanged(QStringLiteral("手动三轴预览已开启：Button1 离合，锁定 TCP 姿态，不下发实体运动"));
+}
+
+void DeviceController::startFixedAxisPosePreview()
+{
+    if(realMotionActive() || !m_backend || !m_backend->isRunning() ||
+       !m_relayStateClient || !touchpanel::teleop::validManualAxisMap(m_manualMap)) {
+        emit backendMessageChanged(QStringLiteral("六维固定轴预览不可启动：先停止实体控制并确认采集、映射与反馈"));
+        return;
+    }
+    const auto touch=m_backend->latestState();
+    const auto robot=m_relayStateClient->snapshot();
+    if(!touch.valid || !touch.orientationValid || !touch.deviceCalibrated ||
+       !touchpanel::evaluateRobotGate(robot,true,robot.userIndex,robot.toolIndex).canPreview) {
+        emit backendMessageChanged(QStringLiteral("六维固定轴预览需要有效 Touch 姿态及新鲜空闲机器人反馈"));
+        return;
+    }
+    m_manualPreview=false;
+    m_fixedAxisPosePreview=true;
+    m_previewReleaseCounter=touch.button1ReleaseCounter;
+    invalidateTeleopBaseline();
+    m_stepPrepared=false;
+    if(!m_motionTimer.isActive())m_motionTimer.start();
+    emit backendMessageChanged(QStringLiteral(
+        "[6DOF DRY RUN] 固定轴平移及旋转预览；平移使用所选比例，旋转角度1:1。"
+        "采用相对旋转矩阵；不发送任何机器人运动指令。"));
 }
 
 void DeviceController::startTeleop()
@@ -408,6 +434,7 @@ void DeviceController::startTeleop()
         return;
     }
     m_manualPreview=false;
+    m_fixedAxisPosePreview=false;
     if (m_backend == nullptr || m_robotBackend == nullptr)
     {
         emit backendMessageChanged("后端对象为空，无法开始控制。");
@@ -481,6 +508,7 @@ void DeviceController::stopTeleop()
     m_hasLastSent = false;
     m_previewLastValid = false;
     m_manualPreview=false;
+    m_fixedAxisPosePreview=false;
     emit backendMessageChanged("已停止预览；没有发送实体遥操作运动。");
 }
 
@@ -511,12 +539,17 @@ void DeviceController::onMotionTick()
         invalidateTeleopBaseline();
         return;
     }
+    if(m_fixedAxisPosePreview && st.button1ReleaseCounter!=m_previewReleaseCounter) {
+        m_previewReleaseCounter=st.button1ReleaseCounter;
+        invalidateTeleopBaseline();
+        return;
+    }
     if (!st.button1Pressed) {
         invalidateTeleopBaseline();
         return;
     }
     const auto robotSnapshot=m_relayStateClient->snapshot();
-    if(!m_manualPreview && m_calibrationApplied &&
+    if(!m_manualPreview && !m_fixedAxisPosePreview && m_calibrationApplied &&
        (robotSnapshot.sessionEpoch!=m_calibrationSessionEpoch ||
         st.calibrationEpoch!=m_calibrationTouchEpoch)) {
         m_calibrationApplied=false;
@@ -554,10 +587,16 @@ void DeviceController::onMotionTick()
     anchor.touchRotation = m_touchRotationOrigin;
     anchor.robotPose = m_robotPoseOrigin;
     touchpanel::teleop::Pose6 requested{};
+    const touchpanel::teleop::Vec3 referenceRpy=m_previewLastValid?
+        touchpanel::teleop::Vec3{m_previewLast[3],m_previewLast[4],m_previewLast[5]}:
+        touchpanel::teleop::Vec3{m_robotPoseOrigin[3],m_robotPoseOrigin[4],m_robotPoseOrigin[5]};
     const bool mapped=m_manualPreview ?
         touchpanel::teleop::manualPositionPreview(
             m_manualMap,touchpanel::teleop::sub(st.positionMm,m_touchOrigin),
             m_robotPoseOrigin,requested) :
+        m_fixedAxisPosePreview ?
+        touchpanel::teleop::fixedAxisPosePreview(
+            m_manualMap,anchor,st.positionMm,st.rotationMatrix,referenceRpy,requested) :
         touchpanel::teleop::mapClutchedPose(
             m_calibrationApplied ? m_calibration : touchpanel::teleop::Calibration{},
             anchor,st.positionMm,st.rotationMatrix,requested);
@@ -747,7 +786,7 @@ void DeviceController::startContinuousServoP()
     if(!m_motionTimer.isActive())m_motionTimer.start();
     emit backendMessageChanged(QStringLiteral(
         "ServoP 同步优先遥控已待命：先松开 Button1，等待就绪后按下抓取两端坐标。"
-        "仅跟随新产生的 Touch 位移，不补发受限位移。"
+        "按 master 直接计算位置，保护层丢弃的位移不补发。"
         "松开立即停发；若本次发过运动指令则请求一次 ResetRobot 软件停止。"
         "确认应答及新鲜停稳反馈后才允许重新离合。"
         "保留固定轴映射、比例、工作空间和指令安全包络。"));
@@ -1371,7 +1410,7 @@ void DeviceController::runServoPTick()
             .arg(follow.setpointPathMm/seconds,0,'f',1)
             .arg(follow.sent).arg(follow.leadLimited)
             .arg(follow.trackingHeld).arg(follow.workspaceHeld)
-            .arg(QStringLiteral("固定轴同步优先 / 不补偿丢弃位移"))
+            .arg(QStringLiteral("master式直接位置 / 不补偿受限位移"))
             .arg(touchpanel::teleop::kServoPCommandLeadMm,0,'f',1)
             .arg(follow.latestMappedLagMm,0,'f',1)
             .arg(follow.maxMappedLagMm,0,'f',1));
