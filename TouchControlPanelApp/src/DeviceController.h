@@ -63,6 +63,7 @@ public slots:
     void stopDragRobot();
     void startTeleop();
     void startManualPreview();
+    void startFixedAxisPosePreview();
     void prepareSingleStep();
     void confirmSingleStep();
     void startContinuousServo();
@@ -94,6 +95,8 @@ private:
     touchpanel::teleop::Calibration m_calibration{};
     bool m_calibrationApplied=false;
     bool m_manualPreview=false;
+    bool m_fixedAxisPosePreview=false;
+    std::uint64_t m_previewReleaseCounter=0;
     touchpanel::teleop::ManualAxisMap m_manualMap{};
     int m_calibrationUser=-1,m_calibrationTool=-1;
     std::uint64_t m_calibrationSessionEpoch=0,m_calibrationTouchEpoch=0;
