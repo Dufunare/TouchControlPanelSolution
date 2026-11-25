@@ -184,5 +184,84 @@ int main() {
     FixedAxisServoP invalid;
     Pose6 outside=robot;outside[1]=-413.58;
     assert(invalid.tick(false,hand,outside,true,400,map).action==ServoPAction::Invalid);
+    // Real rotation-only mode has no XYZ commands, requires explicit
+    // valid matrices, consumes clipped inputs and keeps the entire armed
+    // session within its small angular envelope even across regrips.
+    const Pose6 rotationOrigin={10,-200,300,0,0,0};
+    FixedAxisServoP rotating;
+    assert(rotating.configureRotationTrial(rotationOrigin));
+    auto rtick=[&](bool pressed,double handDegrees,Pose6 actual,bool idle,
+                   std::uint64_t seq,bool released=false) {
+        return rotating.tick(pressed,Vec3{200,100,-50},actual,idle,seq,map,
+            released,rpyToMatrix({handDegrees,0,0}),servoPRotation(actual));
+    };
+    for(unsigned i=0;i<3;++i)
+        assert(rtick(false,0,rotationOrigin,true,800+i).action==
+            (i==2?ServoPAction::Ready:ServoPAction::None));
+    assert(rtick(true,0,rotationOrigin,true,803).action==ServoPAction::Captured);
+    t=rtick(true,5,rotationOrigin,true,804);
+    assert(t.action==ServoPAction::Send);
+    assert(rotationTrialCandidateAllowed(t.target,rotationOrigin,rotationOrigin,
+        rotationOrigin,servoPRotation(rotationOrigin)));
+    for(int i=0;i<3;++i)assert(t.target[i]==rotationOrigin[i]);
+    assert(t.target[3]>0 && t.target[3]<=kRotationTrialStepDeg);
+    assert(rotating.acknowledgeSentTarget(t.target));
+    auto actualRotationPose=t.target;
+    assert(rtick(true,5,actualRotationPose,true,805).action==ServoPAction::None);
+    // An immediate negative stylus change produces a new inward target.
+    t=rtick(true,4,actualRotationPose,true,806);
+    assert(t.action==ServoPAction::Send && t.target[3]<actualRotationPose[3]);
+    assert(rotating.acknowledgeSentTarget(t.target));
+    actualRotationPose=t.target;
+    double handAngle=4;
+    for(unsigned i=0;i<20;++i) {
+        handAngle+=1;
+        t=rtick(true,handAngle,actualRotationPose,true,807+i);
+        if(t.action==ServoPAction::Send) {
+            assert(rotationTrialCandidateAllowed(t.target,actualRotationPose,
+                rotationOrigin,rotationOrigin,servoPRotation(actualRotationPose)));
+            assert(rotating.acknowledgeSentTarget(t.target));
+            actualRotationPose=t.target;
+        } else assert(t.action==ServoPAction::TrackingHold);
+    }
+    assert(actualRotationPose[3]>1.7 && actualRotationPose[3]<=2);
+    assert(rtick(false,handAngle,actualRotationPose,false,830).releaseStopRequired);
+    assert(rotating.releaseStopPending());
+    assert(rotating.acknowledgeReleaseStop(830));
+    for(unsigned i=0;i<3;++i)
+        assert(rtick(false,0,actualRotationPose,true,831+i).action==
+            (i==2?ServoPAction::Ready:ServoPAction::None));
+    assert(rtick(true,0,actualRotationPose,true,834).action==ServoPAction::Captured);
+    assert(rtick(true,5,actualRotationPose,true,835).action==ServoPAction::TrackingHold);
+    assert(rtick(true,5,actualRotationPose,true,836).action==ServoPAction::None);
+    assert(rotating.tick(true,hand,actualRotationPose,true,837,map).action==ServoPAction::Invalid);
+    rotating.reset();
+    assert(!rotating.rotationTrialEnabled());
+
+    touchpanel::RobotSnapshot snapshot;
+    snapshot.sessionEstablished=snapshot.relayStatusSeen=snapshot.feedbackSeen=true;
+    snapshot.relayReady=snapshot.port29999Connected=snapshot.port30003Connected=snapshot.port30004Connected=true;
+    snapshot.feedbackValid=snapshot.enabled=true;
+    snapshot.stateSeq=1;snapshot.sessionEpoch=1;snapshot.robotMode=5;
+    snapshot.userIndex=snapshot.toolIndex=0;snapshot.feedbackAgeMs=10;snapshot.relayStatusAgeMs=10;
+    snapshot.tcpPose=rotationOrigin;snapshot.actualQuaternion={1,0,0,0};
+    snapshot.actualQuaternionValid=true;
+    Mat3 measured{};
+    assert(rotationTrialFeedbackHealthy(snapshot,snapshot,measured));
+    auto bad=snapshot;bad.actualQuaternionValid=false;
+    assert(!rotationTrialFeedbackHealthy(bad,snapshot,measured));
+    bad=snapshot;bad.feedbackAgeMs=151;
+    assert(!rotationTrialFeedbackHealthy(bad,snapshot,measured));
+    bad=snapshot;bad.jointTarget[4]=3.1;
+    assert(!rotationTrialFeedbackHealthy(bad,snapshot,measured));
+    bad=snapshot;bad.jointVelocity[4]=5.1;
+    assert(!rotationTrialFeedbackHealthy(bad,snapshot,measured));
+    bad=snapshot;bad.tcpPose[0]+=2.1;
+    assert(!rotationTrialFeedbackHealthy(bad,snapshot,measured));
+    bad=snapshot;bad.tcpPose[3]=10;
+    assert(!rotationTrialFeedbackHealthy(bad,snapshot,measured));
+    bad=snapshot;bad.sessionEpoch=2;
+    assert(!rotationTrialFeedbackHealthy(bad,snapshot,measured));
+    std::cout<<"Rotation trial: no XYZ movement, quantized angular bounds, no catch-up, regrip, invalid feedback and joint guards passed\n";
     std::cout<<"48 signed-axis maps, sync/no catch-up, release-stop ACK, regrip, continuous travel and preserved command bounds passed\n";
 }
