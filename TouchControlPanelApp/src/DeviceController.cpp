@@ -1096,6 +1096,29 @@ void DeviceController::runServoPTick()
         if(outcome.feedbackLimited)m_servoPFollowMetrics.noteLeadLimit();
         if(outcome.wallHoldAxisMask)m_servoPFollowMetrics.noteWorkspaceHold();
     }
+    if(outcome.intentValid) {
+        // Optional virtual wall freezes outward axes at the last SENT
+        // safe target, not at the boundary. Other axes remain subject to
+        // speed, tracking, feedback and workspace checks.
+        if(outcome.wallHoldAxisMask!=m_servoPWallMask) {
+            const bool reportWall=!m_servoPWallLogTimer.isValid() ||
+                m_servoPWallLogTimer.elapsed()>=2000;
+            if(outcome.wallHoldAxisMask && reportWall) {
+                QStringList axes;
+                for(int i=0;i<3;++i)if(outcome.wallHoldAxisMask&(1U<<i))
+                    axes<<QStringLiteral("XYZ").mid(i,1);
+                emit backendMessageChanged(QStringLiteral(
+                    "[SERVOP WALL SLIDE] %1轴保持上次安全目标，其他轴可继续；"
+                    "不扩大软件边界，不等于物理防碰撞")
+                    .arg(axes.join(QStringLiteral(","))));
+            } else if(m_servoPWallMask && reportWall) {
+                emit backendMessageChanged(QStringLiteral(
+                    "[SERVOP WALL RESUMED] 已退出边界切向保持"));
+            }
+            if(reportWall)m_servoPWallLogTimer.restart();
+            m_servoPWallMask=outcome.wallHoldAxisMask;
+        }
+    }
     if(outcome.action==Action::TrackingHold) {
         // The current Touch goal remains a goal, NOT a queued packet.
         // Stop emitting farther-ahead targets until the actual robot
@@ -1163,27 +1186,6 @@ void DeviceController::runServoPTick()
             "机械臂可能完成最后一个目标，须待 8891 连续确认停稳后再按。"
             "Touch 在释放期间移动不会改变机器人目标。"));
     } else if(outcome.action==Action::Send) {
-        // Optional virtual wall freezes outward axes at the last SENT
-        // safe target, not at the boundary. Other axes remain subject to
-        // speed, tracking, feedback and workspace checks.
-        if(outcome.wallHoldAxisMask!=m_servoPWallMask) {
-            const bool reportWall=!m_servoPWallLogTimer.isValid() ||
-                m_servoPWallLogTimer.elapsed()>=2000;
-            if(outcome.wallHoldAxisMask && reportWall) {
-                QStringList axes;
-                for(int i=0;i<3;++i)if(outcome.wallHoldAxisMask&(1U<<i))
-                    axes<<QStringLiteral("XYZ").mid(i,1);
-                emit backendMessageChanged(QStringLiteral(
-                    "[SERVOP WALL SLIDE] %1轴保持上次安全目标，其他轴可继续；"
-                    "不扩大软件边界，不等于物理防碰撞")
-                    .arg(axes.join(QStringLiteral(","))));
-            } else if(m_servoPWallMask && reportWall) {
-                emit backendMessageChanged(QStringLiteral(
-                    "[SERVOP WALL RESUMED] 已退出边界切向保持"));
-            }
-            if(reportWall)m_servoPWallLogTimer.restart();
-            m_servoPWallMask=outcome.wallHoldAxisMask;
-        }
         const auto& anchorPose=m_cartesianServoP.anchorRobot();
         // Never silently change the already captured robot orientation.
         for(int i=3;i<6;++i) {
