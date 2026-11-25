@@ -14,6 +14,9 @@
 
 namespace
 {
+    void setChanged(QLabel* label,const QString& text) {
+        if(label->text()!=text)label->setText(text);
+    }
     QLabel* createValueLabel(const QString& text)
     {
         auto* label = new QLabel(text);
@@ -140,20 +143,25 @@ StatusPanelWidget::StatusPanelWidget(QWidget* parent)
 
 void StatusPanelWidget::setDeviceState(const touchpanel::DeviceState& state)
 {
-    m_initializedValue->setText(state.initialized ? "是" : "否");
-    m_schedulerValue->setText(state.schedulerRunning ? "运行中" : "已停止");
-    m_validValue->setText(state.valid ? "有效" : "无效");
-    m_counterValue->setText(QString::number(state.sampleCounter));
+    setChanged(m_initializedValue,state.initialized ? "是" : "否");
+    setChanged(m_schedulerValue,state.schedulerRunning ? "运行中" : "已停止");
+    setChanged(m_validValue,state.valid ? "有效" : "无效");
+    // The sample count is presentation only; avoid relayout at 30 Hz.
+    if(!m_sampleCounterUiAge.isValid() || m_sampleCounterUiAge.elapsed()>=200 ||
+       !state.schedulerRunning) {
+        setChanged(m_counterValue,QString::number(state.sampleCounter));
+        m_sampleCounterUiAge.restart();
+    }
     switch(state.calibrationStatus) {
     case touchpanel::TouchCalibrationStatus::Ok:
-        m_touchCalibrationValue->setText(QStringLiteral("HDAPI 已确认校准")); break;
+        setChanged(m_touchCalibrationValue,QStringLiteral("HDAPI 已确认校准")); break;
     case touchpanel::TouchCalibrationStatus::NeedsUpdate:
-        m_touchCalibrationValue->setText(QStringLiteral("需更新校准（未执行）")); break;
+        setChanged(m_touchCalibrationValue,QStringLiteral("需更新校准（未执行）")); break;
     case touchpanel::TouchCalibrationStatus::NeedsManualInput:
-        m_touchCalibrationValue->setText(QStringLiteral("需要笔筒/手动操作")); break;
+        setChanged(m_touchCalibrationValue,QStringLiteral("需要笔筒/手动操作")); break;
     case touchpanel::TouchCalibrationStatus::CheckError:
-        m_touchCalibrationValue->setText(QStringLiteral("校准查询失败")); break;
-    default: m_touchCalibrationValue->setText(QStringLiteral("尚未检查（自动更新关闭）")); break;
+        setChanged(m_touchCalibrationValue,QStringLiteral("校准查询失败")); break;
+    default: setChanged(m_touchCalibrationValue,QStringLiteral("尚未检查（自动更新关闭）")); break;
     }
 }
 
@@ -170,7 +178,7 @@ void StatusPanelWidget::setTcpConnected(bool connected)
 
 void StatusPanelWidget::setRobotStatusText(const QString& text)
 {
-    m_robotStateValue->setText(text);
+    setChanged(m_robotStateValue,text);
 }
 
 void StatusPanelWidget::setRobotTelemetryText(const QString& text)
