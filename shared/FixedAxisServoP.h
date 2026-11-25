@@ -52,7 +52,8 @@ public:
     void rejectUnsentTarget() {m_pending=false;}
 
     ServoPTick tick(bool pressed,Vec3 touch,const Pose6& actual,
-                    bool idle,std::uint64_t seq,const ManualAxisMap& mapping) {
+                    bool idle,std::uint64_t seq,const ManualAxisMap& mapping,
+                    bool releaseObserved=false) {
         ServoPTick out;
         if(!finite(touch)||!validManualAxisMap(mapping)||seq==0||
            checkServoPWorkspace(actual).code!=ServoPWorkspaceCode::Allowed) {
@@ -60,7 +61,7 @@ public:
             return out;
         }
 
-        if(m_phase==ServoPPhase::Active && !pressed) {
+        if(m_phase==ServoPPhase::Active && (!pressed || releaseObserved)) {
             // Discard all unsent motion on release, then demand a stop
             // request/ACK if this clutch ever transmitted a motion target.
             // Never treat dropping the local goal as a physical stop.
