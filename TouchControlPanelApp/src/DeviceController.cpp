@@ -17,7 +17,9 @@ namespace
 
     bool servoPMeasuredIdle(const touchpanel::RobotSnapshot& s)
     {
-        if(s.robotMode!=5 || s.running || s.queuedMotion || s.error || s.dragging ||
+        // RunQueuedCmd is a queue-execution mode flag, not a reliable
+        // queue-depth/empty indicator. Use measured idle and stop ACK.
+        if(s.robotMode!=5 || s.running || s.error || s.dragging ||
            s.jogging || s.paused ||
            !touchpanel::finiteSix(s.tcpVelocity) ||
            !touchpanel::finiteSix(s.jointVelocity))
@@ -332,6 +334,8 @@ void DeviceController::clearRobotError()
 void DeviceController::emergencyStopRobot()
 {
     // Never permit the 33ms servo timer to re-issue motion after E-stop.
+    if(m_realMode==RealMode::CartesianServoP)
+        m_pollTimer.setInterval(DEVICE_CONTROLLER_POLL_INTERVAL_MS);
     m_realMode=RealMode::None;
     m_cartesianServoP.reset();
     m_motionCommandSent=false;
@@ -708,6 +712,9 @@ void DeviceController::startContinuousServoP()
     // A single fixed-axis live controller; no legacy trajectory mode.
     m_cartesianServoP.reset();
     m_realMode=RealMode::CartesianServoP;
+    // Presentation only: keep the 33ms control and telemetry cadence,
+    // but reduce competing GUI state/GL refresh during physical ServoP.
+    m_pollTimer.setInterval(66);
     m_motionSession=s.sessionEpoch;
     m_motionUser=s.userIndex;
     m_motionTool=s.toolIndex;
@@ -1032,6 +1039,11 @@ void DeviceController::runServoPTick()
         return;
     }
     if(m_servoPFeedbackHolding) {
+        if(m_motionCommandSent && st.valid &&
+           (releaseObserved || !st.button1Pressed)) {
+            haltRealMotion(QStringLiteral("ServoP：反馈恢复时已检测到离合释放"));
+            return;
+        }
         m_servoPFeedbackHolding=false;
         emit backendMessageChanged(QStringLiteral(
             "[SERVOP FEEDBACK RECOVERED] 反馈已恢复；"
@@ -1211,10 +1223,10 @@ void DeviceController::runServoPTick()
         // Request software stop only once per clutch that sent a command;
         // a no-motion clutch does not generate unnecessary ResetRobot.
         if(outcome.releaseStopRequired) {
-            emit backendMessageChanged(QStringLiteral(
-                "[SERVOP RELEASE STOP] 已停发 ServoP，正在请求 ResetRobot；"
-                "等待停止应答和后续实测停稳，非物理急停。"));
             m_robotBackend->requestControlledStop();
+            emit backendMessageChanged(QStringLiteral(
+                "[SERVOP RELEASE STOP] 已停发 ServoP，已请求 ResetRobot；"
+                "等待停止应答和后续实测停稳，非物理急停。"));
         } else {
             emit backendMessageChanged(QStringLiteral(
                 "[SERVOP RELEASE] 本次未发送运动指令；等待实测停稳。"));
@@ -1295,6 +1307,9 @@ void DeviceController::runServoPTick()
             haltRealMotion(QStringLiteral("ServoP：%1；按既有保护请求停止").arg(reason));
             return;
         }
+        // Local write succeeded; even if the state-machine commit fails,
+        // the fail-stop must know a motion command may have reached robot.
+        m_motionCommandSent=true;
         const auto sentFrom=m_cartesianServoP.lastAcceptedTarget();
         if(!m_cartesianServoP.acknowledgeSentTarget(outcome.target)) {
             haltRealMotion(QStringLiteral("ServoP：已发送目标与离合状态不同步，停止"));
@@ -1312,10 +1327,21 @@ void DeviceController::runServoPTick()
             m_servoPWorkspaceBlocked=false;
             m_servoPWorkspaceAxis=-1;
         }
-        m_motionCommandSent=true;
         m_lastServoPCartesianTarget=outcome.target;
         m_servoPHasTarget=true;
         ++m_servoPSentPackets;
+    }
+    // A held stationary hand never generates a catch-up command. Clear a
+    // cosmetic HOLD once measured lag is back inside the old resume
+    // threshold; the independent hard tracking gate remains active.
+    if(outcome.action==Action::None && m_servoPTrackingHolding &&
+       m_cartesianServoP.phase()==touchpanel::teleop::ServoPPhase::Active &&
+       m_servoPHasTarget &&
+       touchpanel::teleop::servoPCartesianDistance(
+           m_cartesianServoP.lastAcceptedTarget(),robot.tcpPose)<=
+               touchpanel::teleop::kServoPTrackingResumeMm) {
+        m_servoPTrackingHolding=false;
+        m_servoPTrackingHoldTimer.invalidate();
     }
     if(m_cartesianServoP.phase()==touchpanel::teleop::ServoPPhase::Active &&
        m_servoPStatsTimer.isValid() &&
@@ -1617,6 +1643,8 @@ void DeviceController::runContinuousTick()
 void DeviceController::haltRealMotion(const QString& cause)
 {
     const bool sent=m_motionCommandSent;
+    if(m_realMode==RealMode::CartesianServoP)
+        m_pollTimer.setInterval(DEVICE_CONTROLLER_POLL_INTERVAL_MS);
     m_realMode=RealMode::None;
     m_cartesianServoP.reset();
     m_servoPTrackingHolding=false;
