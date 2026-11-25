@@ -81,7 +81,10 @@ void main() { outputColor=vec4(colorOut,1.0); }
 }
 
 GLCoordinateWidget::GLCoordinateWidget(QWidget* parent):QOpenGLWidget(parent) {
-    setMinimumSize(350,240);
+    // The splitter owns geometry. The scene must not impose a wide
+    // minimum that starves the adjacent control scroll area.
+    setMinimumSize(180,140);
+    setAttribute(Qt::WA_AlwaysStackOnTop,false);
     setFocusPolicy(Qt::StrongFocus);
     setMouseTracking(true);
     setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Expanding);
@@ -286,6 +289,7 @@ void GLCoordinateWidget::paintGL() {
         m_shader->release();
     }
     QPainter painter(this);
+    painter.setClipRect(rect());
     painter.setRenderHint(QPainter::TextAntialiasing, true);
     const QColor primary(225,238,248),secondary(138,163,188);
     QFont font=painter.font();
