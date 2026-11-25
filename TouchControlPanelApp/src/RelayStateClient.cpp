@@ -1,5 +1,9 @@
 #include "RelayStateClient.h"
 #include "OrientationConventionAudit.h"
+#include "TeleopExecutionPolicy.h"
+#include "ServoPWorkspace.h"
+#include <QRegularExpression>
+#include <QStringList>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonValue>
@@ -28,6 +32,38 @@ bool six(const QJsonValue& v,std::array<double,6>& out) {
         out[i]=a[i].toDouble();
     }
     return true;
+}
+// Accept numeric formatting differences, but insist on the complete
+// echoed pose, user/tool, near-selection flag and six seed joints.
+// The relay request ID alone is insufficient: its controller ledger
+// matches replies in FIFO order, not by echoed command contents.
+bool parseIkEcho(const QString& call,std::array<double,15>& values) {
+    static const QRegularExpression re(
+        QStringLiteral(R"(^\s*InverseSolution\s*\(([^{}()]+),\s*\{([^{}()]+)\}\s*\)\s*$)"),
+        QRegularExpression::CaseInsensitiveOption);
+    const auto match=re.match(call);
+    if(!match.hasMatch())return false;
+    const auto first=match.captured(1).split(',');
+    const auto seed=match.captured(2).split(',');
+    if(first.size()!=9 || seed.size()!=6)return false;
+    for(int i=0;i<15;++i) {
+        bool ok=false;
+        values[i]=(i<9?first[i]:seed[i-9]).trimmed().toDouble(&ok);
+        if(!ok||!std::isfinite(values[i]))return false;
+    }
+    return true;
+}
+bool matchingIkEcho(const QString& expected,const QString& received) {
+    std::array<double,15> a{},b{};
+    if(!parseIkEcho(expected,a)||!parseIkEcho(received,b))return false;
+    for(int i=0;i<15;++i)
+        if(std::abs(a[i]-b[i])>(i>=6&&i<=8?0.0:0.001))return false;
+    return true;
+}
+QString sixText(const std::array<double,6>& a) {
+    QStringList tokens;
+    for(double x:a)tokens<<QString::number(x,'f',3);
+    return tokens.join(',');
 }
 }
 RelayStateClient::RelayStateClient(QObject* parent):QObject(parent) {
@@ -67,6 +103,7 @@ void RelayStateClient::disconnectRelay() {
     invalidate(QStringLiteral("v2 遥测已断开"));
 }
 void RelayStateClient::invalidate(const QString& why) {
+    if(orientationProbePending())finishOrientationProbe(QStringLiteral("会话失效；结果作废"));
     const bool wasValid=m_valid||m_ready||m_handshaken;
     m_valid=false;m_ready=false;m_handshaken=false;m_session.clear();
     m_sequence=0;m_stateAge.invalidate();m_relayAge.invalidate();m_codec.reset();
@@ -132,6 +169,11 @@ void RelayStateClient::handleFrame(const QByteArray& bytes) {
     }
     if(session!=m_session) {
         invalidate(QStringLiteral("v2 会话不一致"));m_socket.abort();return;
+    }
+    if((type=="reply" || type=="error") && orientationProbePending() &&
+       o.value("request_id").toString()==m_probeId) {
+        handleOrientationProbeReply(o);
+        return;
     }
     if(type=="relay_status") {
         if(!o.value("relay_ready").isBool()||!o.value("port_29999_connected").isBool()||
@@ -216,6 +258,82 @@ void RelayStateClient::handleFrame(const QByteArray& bytes) {
         emit statusChanged(m_status);
     }
 }
+bool RelayStateClient::requestOrientationIkProbe(const std::array<double,6>& pose) {
+    using namespace touchpanel::teleop;
+    if(QThread::currentThread()!=thread() || orientationProbePending())return false;
+    const auto s=snapshot();
+    if(!idleForExperimentalStep(s,0,0) || feedbackZyxErrorDeg(s)>0.5 ||
+       checkServoPWorkspace(pose).code!=ServoPWorkspaceCode::Allowed)return false;
+    // V3 section 2.3: InverseSolution is a calculation on 29999.
+    // Construct exclusively from finite typed values, not arbitrary text.
+    m_probeCommand=QStringLiteral("InverseSolution(%1,0,0,1,{%2})")
+        .arg(sixText(pose)).arg(sixText(s.jointPosition));
+    m_probeId=QString::number(++m_probeCounter);
+    m_probeStart=s;m_probeAge.start();
+    const QJsonObject command{{"v",2},{"type","command"},{"request_id",m_probeId},
+        {"session_id",m_session},{"target_port",29999},{"command",m_probeCommand}};
+    const auto json=QJsonDocument(command).toJson(QJsonDocument::Compact);
+    const auto wire=touchpanel::protocol::V2FrameCodec::encode(
+        std::string_view(json.constData(),static_cast<size_t>(json.size())));
+    if(wire.empty() || m_socket.write(wire.data(),static_cast<qint64>(wire.size()))!=
+                      static_cast<qint64>(wire.size())) {
+        finishOrientationProbe(QStringLiteral("诊断请求写入失败；不授权运动"));
+        return false;
+    }
+    return true;
+}
+void RelayStateClient::finishOrientationProbe(const QString& result) {
+    m_probeId.clear();m_probeCommand.clear();m_probeAge.invalidate();m_probeStart={};
+    emit orientationProbeFinished(QStringLiteral("[ROTATION IK / READ ONLY] ")+result);
+}
+void RelayStateClient::handleOrientationProbeReply(const QJsonObject& o) {
+    using namespace touchpanel::teleop;
+    if(o.value("type").toString()!="reply" || o.value("target_port").toInt()!=29999 ||
+       o.value("command_name").toString().compare(QStringLiteral("InverseSolution"),Qt::CaseInsensitive)!=0 ||
+       !o.value("controller_code").isDouble() || o.value("controller_code").toInt(-1)!=0) {
+        finishOrientationProbe(QStringLiteral("控制器/中转站拒绝逆解，或应答格式不匹配"));
+        return;
+    }
+    static const QRegularExpression reply(
+        QStringLiteral(R"(^\s*0\s*,\s*\{([^{}]*)\}\s*,\s*(InverseSolution\s*\(.*\))\s*;?\s*$)"),
+        QRegularExpression::CaseInsensitiveOption);
+    const auto match=reply.match(o.value("raw_reply").toString());
+    if(!match.hasMatch() || !matchingIkEcho(m_probeCommand,match.captured(2))) {
+        finishOrientationProbe(QStringLiteral("逆解回显与完整请求不匹配；丢弃结果"));
+        return;
+    }
+    const auto fields=match.captured(1).split(',');
+    if(fields.size()!=6) {
+        finishOrientationProbe(QStringLiteral("逆解返回的关节数无效"));
+        return;
+    }
+    std::array<double,6> joints{};
+    for(int i=0;i<6;++i) {
+        bool ok=false;joints[i]=fields[i].trimmed().toDouble(&ok);
+        if(!ok||!std::isfinite(joints[i])) {
+            finishOrientationProbe(QStringLiteral("逆解返回非有限关节值"));return;
+        }
+    }
+    const auto now=snapshot();
+    bool sameStart=idleForExperimentalStep(now,0,0) &&
+        now.sessionEpoch==m_probeStart.sessionEpoch &&
+        feedbackZyxErrorDeg(now)<=0.5 && m_probeAge.isValid() &&
+        m_probeAge.elapsed()<=1500;
+    double maxDelta=0;
+    for(int i=0;i<6;++i) {
+        if(std::abs(now.jointPosition[i]-m_probeStart.jointPosition[i])>0.2)
+            sameStart=false;
+        maxDelta=std::max(maxDelta,std::abs(joints[i]-m_probeStart.jointPosition[i]));
+    }
+    if(!sameStart) {
+        finishOrientationProbe(QStringLiteral("逆解期间机器人状态变化或超时；丢弃结果"));return;
+    }
+    const auto msg=QStringLiteral("seq=%1 目标=%2 解=(%3) 最大关节差=%4° RTT=%5ms；仅终点逆解证据，不保证路径、限位或无碰撞")
+        .arg(m_probeStart.stateSeq).arg(m_probeCommand).arg(sixText(joints))
+        .arg(maxDelta,0,'f',3).arg(m_probeAge.elapsed());
+    finishOrientationProbe(msg);
+}
+
 bool RelayStateClient::hasFreshState() const {
     const auto state=snapshot();
     return state.sessionEstablished &&
@@ -311,6 +429,10 @@ void RelayStateClient::publishReadOnlySnapshot() {
     m_publicTime=std::chrono::steady_clock::now();
 }
 void RelayStateClient::refreshStatus() {
+    if(orientationProbePending() &&
+       (!touchpanel::teleop::idleForExperimentalStep(snapshot(),0,0) ||
+        !m_probeAge.isValid() || m_probeAge.elapsed()>1500))
+        finishOrientationProbe(QStringLiteral("诊断超时或空闲反馈失效；不重试、不授权运动"));
     if(m_valid&&m_stateAge.isValid()&&m_stateAge.elapsed()>kFreshMs) {
         m_valid=false;emit stateInvalidated();
     }
