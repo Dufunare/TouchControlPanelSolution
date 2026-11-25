@@ -129,8 +129,8 @@ int main() {
     assert(noMotion.tick(false,hand,robot,true,606,map).action==ServoPAction::None);
     assert(noMotion.tick(false,hand,robot,true,607,map).action==ServoPAction::Ready);
 
-    // Same-direction fine movement crosses the existing duplicate filter.
-    // A stationary sample discards the sub-deadband residual.
+    // Restore master's direct position duplicate filter. Sub-threshold
+    // absolute displacement remains below the filter while stationary.
     FixedAxisServoP fine;
     auto unit=map;unit.scale=1;
     arm(fine,robot,hand,unit,700);
@@ -140,7 +140,9 @@ int main() {
     assert(fine.acknowledgeSentTarget(t.target));
     assert(fine.tick(true,add(hand,{0.5,0,0}),robot,false,706,unit).action==ServoPAction::None);
     assert(fine.tick(true,add(hand,{0.5,0,0}),robot,false,707,unit).action==ServoPAction::None);
-    assert(fine.tick(true,add(hand,{0.7,0,0}),robot,false,708,unit).action==ServoPAction::None);
+    t=fine.tick(true,add(hand,{0.7,0,0}),robot,false,708,unit);
+    assert(t.action==ServoPAction::Send && near(t.target[0],robot[0]+0.7));
+    assert(fine.acknowledgeSentTarget(t.target));
     // Regression: continue the SAME clutch beyond both the old 60mm
     // default and 180mm maximum. Model measured TCP following each
     // accepted setpoint; never change the existing per-command envelope.
