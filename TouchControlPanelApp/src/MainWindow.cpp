@@ -76,11 +76,15 @@ MainWindow::MainWindow(QWidget* parent)
     advancedLayout->setContentsMargins(0,0,0,0);
 
     auto* calibrationCheckButton=new QPushButton(QStringLiteral("检查 Touch 校准状态（只读）"),advancedPanel);
+    auto* orientationEvidenceButton=new QPushButton(QStringLiteral("采集当前姿态证据（只读）"),advancedPanel);
+    orientationEvidenceButton->setToolTip(QStringLiteral("读取同一反馈帧的 RPY 与实际四元数，比较六种欧拉角顺序。需要 User=0/Tool=0；不发送运动。"));
+    auto* orientationResetButton=new QPushButton(QStringLiteral("清除姿态证据"),advancedPanel);
     auto* relativeCalibrationButton=new QPushButton(QStringLiteral("相对位移与方向标定"),advancedPanel);
     auto* calibrationButton=new QPushButton(QStringLiteral("绝对空间点对标定"),advancedPanel);
     auto* originButton=new QPushButton(QStringLiteral("将当前位置设为 GL 原点"),advancedPanel);
     auto* resetOriginButton=new QPushButton(QStringLiteral("恢复 GL 原始坐标"),advancedPanel);
-    for(auto* button:{calibrationCheckButton,relativeCalibrationButton,
+    for(auto* button:{calibrationCheckButton,orientationEvidenceButton,
+                      orientationResetButton,relativeCalibrationButton,
                       calibrationButton,originButton,resetOriginButton})
         advancedLayout->addWidget(button);
     if(auto* layout=qobject_cast<QVBoxLayout*>(m_controlPanel->layout())) {
@@ -96,6 +100,10 @@ MainWindow::MainWindow(QWidget* parent)
         });
     connect(calibrationCheckButton,&QPushButton::clicked,
             m_controller,&DeviceController::checkTouchCalibration);
+    connect(orientationEvidenceButton,&QPushButton::clicked,
+            m_controller,&DeviceController::captureOrientationEvidence);
+    connect(orientationResetButton,&QPushButton::clicked,
+            m_controller,&DeviceController::resetOrientationEvidence);
     connect(relativeCalibrationButton,&QPushButton::clicked,this,[this]{
         if(m_controller->realMotionActive())return;
         RelativeCalibrationDialog dialog(m_controller,m_relayStateClient,this);
