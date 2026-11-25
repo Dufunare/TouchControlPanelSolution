@@ -18,6 +18,7 @@ class ControlPanelWidget : public QWidget
 public:
     explicit ControlPanelWidget(QWidget* parent = nullptr);
     QString relayHost() const;
+    void setMappingLocked(bool locked);
 
 signals:
     //touch控制信号
@@ -55,6 +56,8 @@ private:
     QDoubleSpinBox* m_axisDeadzone=nullptr;
     QComboBox* m_servoPTravel=nullptr;
     QComboBox* m_realModeSelector=nullptr;
+    QPushButton* m_resetAxesButton=nullptr;
+    bool m_mappingLocked=false;
 
 	//touch控制按钮
     QPushButton* m_initializeButton = nullptr;
