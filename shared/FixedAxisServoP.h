@@ -24,15 +24,6 @@ public:
         m_repressReported=false;
     }
     ServoPPhase phase() const {return m_phase;}
-    double clutchTravelLimitMm() const {return m_travelMm;}
-    bool setClutchTravelLimitMm(double mm) {
-        if(!std::isfinite(mm)||mm<kServoPClutchTravelMm||
-           mm>kServoPMaxClutchTravelMm||
-           m_phase==ServoPPhase::Active||
-           m_phase==ServoPPhase::WaitingForIdle)return false;
-        m_travelMm=mm;
-        return true;
-    }
     const Pose6& anchorRobot() const {return m_robot0;}
     const Vec3& anchorTouch() const {return m_touch0;}
     const Pose6& lastAcceptedTarget() const {return m_lastSent;}
@@ -134,22 +125,11 @@ public:
             return out;
         }
 
-        // Independent existing command limits. Keep the raw goal above
-        // untouched for diagnostics. In a wall hold only the outward axis
-        // is frozen; do not let that axis consume the clutch travel budget.
-        out.wallHoldAxisMask=holdOutwardServoPAxes(goal,m_lastSent);
-        const double d=servoPCartesianDistance(goal,m_robot0);
-        if(!std::isfinite(d)) {
-            out.action=ServoPAction::Invalid;
-            return out;
-        }
-        out.saturated=d>m_travelMm;
-        if(out.saturated) {
-            const double f=m_travelMm/d;
-            for(int i=0;i<3;++i)goal[i]=m_robot0[i]+(goal[i]-m_robot0[i])*f;
-        }
-        out.boundedDistanceMm=std::min(d,m_travelMm);
-        out.wallHoldAxisMask|=holdOutwardServoPAxes(goal,m_lastSent);
+        // The clutch anchor defines an origin, not a spherical workspace.
+        // Do not saturate the intent by distance from that origin. Apply
+        // only the existing independent command/absolute-workspace guard.
+        // Retain the raw intent for diagnostics; no change to the per-command
+        // jump, feedback lead, hard tracking stop or hardware fault gates.
         const auto command=planServoPCommand(goal,m_lastSent,actual);
         out.wallHoldAxisMask|=command.heldAxes;
         out.feedbackLimited=command.leadRestricted;
@@ -183,7 +163,6 @@ private:
     ManualAxisMap m_mapping{};
     bool m_pending=false;
     bool m_repressReported=false;
-    double m_travelMm=kServoPClutchTravelMm;
     std::uint64_t m_idleSeq=0;
     unsigned m_idleCount=0;
 };
