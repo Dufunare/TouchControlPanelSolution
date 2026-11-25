@@ -34,6 +34,17 @@ public:
         return true;
     }
     bool sixAxisEnabled() const {return m_sixAxis;}
+    // Only before any command from the current clutch was sent. A missed
+    // snapshot cannot be taken as a release or allow a delayed press to
+    // capture. Discard unsent anchors and demand a new release/idle gate.
+    bool discardUnsentClutch(std::uint64_t seq) {
+        if(m_sentDuringClutch || m_pending || m_releaseStopPending)return false;
+        const bool sixAxis=m_sixAxis;
+        reset();
+        m_sixAxis=sixAxis;
+        m_idleSeq=seq;
+        return true;
+    }
     ServoPPhase phase() const {return m_phase;}
     const Pose6& anchorRobot() const {return m_robot0;}
     const Vec3& anchorTouch() const {return m_touch0;}
