@@ -882,9 +882,62 @@ void DeviceController::startServoP(bool sixAxis)
         !touchpanel::teleop::properRotation(st.rotationMatrix) ||
         !m_orientationAudit.supportsZyx(s) ||
         !touchpanel::teleop::servoP6DFeedbackHealthy(s,s.sessionEpoch,measured))) {
+        // Explain the existing gate without changing any permission,
+        // threshold, or live motion behavior.
+        using namespace touchpanel::teleop;
+        QStringList reasons;
+        if(st.button1Pressed)reasons<<QStringLiteral("Button1 仍按下");
+        if(!st.orientationValid || !properRotation(st.rotationMatrix))
+            reasons<<QStringLiteral("Touch 姿态数据无效");
+        if(s.userIndex!=0 || s.toolIndex!=0)
+            reasons<<QStringLiteral("User=%1 / Tool=%2（需默认坐标系0/0）")
+                .arg(s.userIndex).arg(s.toolIndex);
+        if(!s.actualQuaternionValid)
+            reasons<<QStringLiteral("8891 缺少有效 ActualQuaternion");
+        else if(s.userIndex==0 && s.toolIndex==0) {
+            const double error=feedbackZyxErrorDeg(s);
+            if(!std::isfinite(error) || error>0.5)
+                reasons<<QStringLiteral("实际 RPY 与四元数不一致：ZYX 误差=%1°（上限0.5°）")
+                    .arg(error,0,'f',3);
+        }
+        const auto audit=m_orientationAudit.report();
+        if(m_orientationAudit.session()!=s.sessionEpoch || !audit.unique || audit.bestOrder!=0)
+            reasons<<QStringLiteral("本会话 ZYX 证据未通过：有效不同姿态=%1，"
+                                    "候选=%2，唯一=%3，证据会话=%4，当前会话=%5")
+                .arg(audit.count)
+                .arg(audit.count?QString::fromLatin1(kRotationOrders[audit.bestOrder].data(),3):
+                                  QStringLiteral("未采集"))
+                .arg(audit.unique?QStringLiteral("是"):QStringLiteral("否"))
+                .arg(m_orientationAudit.session()).arg(s.sessionEpoch);
+        if(s.feedbackAgeMs<0 || s.feedbackAgeMs>150 ||
+           s.relayStatusAgeMs<0 || s.relayStatusAgeMs>350)
+            reasons<<QStringLiteral("六维反馈时效未通过：FeedbackAge=%1ms（上限150），"
+                                    "RelayAge=%2ms（上限350）")
+                .arg(s.feedbackAgeMs).arg(s.relayStatusAgeMs);
+        if(!touchpanel::finiteSix(s.jointPosition) || !touchpanel::finiteSix(s.jointTarget) ||
+           !touchpanel::finiteSix(s.jointVelocity))
+            reasons<<QStringLiteral("实际/目标关节反馈包含无效值");
+        else for(int i=0;i<6;++i) {
+            const double nominal=i==2?155.0:360.0;
+            const double limit=nominal-kServoPJointTrackingDeg;
+            if(std::abs(s.jointPosition[i])>limit || std::abs(s.jointTarget[i])>limit)
+                reasons<<QStringLiteral("J%1 实际/目标=%2°/%3°，超出名义关节范围余量")
+                    .arg(i+1).arg(s.jointPosition[i],0,'f',3).arg(s.jointTarget[i],0,'f',3);
+            if(std::abs(s.jointTarget[i]-s.jointPosition[i])>kServoPJointTrackingDeg)
+                reasons<<QStringLiteral("J%1 实际与目标关节差=%2°（上限3°）")
+                    .arg(i+1).arg(std::abs(s.jointTarget[i]-s.jointPosition[i]),0,'f',3);
+            if(std::abs(s.jointVelocity[i])>kServoPJointSpeedDegPerSec)
+                reasons<<QStringLiteral("J%1 实际速度=%2°/s（监测阈值5°/s）")
+                    .arg(i+1).arg(s.jointVelocity[i],0,'f',3);
+        }
+        if(!servoPRotationPoseValid(s.tcpPose))
+            reasons<<QStringLiteral("机器人 TCP 姿态无效或接近欧拉角奇异");
+        if(reasons.isEmpty())
+            reasons<<QStringLiteral("六维反馈或空闲状态检查未通过");
         emit backendMessageChanged(QStringLiteral(
-            "[ROTATION START BLOCKED] 需先松开 Button1；本次会话唯一 ZYX 证据、"
-            "User/Tool=0、新鲜有效四元数、Touch 姿态及关节/工作空间检查均须通过。"));
+            "[ROTATION START BLOCKED] %1。未进入遥控待命，未发送运动指令。"
+            "如需保留原有平移操作，请明确选择 ServoP · 仅平移（锁定姿态）。")
+            .arg(reasons.join(QStringLiteral("；"))));
         return;
     }
     m_cartesianServoP.reset();
