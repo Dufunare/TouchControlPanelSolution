@@ -6,7 +6,8 @@ namespace touchpanel::teleop {
 // Higher gain is opt-in for direct Cartesian ServoP. ServoJ retains its own
 // conservative <=2x guard in the Qt entrypoint.
 inline constexpr double kManualTeleopMaximumScale=4.0;
-// Read-only position joystick: one signed Touch axis per robot axis.
+// Pure device-coordinate position mapping: one signed Touch axis per
+// robot axis. This function produces intent only; it grants no motion.
 // Inputs 0..5 mean +X,+Y,+Z,-X,-Y,-Z, respectively.
 struct ManualAxisMap {
     std::array<int,3> output{0,5,1}; // master: X<-Touch X, Y<--Touch Z, Z<-Touch Y
