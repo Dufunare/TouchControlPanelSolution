@@ -2,6 +2,7 @@
 #include "ManualTeleop.h"
 #include "ServoPWorkspace.h"
 #include "ServoPCommandPlanner.h"
+#include "ServoPClutchTypes.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -12,8 +13,6 @@ namespace touchpanel::teleop {
 // Restores the field-proven 33ms ServoP Cartesian stream with explicit clutch
 // semantics. Touch and robot do NOT share an absolute origin.
 // These are conservative first-pass limits, not verified robot geometry.
-inline constexpr double kServoPClutchTravelMm=60.0; // opt-in default
-inline constexpr double kServoPMaxClutchTravelMm=180.0;
 inline constexpr double kServoPNominalTickSeconds=0.033;
 inline constexpr double kServoPMaxCatchupSeconds=0.066;
 inline constexpr double kServoPMaxSetpointStepMm=2.0; // legacy nominal 33ms
@@ -33,19 +32,8 @@ inline constexpr double kServoPMaxSelectableFeedbackLeadMm=20.0;
 inline constexpr double kServoPDirectLeadMm=kServoPCommandLeadMm;
 inline constexpr double kServoPDirectMaxJumpMm=kServoPCommandMaxJumpMm;
 
-enum class ServoPPhase { NeedRelease, Ready, Active, WaitingForIdle };
-enum class ServoPAction { None, Ready, Captured, Send, Released, TrackingHold, Invalid };
-
-struct ServoPTick {
-    ServoPAction action=ServoPAction::None;
-    Pose6 target{};
-    double rawDistanceMm=0.0;
-    double boundedDistanceMm=0.0;
-    bool saturated=false;
-    bool feedbackLimited=false;
-    unsigned wallHoldAxisMask=0;
-};
-
+// Historical controller for offline comparison. The application now uses
+// FixedAxisServoP; do not select this legacy trajectory integrator at runtime.
 // State-only clutch: no TCP/network access, no Qt, no movement authority.
 // Each press captures the CURRENT Touch and CURRENT robot feedback pose.
 // Release discards that pair. Moving the stylus while released never sends a
