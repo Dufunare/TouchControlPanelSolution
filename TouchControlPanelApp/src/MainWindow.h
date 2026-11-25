@@ -28,6 +28,7 @@ private:
     touchpanel::CommunicationBackend m_communicationBackend;
     DeviceController* m_controller = nullptr;
     RelayStateClient* m_relayStateClient = nullptr;
+    QThread* m_controlThread = nullptr;
     QThread* m_videoThread = nullptr;
     RelayVideoClient* m_videoClient = nullptr;
     VideoWidget* m_videoWidget = nullptr;
