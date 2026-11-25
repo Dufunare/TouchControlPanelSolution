@@ -133,7 +133,9 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     m_axisGain->setSingleStep(0.05);m_axisGain->setValue(1.0);
     m_axisDeadzone=new QDoubleSpinBox(manualGroup);
     m_axisDeadzone->setRange(0,10);m_axisDeadzone->setSuffix(QStringLiteral(" mm"));
-    m_axisDeadzone->setValue(0.3);
+    // Exact signed-axis mapping by default. The separate 0.3 mm
+    // duplicate-target filter in the ServoP guard still applies.
+    m_axisDeadzone->setValue(0.0);
     m_axisGain->setSuffix(QStringLiteral(" ×"));
     m_axisGain->setToolTip(QStringLiteral("Touch 位移乘以此比例；不是机器人速度设置。启动后锁定。"));
     manualForm->addRow(QStringLiteral("移动比例"),m_axisGain);
