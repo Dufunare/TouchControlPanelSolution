@@ -127,6 +127,8 @@ DeviceController::DeviceController(
 void DeviceController::setRelayStateClient(RelayStateClient* client)
 {
     m_relayStateClient = client;
+    if(client)connect(client,&RelayStateClient::orientationProbeFinished,
+                       this,&DeviceController::backendMessageChanged);
 }
 
 bool DeviceController::realMotionActive() const
@@ -461,6 +463,39 @@ void DeviceController::captureOrientationEvidence()
         .arg(errors.join(QStringLiteral(" "))).arg(status));
 }
 
+void DeviceController::probeRotationCandidate()
+{
+    using namespace touchpanel::teleop;
+    if(realMotionActive() || !m_relayStateClient || !m_backend ||
+       !m_fixedAxisPosePreview || !m_motionBaselineReady || !m_previewLastValid) {
+        emit backendMessageChanged(QStringLiteral("[ROTATION IK] 请先开启固定轴六维只读预览，抓取当前离合目标"));
+        return;
+    }
+    const auto s=m_relayStateClient->snapshot();
+    const auto st=m_backend->latestState();
+    if(!m_orientationAudit.supportsZyx(s) || !idleForExperimentalStep(s,0,0) ||
+       !st.valid || !st.schedulerRunning || !st.deviceCalibrated ||
+       !st.orientationValid || !st.button1Pressed ||
+       st.calibrationEpoch!=m_clutchCalibrationEpoch ||
+       st.button1ReleaseCounter!=m_previewReleaseCounter ||
+       servoPCartesianDistance(s.tcpPose,m_robotPoseOrigin)>0.5 ||
+       rotationDistanceDeg(rpyToMatrix({s.tcpPose[3],s.tcpPose[4],s.tcpPose[5]}),
+           rpyToMatrix({m_robotPoseOrigin[3],m_robotPoseOrigin[4],m_robotPoseOrigin[5]}))>0.5) {
+        emit backendMessageChanged(QStringLiteral("[ROTATION IK] 需要本会话唯一 ZYX 证据、User/Tool=0、稳定机器人及有效当前离合"));
+        return;
+    }
+    Clutch anchor;anchor.valid=true;anchor.touchPosition=m_touchOrigin;
+    anchor.touchRotation=m_touchRotationOrigin;anchor.robotPose=m_robotPoseOrigin;
+    Pose6 pose{};
+    if(!fixedAxisPosePreview(m_manualMap,anchor,st.positionMm,st.rotationMatrix,
+            {m_previewLast[3],m_previewLast[4],m_previewLast[5]},pose) ||
+       !m_relayStateClient->requestOrientationIkProbe(pose)) {
+        emit backendMessageChanged(QStringLiteral("[ROTATION IK] 目标不可计算/超出实验工作空间/已有诊断在途"));
+        return;
+    }
+    emit backendMessageChanged(QStringLiteral("[ROTATION IK] 已请求 V3 InverseSolution（29999，仅计算，不发送运动）"));
+}
+
 void DeviceController::startFixedAxisPosePreview()
 {
     if(realMotionActive() || !m_backend || !m_backend->isRunning() ||
@@ -721,6 +756,10 @@ void DeviceController::prepareSingleStep()
 
 void DeviceController::confirmSingleStep()
 {
+    if(m_relayStateClient && m_relayStateClient->orientationProbePending()) {
+        emit backendMessageChanged(QStringLiteral("等待只读姿态逆解诊断结束，再启动实体控制"));
+        return;
+    }
     if(!m_stepPrepared || m_realMode!=RealMode::None ||
        !m_robotBackend->isTransitConnected() || !m_relayStateClient)return;
     m_stepPrepared=false;
@@ -780,6 +819,10 @@ QString DeviceController::servoPWorkspaceStatus() const
 
 void DeviceController::startContinuousServoP()
 {
+    if(m_relayStateClient && m_relayStateClient->orientationProbePending()) {
+        emit backendMessageChanged(QStringLiteral("等待只读姿态逆解诊断结束，再启动实体控制"));
+        return;
+    }
     if(m_realMode!=RealMode::None || !m_backend ||
        !m_backend->isRunning() || !m_relayStateClient || !m_robotBackend ||
        !m_robotBackend->isTransitConnected() ||
@@ -853,6 +896,10 @@ void DeviceController::startContinuousServoP()
 
 void DeviceController::startContinuousServo()
 {
+    if(m_relayStateClient && m_relayStateClient->orientationProbePending()) {
+        emit backendMessageChanged(QStringLiteral("等待只读姿态逆解诊断结束，再启动实体控制"));
+        return;
+    }
     if(m_realMode!=RealMode::None || !m_backend ||
        !m_backend->isRunning() || !m_relayStateClient ||
        !m_robotBackend->isTransitConnected() ||
