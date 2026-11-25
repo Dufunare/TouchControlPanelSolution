@@ -112,6 +112,7 @@
   <ItemGroup>
     <ClCompile Include="src\DeviceController.cpp" />
     <ClCompile Include="src\RelayStateClient.cpp" />
+    <ClCompile Include="src\RelayVideoClient.cpp" />
     <ClCompile Include="src\TeleopCalibrationDialog.cpp" />
     <ClCompile Include="src\RelativeCalibrationDialog.cpp" />
     <ClCompile Include="src\main.cpp" />
@@ -127,6 +128,7 @@
     <ClInclude Include="src\widgets\VideoWidget.h" />
     <QtMoc Include="src\DeviceController.h" />
     <QtMoc Include="src\RelayStateClient.h" />
+    <QtMoc Include="src\RelayVideoClient.h" />
     <QtMoc Include="src\TeleopCalibrationDialog.h" />
     <QtMoc Include="src\RelativeCalibrationDialog.h" />
     <ClInclude Include="src\DeviceStateQt.h" />
