@@ -1,6 +1,14 @@
 ﻿#include "MainWindow.h"
 
 #include <QSplitter>
+#include <QThread>
+#include <QMetaObject>
+#include <QCheckBox>
+#include <QSpinBox>
+#include <QHBoxLayout>
+#include <QFileDialog>
+#include <QDateTime>
+#include <QStandardPaths>
 #include <QToolBar>
 #include <QLabel>
 #include <QTimer>
@@ -13,6 +21,8 @@
 
 #include "DeviceController.h"
 #include "RelayStateClient.h"
+#include "RelayVideoClient.h"
+#include "widgets/VideoWidget.h"
 #include "TeleopCalibrationDialog.h"
 #include "RelativeCalibrationDialog.h"
 #include <QPushButton>
@@ -30,6 +40,7 @@ MainWindow::MainWindow(QWidget* parent)
     //窗口设置
     setWindowTitle(QStringLiteral("TouchControlPanel · Teleoperation"));
     resize(1440, 860);
+    setMinimumSize(940,620);
 
 	//组件初始化
     m_relayStateClient = new RelayStateClient(this);
@@ -37,6 +48,19 @@ MainWindow::MainWindow(QWidget* parent)
     m_controller->setRelayStateClient(m_relayStateClient);
     m_controlPanel = new ControlPanelWidget(this);
     m_glWidget = new GLCoordinateWidget(this);
+    m_videoWidget = new VideoWidget(this);
+    m_videoThread = new QThread(this);
+    m_videoThread->setObjectName(QStringLiteral("RelayVideoThread"));
+    m_videoClient = new RelayVideoClient();
+    m_videoClient->moveToThread(m_videoThread);
+    connect(m_videoThread,&QThread::finished,m_videoClient,&QObject::deleteLater);
+    // These two receiver methods ONLY publish into a mutex-protected
+    // QImage mailbox. They do not touch widgets from the worker thread.
+    connect(m_videoClient,&RelayVideoClient::frameReady,
+            m_videoWidget,&VideoWidget::setFrame,Qt::DirectConnection);
+    connect(m_videoClient,&RelayVideoClient::frameLost,
+            m_videoWidget,&VideoWidget::showNoSignal,Qt::DirectConnection);
+    m_videoThread->start();
 
     // Less frequently used calibration and GL presentation tools remain
     // accessible, but do not occupy the control panel by default.
@@ -93,19 +117,15 @@ MainWindow::MainWindow(QWidget* parent)
     m_statusPanel = new StatusPanelWidget(this);
 
 	//布局设置
-    // The camera placeholder belongs to a separate PR. Keep the active
-    // 6DoF Touch scene prominent rather than reserving half the window for NO SIGNAL.
-    // The two sidebars grow vertically as controls and logs are added.
-    // Independent scroll areas keep the center video/GL splitter visible
-    // even when the main window becomes short. Existing widget pointers and
-    // signal connections remain unchanged after setWidget() reparents them.
+    // Sidebars have independent scroll viewports. No preview is a child
+    // of, or stacked above, either sidebar.
     auto* controlsScroll = new QScrollArea(this);
     controlsScroll->setObjectName(QStringLiteral("controlsScroll"));
     controlsScroll->setFrameShape(QFrame::NoFrame);
     controlsScroll->setWidgetResizable(true);
-    controlsScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    controlsScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     controlsScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-    controlsScroll->setMinimumWidth(220);
+    controlsScroll->setMinimumWidth(300);
     m_controlPanel->layout()->setSizeConstraint(QLayout::SetMinimumSize);
     controlsScroll->setWidget(m_controlPanel);
 
@@ -113,21 +133,105 @@ MainWindow::MainWindow(QWidget* parent)
     statusScroll->setObjectName(QStringLiteral("statusScroll"));
     statusScroll->setFrameShape(QFrame::NoFrame);
     statusScroll->setWidgetResizable(true);
-    statusScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    statusScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     statusScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-    statusScroll->setMinimumWidth(255);
+    statusScroll->setMinimumWidth(270);
     m_statusPanel->layout()->setSizeConstraint(QLayout::SetMinimumSize);
     statusScroll->setWidget(m_statusPanel);
 
+    auto* videoPanel=new QWidget(this);
+    auto* videoLayout=new QVBoxLayout(videoPanel);
+    videoLayout->setContentsMargins(4,4,4,4);
+    videoLayout->setSpacing(4);
+    auto* videoTools=new QHBoxLayout();
+    auto* videoStart=new QPushButton(QStringLiteral("开始视频"),videoPanel);
+    auto* videoStop=new QPushButton(QStringLiteral("停止"),videoPanel);
+    auto* videoSnapshot=new QPushButton(QStringLiteral("截图"),videoPanel);
+    auto* videoMirror=new QCheckBox(QStringLiteral("镜像"),videoPanel);
+    auto* videoPort=new QSpinBox(videoPanel);
+    videoPort->setRange(1,65535);
+    videoPort->setValue(8886);
+    videoPort->setToolTip(QStringLiteral("UDP 视频端口；IP 使用左侧中转站 IPv4"));
+    videoPort->setPrefix(QStringLiteral("UDP "));
+    videoTools->addWidget(videoStart);
+    videoTools->addWidget(videoStop);
+    videoTools->addWidget(videoSnapshot);
+    videoTools->addWidget(videoMirror);
+    videoTools->addWidget(videoPort);
+    videoTools->addStretch(1);
+    auto* videoState=new QLabel(QStringLiteral("UVC 视频 · 已停止"),videoPanel);
+    videoState->setWordWrap(true);
+    videoLayout->addLayout(videoTools);
+    videoLayout->addWidget(videoState);
+    videoLayout->addWidget(m_videoWidget,1);
+    videoStop->setEnabled(false);
+    videoSnapshot->setEnabled(false);
+    connect(videoStart,&QPushButton::clicked,this,[this,videoPort,videoStart]{
+        const QString host=m_controlPanel->relayHost();
+        const quint16 port=static_cast<quint16>(videoPort->value());
+        videoStart->setEnabled(false);
+        QMetaObject::invokeMethod(m_videoClient,[client=m_videoClient,host,port]{
+            client->start(host,port);
+        },Qt::QueuedConnection);
+    });
+    connect(videoStop,&QPushButton::clicked,this,[this]{
+        QMetaObject::invokeMethod(m_videoClient,&RelayVideoClient::stop,Qt::QueuedConnection);
+    });
+    connect(videoMirror,&QCheckBox::toggled,m_videoWidget,&VideoWidget::setMirrored);
+    connect(m_videoClient,&RelayVideoClient::stateChanged,this,
+        [videoStart,videoStop,videoSnapshot,videoPort,videoState](bool active,bool receiving,const QString& detail){
+            videoStart->setEnabled(!active);
+            videoStop->setEnabled(active);
+            videoPort->setEnabled(!active);
+            videoSnapshot->setEnabled(receiving);
+            videoState->setText(QStringLiteral("UVC 视频 · ")+detail);
+        });
+    connect(m_videoClient,&RelayVideoClient::message,this,[this](const QString& text){
+        m_statusPanel->setBackendMessage(text);
+        statusBar()->showMessage(text,6000);
+    });
+    connect(videoSnapshot,&QPushButton::clicked,this,[this]{
+        // Do not open a nested native save dialog during real motion.
+        if(m_controller->realMotionActive()) {
+            statusBar()->showMessage(QStringLiteral("请先停止实体遥控，再保存视频截图"),5000);
+            return;
+        }
+        const QString folder=QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
+        const QString proposed=folder+QStringLiteral("/TouchVideo_")+
+            QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss"))+
+            QStringLiteral(".png");
+        const QString path=QFileDialog::getSaveFileName(this,QStringLiteral("保存视频截图"),
+            proposed,QStringLiteral("PNG 图片 (*.png)"));
+        if(path.isEmpty())return;
+        const bool ok=m_videoWidget->saveFrame(path);
+        statusBar()->showMessage(ok?QStringLiteral("截图已保存：")+path:
+            QStringLiteral("截图失败：无有效画面或文件不可写"),6000);
+    });
+
+    auto* glPanel=new QWidget(this);
+    auto* glLayout=new QVBoxLayout(glPanel);
+    glLayout->setContentsMargins(4,4,4,4);
+    glLayout->addWidget(m_glWidget,1);
+    auto* previewSplitter=new QSplitter(Qt::Vertical,this);
+    previewSplitter->setObjectName(QStringLiteral("previewSplitter"));
+    previewSplitter->addWidget(videoPanel);
+    previewSplitter->addWidget(glPanel);
+    previewSplitter->setChildrenCollapsible(false);
+    previewSplitter->setStretchFactor(0,2);
+    previewSplitter->setStretchFactor(1,1);
+    previewSplitter->setSizes({440,260});
+    previewSplitter->setMinimumWidth(270);
+
     auto* splitter = new QSplitter(Qt::Horizontal, this);
+    splitter->setObjectName(QStringLiteral("mainSplitter"));
     splitter->addWidget(controlsScroll);
-    splitter->addWidget(m_glWidget);
+    splitter->addWidget(previewSplitter);
     splitter->addWidget(statusScroll);
-    splitter->setStretchFactor(0, 1);
-    splitter->setStretchFactor(1, 4);
-    splitter->setStretchFactor(2, 2);
+    splitter->setStretchFactor(0,0);
+    splitter->setStretchFactor(1,1);
+    splitter->setStretchFactor(2,0);
     splitter->setChildrenCollapsible(false);
-    splitter->setSizes({ 280, 820, 420 });
+    splitter->setSizes({325,780,335});
 
     setCentralWidget(splitter);
     auto* operationBar=addToolBar(QStringLiteral("遥控操作"));
@@ -298,6 +402,18 @@ MainWindow::MainWindow(QWidget* parent)
         });
 }
 
+
+MainWindow::~MainWindow()
+{
+    // Stop subscription and socket/timers on their owning thread before
+    // the video mailbox/widget is destroyed. No worker references robot I/O.
+    if(m_videoThread && m_videoThread->isRunning()) {
+        QMetaObject::invokeMethod(m_videoClient,&RelayVideoClient::stop,
+                                  Qt::BlockingQueuedConnection);
+        m_videoThread->quit();
+        m_videoThread->wait();
+    }
+}
 
 void MainWindow::closeEvent(QCloseEvent* event)
 {
