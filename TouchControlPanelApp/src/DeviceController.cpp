@@ -1243,36 +1243,114 @@ void DeviceController::runServoPTick()
     touchpanel::teleop::Mat3 measuredRotation=touchpanel::teleop::identity();
     if(sixAxis) {
         using namespace touchpanel::teleop;
-        // Do NOT fall through to the ordinary recoverable-gap path: that
-        // resets the planner. A six-axis feedback fault ends the mode.
-        if(!touchRunning || !legacyConnected || !feedbackFresh ||
-           !st.valid || !st.orientationValid || !st.schedulerRunning ||
-           !st.deviceCalibrated || !properRotation(st.rotationMatrix) ||
-           m_orientationAudit.hasZyxMismatch(robot.sessionEpoch) ||
-           actualGapMs>100 ||
-           !servoP6DFeedbackHealthy(robot,m_motionSession,measuredRotation)) {
-            haltRealMotion(QStringLiteral("[ROTATION STOP] 姿态/关节/位置/反馈/时序保护未通过"));
+        using F=ServoP6DFault;
+        const auto check=checkServoP6DFeedback(robot,m_motionSession,measuredRotation);
+        const bool touchLifecycle=touchRunning && st.schedulerRunning && st.deviceCalibrated;
+        const bool touchSampleMissing=!st.valid || st.sampleCounter<=m_lastTouchSampleCounter;
+        const bool tickLate=actualGapMs>100;
+        const bool shortFeedbackGap=(check.fault==F::FeedbackAge || check.fault==F::RelayAge) &&
+            continuousTelemetryAgesHealthy(robot);
+        const bool contradicts=m_orientationAudit.hasZyxMismatch(robot.sessionEpoch);
+        // No command has been sent: a temporary missed read or late
+        // scheduling tick can safely keep the mode disarmed. Never send
+        // during this interval, never auto-capture a held button, never
+        // clear an in-flight stop. The same live thresholds still apply
+        // before any subsequent command. Once sent, a fault stops.
+        if(!m_motionCommandSent && touchLifecycle && legacyConnected &&
+           feedbackFresh && !contradicts &&
+           (check.ok() || shortFeedbackGap) &&
+           (!st.valid || (st.orientationValid && properRotation(st.rotationMatrix))) &&
+           (touchSampleMissing || tickLate || shortFeedbackGap) &&
+           m_cartesianServoP.discardUnsentClutch(robot.stateSeq)) {
+            if(!m_servoPFeedbackHolding) {
+                emit backendMessageChanged(QStringLiteral(
+                    "[SERVOP 6D WAIT] 尚未下发运动；暂时采样/时序异常，撤销离合并停发。"
+                    "TickGap=%1ms FeedbackAge=%2ms RelayAge=%3ms TouchValid=%4 Sample=%5")
+                    .arg(actualGapMs).arg(robot.feedbackAgeMs).arg(robot.relayStatusAgeMs)
+                    .arg(st.valid).arg(st.sampleCounter));
+            }
+            m_servoPFeedbackHolding=true;
+            m_servoPHasTarget=false;
+            m_servoPTrackingHolding=false;
+            m_servoPTrackingHoldTimer.invalidate();
+            m_rotationLagTimer.invalidate();
             return;
         }
-        const double lag=rotationDistanceDeg(
-            servoPRotation(m_lastServoPCartesianTarget),measuredRotation);
-        if(!std::isfinite(lag) || lag>kServoPRotationHardTrackingDeg) {
-            haltRealMotion(QStringLiteral("[ROTATION STOP] 实际姿态跟踪误差 %1°").arg(lag,0,'f',3));
+        // All active/commanded faults remain fail-stop, with the exact
+        // value that triggered the existing guard rather than a generic
+        // combined message. No threshold is changed here.
+        QString reason;
+        if(!touchLifecycle)reason=QStringLiteral("Touch 调度器/校准失效");
+        else if(!legacyConnected || !feedbackFresh)
+            reason=QStringLiteral("8888/8891 通路失效：8888=%1 8891=%2")
+                .arg(legacyConnected).arg(feedbackFresh);
+        else if(contradicts)reason=QStringLiteral("本会话已观测到 ZYX 不一致");
+        else if(!st.valid)reason=QStringLiteral("Touch 当前快照无效");
+        else if(!st.orientationValid || !properRotation(st.rotationMatrix))
+            reason=QStringLiteral("Touch 姿态矩阵无效");
+        else if(tickLate)reason=QStringLiteral("控制周期间隔=%1ms（上限100ms）").arg(actualGapMs);
+        else if(!check.ok()) {
+            switch(check.fault) {
+            case F::Link:reason=QStringLiteral("8891 连接/端口/反馈有效位异常");break;
+            case F::Sequence:reason=QStringLiteral("机器人反馈序号无效");break;
+            case F::Session:reason=QStringLiteral("机器人反馈会话变化");break;
+            case F::Frames:reason=QStringLiteral("User/Tool=%1/%2（需0/0）")
+                .arg(robot.userIndex).arg(robot.toolIndex);break;
+            case F::FeedbackAge:reason=QStringLiteral("机器人反馈年龄=%1ms（上限150ms）")
+                .arg(check.value,0,'f',0);break;
+            case F::RelayAge:reason=QStringLiteral("中转站状态心跳年龄=%1ms（上限350ms）")
+                .arg(check.value,0,'f',0);break;
+            case F::RobotState:reason=QStringLiteral(
+                "机器人状态变化 Mode=%1 Enabled=%2 Error=%3 Drag=%4 Jog=%5 Pause=%6")
+                .arg(robot.robotMode).arg(robot.enabled).arg(robot.error).arg(robot.dragging)
+                .arg(robot.jogging).arg(robot.paused);break;
+            case F::NonfiniteFeedback:reason=QStringLiteral("位姿/关节反馈数值无效");break;
+            case F::Quaternion:reason=QStringLiteral("实际姿态四元数缺失或无效");break;
+            case F::OrientationMismatch:reason=QStringLiteral("实际四元数与 ZYX 误差=%1°（上限0.5°）")
+                .arg(check.value,0,'f',3);break;
+            case F::Pose:reason=QStringLiteral("实际 TCP 超工作空间或欧拉角表示无效");break;
+            case F::JointRange:
+            case F::JointTracking:
+            case F::JointSpeed: {
+                const int k=check.joint;
+                const QString what=check.fault==F::JointRange?QStringLiteral("关节范围"):
+                    check.fault==F::JointTracking?QStringLiteral("关节跟踪差"):QStringLiteral("关节速度");
+                const QString unit=check.fault==F::JointSpeed?QStringLiteral("°/s"):QStringLiteral("°");
+                reason=QStringLiteral("J%1 %2=%3%4（上限%5%4）；实际=%6° 目标=%7° 速度=%8°/s")
+                    .arg(k+1).arg(what).arg(check.value,0,'f',3).arg(unit).arg(check.limit,0,'f',3)
+                    .arg(robot.jointPosition[k],0,'f',3).arg(robot.jointTarget[k],0,'f',3)
+                    .arg(robot.jointVelocity[k],0,'f',3);
+                break;
+            }
+            case F::None:break;
+            }
+        } else if(touchSampleMissing)
+            reason=QStringLiteral("Touch 采样序号未更新：当前=%1 上次=%2")
+                .arg(st.sampleCounter).arg(m_lastTouchSampleCounter);
+        if(!reason.isEmpty()) {
+            haltRealMotion(QStringLiteral("[ROTATION STOP] ")+reason+
+                QStringLiteral("；TickGap=%1ms FeedbackAge=%2ms RelayAge=%3ms")
+                    .arg(actualGapMs).arg(robot.feedbackAgeMs).arg(robot.relayStatusAgeMs));
             return;
         }
-        if(lag>0.5) {
-            if(!m_rotationLagTimer.isValid())m_rotationLagTimer.start();
-            if(m_rotationLagTimer.elapsed()>1500) {
-                haltRealMotion(QStringLiteral("[ROTATION STOP] 持续姿态跟踪误差"));
+        // Compare only an active transmitted target, not an old startup
+        // pose or a setpoint already canceled by the release stop request.
+        // Release ACK/physical-idle checks remain independent below.
+        if(m_cartesianServoP.phase()==ServoPPhase::Active && m_servoPHasTarget) {
+            const double lag=rotationDistanceDeg(
+                servoPRotation(m_lastServoPCartesianTarget),measuredRotation);
+            if(!std::isfinite(lag) || lag>kServoPRotationHardTrackingDeg) {
+                haltRealMotion(QStringLiteral("[ROTATION STOP] 实际姿态跟踪误差 %1°").arg(lag,0,'f',3));
                 return;
             }
+            if(lag>0.5) {
+                if(!m_rotationLagTimer.isValid())m_rotationLagTimer.start();
+                if(m_rotationLagTimer.elapsed()>1500) {
+                    haltRealMotion(QStringLiteral("[ROTATION STOP] 持续姿态跟踪误差"));
+                    return;
+                }
+            } else m_rotationLagTimer.invalidate();
         } else m_rotationLagTimer.invalidate();
-        // An invalid/stalled Touch sample must not leave an angular
-        // command stream armed, even for the legacy three-tick grace.
-        if(st.sampleCounter<=m_lastTouchSampleCounter) {
-            haltRealMotion(QStringLiteral("[ROTATION STOP] Touch 姿态采样未更新"));
-            return;
-        }
     }
     // A brief feedback gap cannot authorize ANY new motion. Disarm
     // clutch; existing 400ms watchdog still escalates persistent loss.
