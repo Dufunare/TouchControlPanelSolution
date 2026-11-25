@@ -27,5 +27,7 @@ namespace touchpanel
         bool button1Pressed = false;
 
         std::uint64_t sampleCounter = 0;
+        // Monotonic release-edge count from the HD scheduler, not GUI polling.
+        std::uint64_t button1ReleaseCounter = 0;
     };
 } // namespace touchpanel
