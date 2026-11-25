@@ -73,6 +73,7 @@ public slots:
     void confirmSingleStep();
     void startContinuousServo();
     void startContinuousServoP();
+    void startRotationServoP();
     void stopTeleop();
 
 signals:
@@ -97,6 +98,7 @@ private slots:
     void haltRealMotion(const QString& cause);
 
 private:
+    void startServoP(bool rotationTrial);
     RelayStateClient* m_relayStateClient = nullptr;
     touchpanel::teleop::Calibration m_calibration{};
     bool m_calibrationApplied=false;
@@ -136,6 +138,8 @@ private:
     bool m_ikPending=false;
     bool m_motionCommandSent=false;
     touchpanel::teleop::FixedAxisServoP m_cartesianServoP;
+    touchpanel::RobotSnapshot m_rotationTrialStart{};
+    QElapsedTimer m_rotationLagTimer;
     touchpanel::teleop::ServoPFollowMetrics m_servoPFollowMetrics;
     QElapsedTimer m_servoPReleaseTimer;
     QElapsedTimer m_servoPStatsTimer;
