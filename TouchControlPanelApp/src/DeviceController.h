@@ -13,7 +13,7 @@
 #include "TouchBackend.h"
 #include "TeleopGeometry.h"
 #include "ManualTeleop.h"
-#include "RelativeServoP.h"
+#include "FixedAxisServoP.h"
 #include "ServoPFlowGuard.h"
 #include "ServoPFollowMetrics.h"
 
@@ -39,9 +39,6 @@ public:
     void applyPreviewCalibration(const touchpanel::teleop::Calibration& calibration,int user,int tool);
     void setManualPreviewMapping(const touchpanel::teleop::ManualAxisMap& mapping);
     bool setServoPClutchTravelLimit(double limitMm);
-    bool setServoPFollowSpeedLimit(double limitMmPerSec);
-    bool setServoPFeedbackLeadLimit(double limitMm);
-    bool setServoPVirtualWallSlideEnabled(bool enabled);
 
 public slots:
     void invalidateTeleopBaseline();
@@ -125,7 +122,7 @@ private:
     bool m_stepReplyAccepted=false;
     bool m_ikPending=false;
     bool m_motionCommandSent=false;
-    touchpanel::teleop::RelativeServoP m_cartesianServoP;
+    touchpanel::teleop::FixedAxisServoP m_cartesianServoP;
     touchpanel::teleop::ServoPFollowMetrics m_servoPFollowMetrics;
     QElapsedTimer m_servoPReleaseTimer;
     QElapsedTimer m_servoPStatsTimer;
