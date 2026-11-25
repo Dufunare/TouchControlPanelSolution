@@ -1,6 +1,7 @@
 #include "VideoWidget.h"
 
 #include <QPainter>
+#include <QResizeEvent>
 #include <QSizePolicy>
 #include <QTimer>
 
@@ -54,7 +55,30 @@ void VideoWidget::updateFrame()
         m_displayFrame=m_latestFrame;
         m_displayRevision=m_revision;
     }
+    rebuildDisplayCache();
     update();
+}
+
+void VideoWidget::rebuildDisplayCache()
+{
+    m_cachedSize=size();
+    m_cachedDpr=devicePixelRatioF();
+    m_scaledFrame=QPixmap();
+    if(m_displayFrame.isNull() || size().isEmpty())return;
+    // Like PR #2, scale once per new frame or geometry change. Repaints
+    // caused by the OpenGL sibling only blit the already-sized pixmap.
+    const QSize deviceSize(qRound(m_cachedSize.width()*m_cachedDpr),
+                           qRound(m_cachedSize.height()*m_cachedDpr));
+    const QImage image=m_mirrored?m_displayFrame.mirrored(true,false):m_displayFrame;
+    m_scaledFrame=QPixmap::fromImage(image.scaled(deviceSize,Qt::KeepAspectRatio,
+                                                 Qt::FastTransformation));
+    m_scaledFrame.setDevicePixelRatio(m_cachedDpr);
+}
+
+void VideoWidget::resizeEvent(QResizeEvent* event)
+{
+    QWidget::resizeEvent(event);
+    rebuildDisplayCache();
 }
 
 void VideoWidget::paintEvent(QPaintEvent*)
@@ -67,15 +91,11 @@ void VideoWidget::paintEvent(QPaintEvent*)
         painter.drawText(rect(),Qt::AlignCenter,QStringLiteral("NO SIGNAL"));
         return;
     }
-    const QSize fitted=m_displayFrame.size().scaled(size(),Qt::KeepAspectRatio);
-    const QRect target((width()-fitted.width())/2,(height()-fitted.height())/2,
-                       fitted.width(),fitted.height());
-    painter.setRenderHint(QPainter::SmoothPixmapTransform,true);
-    if(m_mirrored) {
-        painter.translate(width(),0);
-        painter.scale(-1,1);
-    }
-    painter.drawImage(target,m_displayFrame);
+    if(m_cachedSize!=size() || m_cachedDpr!=devicePixelRatioF())rebuildDisplayCache();
+    if(m_scaledFrame.isNull())return;
+    const QSizeF fitted=m_scaledFrame.deviceIndependentSize();
+    painter.drawPixmap(QPointF((width()-fitted.width())/2.0,
+                               (height()-fitted.height())/2.0),m_scaledFrame);
 }
 
 bool VideoWidget::saveFrame(const QString& path) const
@@ -92,5 +112,6 @@ void VideoWidget::setMirrored(bool mirrored)
 {
     if(m_mirrored==mirrored)return;
     m_mirrored=mirrored;
+    rebuildDisplayCache();
     update();
 }
