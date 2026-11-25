@@ -139,12 +139,6 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     m_axisGain->setSuffix(QStringLiteral(" ×"));
     m_axisGain->setToolTip(QStringLiteral("Touch 位移乘以此比例；不是机器人速度设置。启动后锁定。"));
     manualForm->addRow(QStringLiteral("移动比例"),m_axisGain);
-    m_servoPTravel=new QComboBox(manualGroup);
-    m_servoPTravel->addItem(QStringLiteral("60 mm · 默认"),60.0);
-    m_servoPTravel->addItem(QStringLiteral("120 mm · 扩展"),120.0);
-    m_servoPTravel->addItem(QStringLiteral("180 mm · 扩展上限"),180.0);
-    m_servoPTravel->setToolTip(QStringLiteral("仅影响单次按压的相对目标范围；不扩大XYZ工作空间边界"));
-    detailsForm->addRow(QStringLiteral("单次离合软件行程限制"),m_servoPTravel);
     // ServoP now uses the latest Touch target directly, with a fixed
     // bounded forward setpoint and independent hard 8891 safeguards.
     // Do not expose ineffective legacy speed/feedback-horizon knobs.
@@ -196,8 +190,7 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     connect(servoButton,&QPushButton::clicked,this,[this]{
         if(m_realModeSelector->currentIndex()==0)
             emit continuousServoPRequested(
-                m_axisSelection,m_axisGain->value(),m_axisDeadzone->value(),
-                m_servoPTravel->currentData().toDouble());
+                m_axisSelection,m_axisGain->value(),m_axisDeadzone->value());
         else
             emit continuousServoRequested(
                 m_axisSelection,m_axisGain->value(),m_axisDeadzone->value());
@@ -283,7 +276,6 @@ void ControlPanelWidget::setMappingLocked(bool locked)
     for(auto* combo:m_axisCombos)if(combo)combo->setEnabled(!locked);
     if(m_axisGain)m_axisGain->setEnabled(!locked);
     if(m_axisDeadzone)m_axisDeadzone->setEnabled(!locked);
-    if(m_servoPTravel)m_servoPTravel->setEnabled(!locked);
     if(m_resetAxesButton)m_resetAxesButton->setEnabled(!locked);
     // Keep the mode selector's existing stop-before-switch behavior.
 }
