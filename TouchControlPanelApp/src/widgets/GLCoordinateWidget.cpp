@@ -103,6 +103,7 @@ void GLCoordinateWidget::setDeviceState(const touchpanel::DeviceState& state) {
         if(!m_haveValidPose || (m_trail.empty() || (p-m_trail.back()).length()>1.5f)) {
             m_trail.push_back(p);
             if(m_trail.size()>250) m_trail.pop_front();
+            m_trailDirty=true;
         }
         m_haveValidPose=true;
         if(m_follow)m_cameraTarget=p;
@@ -113,14 +114,14 @@ void GLCoordinateWidget::setDeviceState(const touchpanel::DeviceState& state) {
 }
 bool GLCoordinateWidget::captureDisplayOrigin() {
     if(!m_origin.capture(m_state.positionMm,m_state.valid))return false;
-    m_trail.clear();m_cameraTarget={};
+    m_trail.clear();m_trailDirty=true;m_cameraTarget={};
     update();return true;
 }
 void GLCoordinateWidget::clearDisplayOrigin() {
-    m_origin.clear();m_trail.clear();m_cameraTarget={};
+    m_origin.clear();m_trail.clear();m_trailDirty=true;m_cameraTarget={};
     update();
 }
-void GLCoordinateWidget::clearTrail() {m_trail.clear();update();}
+void GLCoordinateWidget::clearTrail() {m_trail.clear();m_trailDirty=true;update();}
 void GLCoordinateWidget::resetCamera() {
     m_follow=false;m_cameraTarget={};m_yaw=43;m_pitch=24;m_distance=430;update();
 }
@@ -147,6 +148,8 @@ void GLCoordinateWidget::initializeGL() {
     // program bound throughout the static scene upload.
     m_shader->bind();
     buildStaticScene();
+    buildStylusGeometry();
+    m_trailDirty=true;
     m_shader->release();
 }
 void GLCoordinateWidget::resizeGL(int w,int h) {
@@ -204,63 +207,63 @@ void GLCoordinateWidget::buildStaticScene() {
     upload(m_gridVao,m_gridVbo,grid);m_gridCount=int(grid.size());
     upload(m_axesVao,m_axesVbo,axes);m_axesCount=int(axes.size());
 }
-void GLCoordinateWidget::updateDynamicGeometry() {
-    std::vector<V> trail,pen,solids;
-    if(m_trail.size()>1)for(size_t i=1;i<m_trail.size();++i)
-        line(trail,m_trail[i-1],m_trail[i],QVector3D(0.24f,0.52f,0.66f));
+void GLCoordinateWidget::updateTrailGeometry() {
+    if(!m_trailDirty)return;
+    std::vector<V> trail;
+    if(m_trail.size()>1) {
+        trail.reserve((m_trail.size()-1)*2);
+        for(size_t i=1;i<m_trail.size();++i)
+            line(trail,m_trail[i-1],m_trail[i],QVector3D(0.24f,0.52f,0.66f));
+    }
     m_trailCount=int(trail.size());
     upload(m_trailVao,m_trailVbo,trail);
+    m_trailDirty=false;
+}
 
-    // A valid position still has a visible stylus when the orientation
-    // matrix has not yet passed validation. Only rotation is substituted.
-    if(m_state.valid) {
-        const auto rotation=m_state.orientationValid ? m_state.rotationMatrix :
-            touchpanel::teleop::identity();
-        const auto tip=renderPosition();
-        QMatrix4x4 model;
-        const auto& r=rotation;
-        // Native OpenHaptics matrix is converted to row-major in TouchBackend;
-        // QMatrix4x4 constructor accepts explicit row-major values.
-        QMatrix4x4 local(
-            float(r[0]),float(r[1]),float(r[2]),tip.x(),
-            float(r[3]),float(r[4]),float(r[5]),tip.y(),
-            float(r[6]),float(r[7]),float(r[8]),tip.z(),
-            0,0,0,1);
-        model=local;
-        const QVector3D barrel(0.68f,0.77f,0.88f),grip(0.20f,0.27f,0.36f),
-                        metal(0.82f,0.87f,0.94f);
-        // Tip anchored exactly at HD_CURRENT_POSITION (local 0,0,0).
-        // Shaft extends along local +Z. No force / robot command is generated.
-        localCylinder(solids,model,0,6,0.12f,2.2f,kCyan,12);
-        localCylinder(solids,model,6,13,2.2f,3.1f,metal,16);
-        localCylinder(solids,model,13,52,3.1f,3.1f,barrel,16);
-        localCylinder(solids,model,27,44,3.45f,3.45f,grip,16);
-        localCylinder(solids,model,52,56,3.0f,3.0f,metal,16);
-        localCylinder(solids,model,56,59,3.0f,2.4f,grip,16);
-        // Fine rings around the grip, also good cues for orientation roll.
-        for(int i=0;i<7;++i) {
-            const float z=29.0f+i*2.0f;
-            for(int j=0;j<16;++j) {
-                const float a=2*pi*j/16,b=2*pi*(j+1)/16;
-                line(pen,transformed(model,{3.53f*std::cos(a),3.53f*std::sin(a),z}),
-                         transformed(model,{3.53f*std::cos(b),3.53f*std::sin(b),z}),
-                         QVector3D(0.28f,0.45f,0.57f));
-            }
+void GLCoordinateWidget::buildStylusGeometry() {
+    // Immutable local-space geometry, uploaded once per OpenGL context.
+    // Pose changes update a uniform matrix, not CPU vertices or VBOs.
+    std::vector<V> pen,solids;
+    QMatrix4x4 local;
+    const QVector3D barrel(0.68f,0.77f,0.88f),grip(0.20f,0.27f,0.36f),
+                    metal(0.82f,0.87f,0.94f);
+    localCylinder(solids,local,0,6,0.12f,2.2f,kCyan,12);
+    localCylinder(solids,local,6,13,2.2f,3.1f,metal,16);
+    localCylinder(solids,local,13,52,3.1f,3.1f,barrel,16);
+    localCylinder(solids,local,27,44,3.45f,3.45f,grip,16);
+    localCylinder(solids,local,52,56,3.0f,3.0f,metal,16);
+    localCylinder(solids,local,56,59,3.0f,2.4f,grip,16);
+    for(int i=0;i<7;++i) {
+        const float z=29.0f+i*2.0f;
+        for(int j=0;j<16;++j) {
+            const float a=2*pi*j/16,b=2*pi*(j+1)/16;
+            line(pen,{3.53f*std::cos(a),3.53f*std::sin(a),z},
+                     {3.53f*std::cos(b),3.53f*std::sin(b),z},
+                     QVector3D(0.28f,0.45f,0.57f));
         }
-        // Orientation gizmo: local axes follow the actual 3x3 matrix.
-        const QVector3D c=transformed(model,{0,0,16});
-        line(pen,c,transformed(model,{24,0,16}),kRed);
-        line(pen,c,transformed(model,{0,24,16}),kGreen);
-        line(pen,c,transformed(model,{0,0,40}),kBlue);
-        // Emphasized tip crosshair, useful when zooming out.
-        for(int i=0;i<3;++i) {
-            QVector3D e(0,0,0); e[i]=3;
-            line(pen,tip-e,tip+e,kCyan);
-        }
+    }
+    line(pen,{0,0,16},{24,0,16},kRed);
+    line(pen,{0,0,16},{0,24,16},kGreen);
+    line(pen,{0,0,16},{0,0,40},kBlue);
+    // Local crosshair remains centered on the tracked tip.
+    for(int i=0;i<3;++i) {
+        QVector3D e(0,0,0); e[i]=3;
+        line(pen,-e,e,kCyan);
     }
     m_penCount=int(pen.size());m_solidCount=int(solids.size());
     upload(m_penVao,m_penVbo,pen);
     upload(m_solidVao,m_solidVbo,solids);
+}
+
+QMatrix4x4 GLCoordinateWidget::stylusModelMatrix() const {
+    const auto r=m_state.orientationValid ? m_state.rotationMatrix :
+        touchpanel::teleop::identity();
+    const auto tip=renderPosition();
+    return QMatrix4x4(
+        float(r[0]),float(r[1]),float(r[2]),tip.x(),
+        float(r[3]),float(r[4]),float(r[5]),tip.y(),
+        float(r[6]),float(r[7]),float(r[8]),tip.z(),
+        0,0,0,1);
 }
 QMatrix4x4 GLCoordinateWidget::viewMatrix() const {
     const float a=m_yaw*pi/180,b=m_pitch*pi/180;
@@ -279,13 +282,16 @@ void GLCoordinateWidget::paintGL() {
         m_shader->setUniformValue("mvp",mvp);
         draw(m_gridVao,m_gridCount,GL_LINES,1);
         draw(m_axesVao,m_axesCount,GL_LINES,2);
-        updateDynamicGeometry();
+        updateTrailGeometry();
         draw(m_trailVao,m_trailCount,GL_LINES,2);
-        glDisable(GL_CULL_FACE);
-        draw(m_solidVao,m_solidCount,GL_TRIANGLES);
-        glDisable(GL_DEPTH_TEST);
-        draw(m_penVao,m_penCount,GL_LINES,2);
-        glEnable(GL_DEPTH_TEST);
+        if(m_state.valid) {
+            m_shader->setUniformValue("mvp",mvp*stylusModelMatrix());
+            glDisable(GL_CULL_FACE);
+            draw(m_solidVao,m_solidCount,GL_TRIANGLES);
+            glDisable(GL_DEPTH_TEST);
+            draw(m_penVao,m_penCount,GL_LINES,2);
+            glEnable(GL_DEPTH_TEST);
+        }
         m_shader->release();
     }
     QPainter painter(this);
