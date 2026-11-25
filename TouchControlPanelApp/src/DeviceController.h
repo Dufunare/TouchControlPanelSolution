@@ -38,7 +38,6 @@ public:
     QString servoPWorkspaceStatus() const;
     void applyPreviewCalibration(const touchpanel::teleop::Calibration& calibration,int user,int tool);
     void setManualPreviewMapping(const touchpanel::teleop::ManualAxisMap& mapping);
-    bool setServoPClutchTravelLimit(double limitMm);
 
 public slots:
     void invalidateTeleopBaseline();
@@ -140,7 +139,6 @@ private:
     int m_servoPSentPackets=0;
     std::array<double,6> m_lastServoPCartesianTarget{};
     bool m_servoPHasTarget=false;
-    bool m_servoPWasSaturated=false;
     bool m_servoPWorkspaceBlocked=false;
     int m_servoPWorkspaceAxis=-1;
     unsigned m_servoPWallMask=0;
