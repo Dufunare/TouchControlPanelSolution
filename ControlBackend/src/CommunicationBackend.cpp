@@ -1017,7 +1017,7 @@ namespace touchpanel
            now-m_impl->lastMotionLogTime>=std::chrono::seconds(1)) {
             m_impl->emitMessage("[SERVOP TX] 本周期已发送 "+
                 std::to_string(m_impl->motionSentSinceLastLog)+
-                " 个实时目标（固定当前机器人 RPY；无 IK/MovL）。");
+                " 个实时六参数 ServoP 目标（XYZ、Rx/Ry/Rz；无 IK/MovL）。");
             m_impl->motionSentSinceLastLog=0;
             m_impl->lastMotionLogTime=now;
         }
