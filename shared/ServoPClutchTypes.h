@@ -19,6 +19,8 @@ struct ServoPTick {
     // Original fixed-axis intent, before the independent command guard.
     Pose6 intent{};
     bool intentValid=false;
+    // Only the live fixed-axis controller uses this release handshake.
+    bool releaseStopRequired=false;
     double rawDistanceMm=0.0;
     double boundedDistanceMm=0.0;
     bool saturated=false;
