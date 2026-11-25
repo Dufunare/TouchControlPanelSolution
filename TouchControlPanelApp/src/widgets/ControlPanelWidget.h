@@ -48,6 +48,7 @@ signals:
     void singleStepRequested();
     void continuousServoRequested(const std::array<int,3>& axes,double gain,double deadzone);
     void continuousServoPRequested(const std::array<int,3>& axes,double gain,double deadzone);
+    void rotationServoPRequested(const std::array<int,3>& axes,double gain,double deadzone);
 
 private:
     void setAxisChoice(int robotAxis,int sourceCode);
