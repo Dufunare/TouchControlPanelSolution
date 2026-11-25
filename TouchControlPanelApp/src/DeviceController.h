@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <array>
+#include <atomic>
 #include <QTimer>
 #include <QElapsedTimer>
 #include <QString>
@@ -72,6 +73,7 @@ public slots:
 
 signals:
     void deviceStateUpdated(const touchpanel::DeviceState& state);
+    void servoPStatusChanged(const QString& status);
     void backendMessageChanged(const QString& message);
 
     void tcpConnectionChanged(bool connected);
@@ -104,6 +106,8 @@ private:
     touchpanel::CommunicationBackend* m_robotBackend = nullptr;
     QTimer m_pollTimer;
     QTimer m_motionTimer;
+    QTimer m_statusTimer;
+    QString m_lastServoPStatus;
     bool m_lastButtonPressed = false;
     bool m_motionBaselineReady = false;
     std::uint64_t m_clutchCalibrationEpoch=0;
@@ -118,7 +122,7 @@ private:
     std::array<double, 3> m_lastSent{ 0.0, 0.0, 0.0 };
     bool m_hasLastSent = false;
     enum class RealMode { None, SingleStep, Continuous, CartesianServoP };
-    RealMode m_realMode=RealMode::None;
+    std::atomic<RealMode> m_realMode{RealMode::None};
     bool m_stepPrepared=false;
     bool m_stepAwaitingReply=false;
     bool m_stepReplyAccepted=false;
