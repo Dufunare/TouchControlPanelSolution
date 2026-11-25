@@ -770,8 +770,8 @@ void DeviceController::prepareSingleStep()
 
 void DeviceController::confirmSingleStep()
 {
-    if(m_relayStateClient && m_relayStateClient->orientationProbePending()) {
-        emit backendMessageChanged(QStringLiteral("等待只读姿态逆解诊断结束，再启动实体控制"));
+    if(m_relayStateClient && m_relayStateClient->orientationProbeInterlock()) {
+        emit backendMessageChanged(QStringLiteral("只读姿态诊断仍在途或Dashboard链路不确定，禁止启动实体控制；查看诊断日志"));
         return;
     }
     if(!m_stepPrepared || m_realMode!=RealMode::None ||
@@ -833,8 +833,8 @@ QString DeviceController::servoPWorkspaceStatus() const
 
 void DeviceController::startContinuousServoP()
 {
-    if(m_relayStateClient && m_relayStateClient->orientationProbePending()) {
-        emit backendMessageChanged(QStringLiteral("等待只读姿态逆解诊断结束，再启动实体控制"));
+    if(m_relayStateClient && m_relayStateClient->orientationProbeInterlock()) {
+        emit backendMessageChanged(QStringLiteral("只读姿态诊断仍在途或Dashboard链路不确定，禁止启动实体控制；查看诊断日志"));
         return;
     }
     if(m_realMode!=RealMode::None || !m_backend ||
@@ -910,8 +910,8 @@ void DeviceController::startContinuousServoP()
 
 void DeviceController::startContinuousServo()
 {
-    if(m_relayStateClient && m_relayStateClient->orientationProbePending()) {
-        emit backendMessageChanged(QStringLiteral("等待只读姿态逆解诊断结束，再启动实体控制"));
+    if(m_relayStateClient && m_relayStateClient->orientationProbeInterlock()) {
+        emit backendMessageChanged(QStringLiteral("只读姿态诊断仍在途或Dashboard链路不确定，禁止启动实体控制；查看诊断日志"));
         return;
     }
     if(m_realMode!=RealMode::None || !m_backend ||
