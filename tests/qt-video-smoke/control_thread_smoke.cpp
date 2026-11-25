@@ -161,6 +161,11 @@ int main(int argc,char** argv) {
         socket->flush();
         require(waitFor([&]{return !report.isEmpty();}) && !report.contains("RTT="),
                 "mismatched echo must not be accepted as IK evidence");
+        bool blocked=false;
+        QMetaObject::invokeMethod(worker.client,[&]{
+            blocked=worker.client->orientationProbeInterlock();
+        },Qt::BlockingQueuedConnection);
+        require(blocked,"ambiguous dashboard reply must interlock physical starts");
         std::cout<<"Thread-owned relay, quaternion compatibility, IK echo validation and watchdog passed\n";
         return 0;
     } catch(const std::exception& e) {
