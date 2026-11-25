@@ -10,6 +10,7 @@
 #include <QTextOption>
 #include <QFont>
 #include <QToolButton>
+#include <QTabWidget>
 
 namespace
 {
@@ -120,29 +121,21 @@ StatusPanelWidget::StatusPanelWidget(QWidget* parent)
             delete menu;
         });
 
-    rootLayout->addWidget(stateGroup);
-    rootLayout->addWidget(commStateGroup);
-    rootLayout->addWidget(telemetryGroup);
-    rootLayout->addWidget(messageGroup);
-
-    auto* rawToggle=new QToolButton(this);
-    rawToggle->setText(QStringLiteral("TCP 原始收发报文 · 高级"));
-    rawToggle->setCheckable(true);
-    rawToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    rawToggle->setArrowType(Qt::RightArrow);
-    auto* rawPanel=new QWidget(this);
+    auto* tabs=new QTabWidget(this);
+    auto* overview=new QWidget(tabs);
+    auto* overviewLayout=new QVBoxLayout(overview);
+    overviewLayout->addWidget(stateGroup);
+    overviewLayout->addWidget(commStateGroup);
+    overviewLayout->addWidget(telemetryGroup);
+    overviewLayout->addStretch(1);
+    tabs->addTab(overview,QStringLiteral("状态"));
+    tabs->addTab(messageGroup,QStringLiteral("运行日志"));
+    auto* rawPanel=new QWidget(tabs);
     auto* rawLayout=new QVBoxLayout(rawPanel);
-    rawLayout->setContentsMargins(0,0,0,0);
     rawLayout->addWidget(txGroup);
     rawLayout->addWidget(rxGroup);
-    rootLayout->addWidget(rawToggle);
-    rootLayout->addWidget(rawPanel);
-    rawPanel->setVisible(false);
-    connect(rawToggle,&QToolButton::toggled,rawPanel,&QWidget::setVisible);
-    connect(rawToggle,&QToolButton::toggled,rawToggle,
-        [rawToggle](bool expanded){
-            rawToggle->setArrowType(expanded?Qt::DownArrow:Qt::RightArrow);
-        });
+    tabs->addTab(rawPanel,QStringLiteral("TCP 报文"));
+    rootLayout->addWidget(tabs,1);
 }
 
 void StatusPanelWidget::setDeviceState(const touchpanel::DeviceState& state)
@@ -182,7 +175,7 @@ void StatusPanelWidget::setRobotStatusText(const QString& text)
 
 void StatusPanelWidget::setRobotTelemetryText(const QString& text)
 {
-    m_robotTelemetryValue->setText(text);
+    if(m_robotTelemetryValue->text()!=text)m_robotTelemetryValue->setText(text);
 }
 
 void StatusPanelWidget::appendTcpTxMessage(const QString& text)
