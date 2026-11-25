@@ -29,6 +29,7 @@ signals:
 
 private:
     void sendHeartbeat();
+    void scheduleDrain();
     void readDatagrams();
     void checkSignal();
     void publishState(const QString& detail);
@@ -40,6 +41,7 @@ private:
     QHostAddress m_relayAddress;
     quint16 m_relayPort = 0;
     QElapsedTimer m_lastFrame;
+    QElapsedTimer m_lastDecodeAttempt;
     QElapsedTimer m_fpsWindow;
     bool m_active = false;
     bool m_receiving = false;
