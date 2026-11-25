@@ -97,6 +97,8 @@ GLCoordinateWidget::~GLCoordinateWidget() {
     }
 }
 void GLCoordinateWidget::setDeviceState(const touchpanel::DeviceState& state) {
+    const bool validityChanged=m_state.valid!=state.valid ||
+        m_state.orientationValid!=state.orientationValid;
     m_state=state;
     if(state.valid) {
         const QVector3D p=renderPosition();
@@ -110,8 +112,23 @@ void GLCoordinateWidget::setDeviceState(const touchpanel::DeviceState& state) {
     } else {
         m_haveValidPose=false;
     }
-    update();
+    // Render fewer expensive GL compositions while a live video stream is
+    // also drawing. Validity transitions are never suppressed.
+    const int minimumMs=m_videoActive?60:0;
+    if(validityChanged || !m_previewRefreshAge.isValid() ||
+       m_previewRefreshAge.elapsed()>=minimumMs) {
+        m_previewRefreshAge.restart();
+        if(isVisible())update();
+    }
 }
+
+void GLCoordinateWidget::setVideoActive(bool active) {
+    if(m_videoActive==active)return;
+    m_videoActive=active;
+    m_previewRefreshAge.invalidate();
+    if(isVisible())update();
+}
+
 bool GLCoordinateWidget::captureDisplayOrigin() {
     if(!m_origin.capture(m_state.positionMm,m_state.valid))return false;
     m_trail.clear();m_trailDirty=true;m_cameraTarget={};
