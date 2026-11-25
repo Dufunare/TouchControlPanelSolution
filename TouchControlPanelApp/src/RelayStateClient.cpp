@@ -3,6 +3,8 @@
 #include <QJsonDocument>
 #include <QJsonValue>
 #include <QNetworkProxy>
+#include <QThread>
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -28,6 +30,8 @@ bool six(const QJsonValue& v,std::array<double,6>& out) {
 }
 }
 RelayStateClient::RelayStateClient(QObject* parent):QObject(parent) {
+    m_socket.setParent(this);
+    m_watchdog.setParent(this);
     // The relay runs on a trusted LAN. Never inherit HTTP/HTTPS system
     // proxies (including transparent VPN proxy settings) for raw TCP 8891.
     // QTcpSocket may otherwise fail with UnsupportedSocketOperationError:
@@ -67,6 +71,7 @@ void RelayStateClient::invalidate(const QString& why) {
     m_sequence=0;m_stateAge.invalidate();m_relayAge.invalidate();m_codec.reset();
     m_snapshot=touchpanel::RobotSnapshot{};
     if(m_status!=why){m_status=why;emit statusChanged(m_status);}
+    publishReadOnlySnapshot();
     if(wasValid)emit stateInvalidated();
 }
 void RelayStateClient::sendHello() {
@@ -198,10 +203,30 @@ bool RelayStateClient::hasFreshState() const {
            touchpanel::evaluateRobotGate(state,false).canCaptureCalibration;
 }
 bool RelayStateClient::tryGetFreshPose(std::array<double,6>& pose) const {
-    if(!hasFreshState())return false;
-    pose=m_pose;return true;
+    const auto state=snapshot();
+    if(!state.sessionEstablished ||
+       !touchpanel::evaluateRobotGate(state,false).canCaptureCalibration)return false;
+    pose=state.tcpPose;return true;
 }
 touchpanel::RobotSnapshot RelayStateClient::snapshot() const {
+    if(QThread::currentThread()!=thread()) {
+        // Only GUI read-only tools use this cache. Live control reads
+        // the full-rate state directly on the socket's owning thread.
+        std::lock_guard<std::mutex> lock(m_publicMutex);
+        auto result=m_publicSnapshot;
+        const auto extra=std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now()-m_publicTime).count();
+        const auto age=[extra](int prior) {
+            if(prior<0)return prior;
+            return static_cast<int>(std::min<std::int64_t>(
+                std::numeric_limits<int>::max(),
+                static_cast<std::int64_t>(prior)+std::max<std::int64_t>(0,extra)));
+        };
+        result.feedbackAgeMs=age(result.feedbackAgeMs);
+        result.relayStatusAgeMs=age(result.relayStatusAgeMs);
+        if(result.feedbackAgeMs>kFreshMs)result.feedbackValid=false;
+        return result;
+    }
     auto result=m_snapshot;
     result.sessionEstablished=m_handshaken&&m_socket.state()==QAbstractSocket::ConnectedState;
     result.relayStatusAgeMs=m_relayAge.isValid()?static_cast<int>(m_relayAge.elapsed()):-1;
@@ -245,7 +270,18 @@ QString RelayStateClient::buildTelemetrySummary() const {
         .arg(s.queuedMotion?QStringLiteral("yes"):QStringLiteral("no"));
 }
 
-QString RelayStateClient::statusDescription() const {return m_status;}
+QString RelayStateClient::statusDescription() const {
+    if(QThread::currentThread()==thread())return m_status;
+    std::lock_guard<std::mutex> lock(m_publicMutex);
+    return m_publicStatus;
+}
+void RelayStateClient::publishReadOnlySnapshot() {
+    const auto value=snapshot();
+    std::lock_guard<std::mutex> lock(m_publicMutex);
+    m_publicSnapshot=value;
+    m_publicStatus=m_status;
+    m_publicTime=std::chrono::steady_clock::now();
+}
 void RelayStateClient::refreshStatus() {
     if(m_valid&&m_stateAge.isValid()&&m_stateAge.elapsed()>kFreshMs) {
         m_valid=false;emit stateInvalidated();
@@ -277,4 +313,5 @@ void RelayStateClient::refreshStatus() {
         }
         m_summaryEmitAge.restart();
     }
+    publishReadOnlySnapshot();
 }
