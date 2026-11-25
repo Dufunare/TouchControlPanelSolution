@@ -51,5 +51,42 @@ int main() {
     assert(unchanged==selection);
     // Flipping the sign of the same source axis must not disturb others.
     assert((swapManualAxisSelection(selection,1,0)==std::array<int,3>{2,0,1}));
+    // Fixed-axis 6DoF preview, with the actual rotation matrix composed
+    // in robot coordinates rather than subtracting Euler angles.
+    ManualAxisMap sixMap;
+    sixMap.scale=2.0;sixMap.deadzoneMm=0;
+    Clutch anchor;anchor.valid=true;
+    anchor.touchPosition={10,20,30};
+    anchor.touchRotation=rpyToMatrix({15,5,-20});
+    anchor.robotPose={100,-100,200,175,3,20};
+    Pose6 sixPose{};
+    const Vec3 refRpy={175,3,20};
+    assert(fixedAxisPosePreview(sixMap,anchor,anchor.touchPosition,
+        anchor.touchRotation,refRpy,sixPose));
+    for(int i=0;i<6;++i)assert(std::abs(sixPose[i]-anchor.robotPose[i])<1e-5);
+    const auto rotated=mul(rpyToMatrix({0,0,10}),anchor.touchRotation);
+    assert(fixedAxisPosePreview(sixMap,anchor,add(anchor.touchPosition,{2,3,4}),
+        rotated,refRpy,sixPose));
+    assert(std::abs(sixPose[0]-104)<1e-6 && std::abs(sixPose[1]+108)<1e-6 &&
+           std::abs(sixPose[2]-206)<1e-6);
+    const auto base=rpyToMatrix(refRpy);
+    auto mapped=rpyToMatrix({sixPose[3],sixPose[4],sixPose[5]});
+    assert(rotationDistanceDeg(mapped,mul(rpyToMatrix({0,-10,0}),base))<1e-5);
+    // Reflection of a polar axis is not the same as reflecting an axial
+    // rotation vector; conjugation keeps a proper right-handed rotation.
+    sixMap.output={0,1,5};
+    assert(fixedAxisPosePreview(sixMap,anchor,anchor.touchPosition,
+        rotated,refRpy,sixPose));
+    mapped=rpyToMatrix({sixPose[3],sixPose[4],sixPose[5]});
+    assert(rotationDistanceDeg(mapped,mul(rpyToMatrix({0,0,10}),base))<1e-5);
+    assert(!fixedAxisPosePreview(sixMap,anchor,anchor.touchPosition,
+        Mat3{},refRpy,sixPose));
+    // Alternate Euler branch stays continuous around an already captured
+    // valid non-principal pitch.
+    anchor.robotPose={100,-100,200,10,120,20};
+    const Vec3 otherRef={10,120,20};
+    assert(fixedAxisPosePreview(sixMap,anchor,anchor.touchPosition,
+        anchor.touchRotation,otherRef,sixPose));
+    for(int i=0;i<6;++i)assert(std::abs(sixPose[i]-anchor.robotPose[i])<1e-5);
     std::cout<<"Manual mapping preview tests passed\n";
 }
