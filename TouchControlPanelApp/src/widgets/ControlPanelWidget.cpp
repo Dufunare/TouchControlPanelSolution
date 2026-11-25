@@ -165,7 +165,7 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
         QStringLiteral("ServoJ · 逆运动学连续跟随（实验）"),
         QStringLiteral("ServoP · 仅平移（锁定姿态）")});
     m_realModeSelector->setCurrentIndex(0);
-    detailsForm->addRow(QStringLiteral("实体控制模式"),m_realModeSelector);
+    manualForm->addRow(QStringLiteral("实体控制模式"),m_realModeSelector);
     auto* actions=new QHBoxLayout();
     auto* stepButton=new QPushButton(QStringLiteral("执行单步（确认）"),manualGroup);
     auto* servoButton=new QPushButton(QStringLiteral("启动 ServoP 连续遥控"),manualGroup);
