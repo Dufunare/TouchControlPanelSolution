@@ -51,7 +51,8 @@ namespace touchpanel
             double value=0,minimum=0,maximum=0;
         };
         // Legacy 8888 -> 30003, non-blocking online Cartesian ServoP.
-        // Actual robot RPY is held by the caller. Never clamp XYZ silently.
+        // The caller validates either captured RPY or a bounded experimental
+        // rotation target. Never clamp XYZ silently.
         ServoPSendResult sendServoCartesianTarget(const std::array<double,6>& pose);
         void requestControlledStop();
         void requestRobotMode();
