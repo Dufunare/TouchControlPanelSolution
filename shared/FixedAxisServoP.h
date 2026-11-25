@@ -9,8 +9,9 @@
 namespace touchpanel::teleop {
 
 // One live control mode. Two independent fixed device coordinate systems.
-// No calibration matrix, stylus rotation, GL display origin, old waypoint
-// queue, rate integrator, or previous clutch origin participates in intent.
+// The normal path is master-style absolute position mapping plus duplicate
+// filtering. An offset changes ONLY when the existing guard discards motion.
+// No rate integrator or old waypoint queue; no physical rotation in this mode.
 // The caller must enforce live controller/telemetry/stop gates. The command
 // arbiter retains the existing experimental envelope, not a certified
 // physical speed, collision, or stopping-distance guarantee.
@@ -45,11 +46,18 @@ public:
         if(m_phase!=ServoPPhase::Active || !m_pending ||
            target!=m_candidate)return false;
         m_lastSent=target;
+        // Keep the direct position law. Absorb rejected/clipped displacement
+        // once, at the point of acceptance, instead of replaying it later.
+        for(int i=0;i<3;++i)m_commandOffset[i]=target[i]-m_rawGoal[i];
         m_sentDuringClutch=true;
         m_pending=false;
         return true;
     }
-    void rejectUnsentTarget() {m_pending=false;}
+    void rejectUnsentTarget() {
+        if(m_pending)for(int i=0;i<3;++i)
+            m_commandOffset[i]=m_lastSent[i]-m_rawGoal[i];
+        m_pending=false;
+    }
 
     ServoPTick tick(bool pressed,Vec3 touch,const Pose6& actual,
                     bool idle,std::uint64_t seq,const ManualAxisMap& mapping,
@@ -120,8 +128,8 @@ public:
             m_robot0=actual;
             m_mapping=mapping; // immutable throughout this press
             m_lastSent=actual;
-            m_previousMapped=actual;
-            m_smallResidual={};
+            m_rawGoal=actual;
+            m_commandOffset={};
             m_pending=false;
             m_phase=ServoPPhase::Active;
             out.action=ServoPAction::Captured;
@@ -148,35 +156,15 @@ public:
             return out;
         }
 
-        // Synchronization-first: consume only NEW operator displacement.
-        // Always advance the input reference, even if the command is
-        // clipped, blocked or later rejected. Never accumulate the unmet
-        // absolute-position error into a waypoint to chase after the hand
-        // stops. The original anchored goal remains diagnostic only.
-        const Vec3 inputDelta={goal[0]-m_previousMapped[0],
-                               goal[1]-m_previousMapped[1],
-                               goal[2]-m_previousMapped[2]};
-        m_previousMapped=goal;
-        const double inputNorm=norm(inputDelta);
-        if(!std::isfinite(inputNorm)) {
-            m_smallResidual={};
-            out.action=ServoPAction::Invalid;
-            return out;
-        }
-        // Only retain sub-deadband quantization during uninterrupted
-        // same-direction movement. A pause/reversal clears it. There is
-        // never a backlog of envelope-limited or workspace-blocked motion.
-        if(inputNorm<=1e-7) {
-            m_smallResidual={};
-            return out;
-        }
-        if(dot(inputDelta,m_smallResidual)<=0.0)m_smallResidual={};
-        const Vec3 step={inputDelta[0]+m_smallResidual[0],
-                         inputDelta[1]+m_smallResidual[1],
-                         inputDelta[2]+m_smallResidual[2]};
-        m_smallResidual={};
-        Pose6 requested=m_lastSent;
-        for(int i=0;i<3;++i)requested[i]+=step[i];
+        // Master-style direct position target, not a trajectory integrator.
+        // The raw goal is independent of actual TCP. The offset absorbs only
+        // previously clipped/held input, so a stationary hand never chases
+        // the rejected portion of a prior large displacement.
+        m_rawGoal=goal;
+        Pose6 requested=goal;
+        for(int i=0;i<3;++i)requested[i]+=m_commandOffset[i];
+        // Use the same 0.3mm duplicate filter and direct target on every
+        // legal frame, then let the existing arbiter enforce its bounds.
         const auto command=planServoPCommand(requested,m_lastSent,actual);
         out.wallHoldAxisMask|=command.heldAxes;
         out.feedbackLimited=command.leadRestricted;
@@ -184,6 +172,7 @@ public:
         case ServoPCommandDisposition::Invalid:
             out.action=ServoPAction::Invalid;break;
         case ServoPCommandDisposition::TrackingHold:
+            for(int i=0;i<3;++i)m_commandOffset[i]=m_lastSent[i]-m_rawGoal[i];
             out.action=ServoPAction::TrackingHold;break;
         case ServoPCommandDisposition::Send:
             m_candidate=command.target;
@@ -191,10 +180,13 @@ public:
             out.target=m_candidate;
             out.action=ServoPAction::Send;break;
         case ServoPCommandDisposition::None:
-            // Preserve only <0.3mm of quantization, never a clipped goal.
-            if(!command.heldAxes && !command.leadRestricted &&
-               !command.jumpRestricted && norm(step)<=kServoPCommandDeadbandMm)
-                m_smallResidual=step;
+            // A normal duplicate retains the master position reference.
+            // Discard only suppressed axes / bounded motion, never replay
+            // them after the operator stops.
+            for(int i=0;i<3;++i)
+                if(command.leadRestricted || command.jumpRestricted ||
+                   (command.heldAxes & (1U<<i)))
+                    m_commandOffset[i]=m_lastSent[i]-m_rawGoal[i];
             break;
         }
         return out;
@@ -206,16 +198,16 @@ private:
         m_robot0={};
         m_lastSent={};
         m_candidate={};
-        m_previousMapped={};
-        m_smallResidual={};
+        m_rawGoal={};
+        m_commandOffset={};
         m_mapping={};
         m_pending=false;
         m_sentDuringClutch=false;
     }
     ServoPPhase m_phase=ServoPPhase::NeedRelease;
     Vec3 m_touch0{};
-    Pose6 m_robot0{},m_lastSent{},m_candidate{},m_previousMapped{};
-    Vec3 m_smallResidual{};
+    Pose6 m_robot0{},m_lastSent{},m_candidate{},m_rawGoal{};
+    Vec3 m_commandOffset{};
     ManualAxisMap m_mapping{};
     bool m_pending=false;
     bool m_sentDuringClutch=false;
