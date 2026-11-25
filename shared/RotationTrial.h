@@ -25,32 +25,62 @@ inline bool servoPRotationPoseValid(const Pose6& p) {
     return matrixToRpy(servoPRotation(p),servoPRpy(p),converted);
 }
 
+enum class ServoP6DFault {
+    None, Link, Sequence, Session, Frames, FeedbackAge, RelayAge, RobotState,
+    NonfiniteFeedback, Quaternion, OrientationMismatch, Pose,
+    JointRange, JointTracking, JointSpeed
+};
+struct ServoP6DCheck {
+    ServoP6DFault fault=ServoP6DFault::None;
+    int joint=-1;
+    double value=0.0;
+    double limit=0.0;
+    bool ok() const {return fault==ServoP6DFault::None;}
+};
+// Same thresholds as the preceding boolean guard. The check returns the
+// actual rejecting condition from the very same snapshot used for control.
+inline ServoP6DCheck checkServoP6DFeedback(const RobotSnapshot& s,
+                                           std::uint64_t session,
+                                           Mat3& measured) {
+    using F=ServoP6DFault;
+    if(!s.sessionEstablished || !s.feedbackValid || !s.relayStatusSeen ||
+       !s.relayReady || !s.port29999Connected || !s.port30003Connected ||
+       !s.port30004Connected)return {F::Link};
+    if(!s.feedbackSeen || s.stateSeq==0)return {F::Sequence};
+    if(s.sessionEpoch==0 || s.sessionEpoch!=session)return {F::Session};
+    if(s.userIndex!=0 || s.toolIndex!=0)return {F::Frames};
+    if(s.feedbackAgeMs<0 || s.feedbackAgeMs>150)
+        return {F::FeedbackAge,-1,static_cast<double>(s.feedbackAgeMs),150.0};
+    if(s.relayStatusAgeMs<0 || s.relayStatusAgeMs>350)
+        return {F::RelayAge,-1,static_cast<double>(s.relayStatusAgeMs),350.0};
+    if(!s.enabled || s.error || s.dragging || s.jogging || s.paused ||
+       (s.robotMode!=5 && s.robotMode!=7))return {F::RobotState};
+    if(!finiteSix(s.jointPosition) || !finiteSix(s.jointTarget) ||
+       !finiteSix(s.jointVelocity) || !finiteSix(s.tcpVelocity) ||
+       !finiteSix(s.tcpPose))return {F::NonfiniteFeedback};
+    if(!defaultFrameOrientation(s,measured))return {F::Quaternion};
+    const double orientationError=feedbackZyxErrorDeg(s);
+    if(!std::isfinite(orientationError) || orientationError>0.5)
+        return {F::OrientationMismatch,-1,orientationError,0.5};
+    if(!servoPRotationPoseValid(s.tcpPose))return {F::Pose};
+    for(int i=0;i<6;++i) {
+        const double nominal=i==2?155.0:360.0;
+        const double jointLimit=nominal-kServoPJointTrackingDeg;
+        const double excursion=std::max(std::abs(s.jointPosition[i]),std::abs(s.jointTarget[i]));
+        if(excursion>jointLimit)return {F::JointRange,i,excursion,jointLimit};
+        const double error=std::abs(s.jointTarget[i]-s.jointPosition[i]);
+        if(error>kServoPJointTrackingDeg)
+            return {F::JointTracking,i,error,kServoPJointTrackingDeg};
+        const double speed=std::abs(s.jointVelocity[i]);
+        if(speed>kServoPJointSpeedDegPerSec)
+            return {F::JointSpeed,i,speed,kServoPJointSpeedDegPerSec};
+    }
+    return {};
+}
 inline bool servoP6DFeedbackHealthy(const RobotSnapshot& s,
                                     std::uint64_t session,
                                     Mat3& measured) {
-    if(!continuousTelemetryAgesHealthy(s) || !s.feedbackSeen || s.stateSeq==0 ||
-       s.sessionEpoch==0 || s.sessionEpoch!=session ||
-       s.userIndex!=0 || s.toolIndex!=0 || s.feedbackAgeMs>150 ||
-       s.relayStatusAgeMs>350 || !s.enabled || s.error || s.dragging ||
-       s.jogging || s.paused || (s.robotMode!=5 && s.robotMode!=7) ||
-       !finiteSix(s.jointPosition) || !finiteSix(s.jointTarget) ||
-       !finiteSix(s.jointVelocity) || !finiteSix(s.tcpVelocity) ||
-       !defaultFrameOrientation(s,measured) || feedbackZyxErrorDeg(s)>0.5 ||
-       !servoPRotationPoseValid(s.tcpPose))
-        return false;
-    // A fixed startup joint excursion would prevent ordinary translation.
-    // Instead monitor the local difference between actual and controller
-    // target joints. Retain the prior 3-degree threshold and speed check,
-    // and require both joints inside nominal mechanical limits with margin.
-    // This is NOT a substitute for the installed limits or path validation.
-    for(int i=0;i<6;++i) {
-        const double nominal=i==2?155.0:360.0;
-        if(std::abs(s.jointPosition[i])>nominal-kServoPJointTrackingDeg ||
-           std::abs(s.jointTarget[i])>nominal-kServoPJointTrackingDeg ||
-           std::abs(s.jointTarget[i]-s.jointPosition[i])>kServoPJointTrackingDeg ||
-           std::abs(s.jointVelocity[i])>kServoPJointSpeedDegPerSec)return false;
-    }
-    return true;
+    return checkServoP6DFeedback(s,session,measured).ok();
 }
 
 // The translation arbiter is unchanged. Check the final combined target
