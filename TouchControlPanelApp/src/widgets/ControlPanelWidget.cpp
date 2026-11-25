@@ -21,7 +21,7 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     //根布局
     auto *rootLayout = new QVBoxLayout(this);
     rootLayout->setContentsMargins(12, 12, 12, 12);
-    rootLayout->setSpacing(12);
+    rootLayout->setSpacing(8);
 
     //touch控制区域
     auto *touchGroup = new QGroupBox("Touch 控制", this);
@@ -32,10 +32,12 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     m_stopButton = new QPushButton("停止采集", touchGroup);
     m_resetButton = new QPushButton("重置连接", touchGroup);
 
-    touchLayout->addWidget(m_initializeButton);
-    touchLayout->addWidget(m_startButton);
-    touchLayout->addWidget(m_stopButton);
-    touchLayout->addWidget(m_resetButton);
+    auto* touchGrid=new QGridLayout();
+    touchGrid->addWidget(m_initializeButton,0,0);
+    touchGrid->addWidget(m_startButton,0,1);
+    touchGrid->addWidget(m_stopButton,1,0);
+    touchGrid->addWidget(m_resetButton,1,1);
+    touchLayout->addLayout(touchGrid);
 
     //中转站控制区域
     auto *TCPGroup = new QGroupBox("中转站控制", this);
@@ -55,8 +57,10 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     m_robotDisconnectButton = new QPushButton("断开 TCP 连接", TCPGroup);
 
     TCPLayout->addLayout(endpointLayout);
-    TCPLayout->addWidget(m_robotConnectButton);
-    TCPLayout->addWidget(m_robotDisconnectButton);
+    auto* connectionRow=new QHBoxLayout();
+    connectionRow->addWidget(m_robotConnectButton);
+    connectionRow->addWidget(m_robotDisconnectButton);
+    TCPLayout->addLayout(connectionRow);
 
     auto* relayToolsToggle = new QToolButton(TCPGroup);
     relayToolsToggle->setText(QStringLiteral("8891 独立管理"));
@@ -82,7 +86,7 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     QGroupBox* robotGroup = new QGroupBox("遥控");
     QVBoxLayout* mainVLayout = new QVBoxLayout(robotGroup);
 
-    m_emergencyStopButton = new QPushButton("急停");
+    m_emergencyStopButton = new QPushButton("软件急停（非物理急停）");
     m_powerOnButton = new QPushButton("上电", robotGroup);
     m_enableRobotButton = new QPushButton("使能", robotGroup);
     m_disableRobotButton = new QPushButton("下使能", robotGroup);
@@ -93,15 +97,17 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     m_stopTeleopButton = new QPushButton(QStringLiteral("停止预览 / 实体控制"), robotGroup);
 
     m_emergencyStopButton->setStyleSheet("background-color: red; color: white; font-weight: bold; height: 50px;");
-    mainVLayout->addWidget(m_emergencyStopButton);
+    // Stop controls are placed in the fixed main-window toolbar.
     mainVLayout->addSpacing(4);
 
     QVBoxLayout* teleopLayout = new QVBoxLayout();
-    teleopLayout->addWidget(m_startTeleopButton);
-    teleopLayout->addWidget(m_stopTeleopButton);
+    // Preview is in the advanced mapping section; stop stays visible in the toolbar.
     mainVLayout->addLayout(teleopLayout);
     auto* manualGroup=new QGroupBox(QStringLiteral("平移轴映射与灵敏度"),robotGroup);
     auto* manualForm=new QFormLayout(manualGroup);
+    auto* mappingDetails=new QWidget(manualGroup);
+    auto* detailsForm=new QFormLayout(mappingDetails);
+    detailsForm->setContentsMargins(0,0,0,0);
     const QStringList choices={QStringLiteral("+Touch X"),QStringLiteral("+Touch Y"),QStringLiteral("+Touch Z"),
                                QStringLiteral("-Touch X"),QStringLiteral("-Touch Y"),QStringLiteral("-Touch Z")};
     for(int i=0;i<3;++i) {
@@ -109,7 +115,7 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
         m_axisCombos[i]->addItems(choices);
         m_axisCombos[i]->setCurrentIndex(m_axisSelection[i]);
         m_axisCombos[i]->setToolTip(QStringLiteral("每个 Touch 轴只使用一次；选择冲突轴时自动交换"));
-        manualForm->addRow(QStringLiteral("机器人 %1:").arg(QStringLiteral("XYZ").at(i)),m_axisCombos[i]);
+        detailsForm->addRow(QStringLiteral("机器人 %1:").arg(QStringLiteral("XYZ").at(i)),m_axisCombos[i]);
         connect(m_axisCombos[i],QOverload<int>::of(&QComboBox::currentIndexChanged),
                 this,[this,i](int selected){setAxisChoice(i,selected);});
     }
@@ -129,9 +135,10 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     // ServoP now uses the latest Touch target directly, with a fixed
     // bounded forward setpoint and independent hard 8891 safeguards.
     // Do not expose ineffective legacy speed/feedback-horizon knobs.
-    manualForm->addRow(QStringLiteral("死区"),m_axisDeadzone);
+    detailsForm->addRow(QStringLiteral("死区"),m_axisDeadzone);
     auto* previewButton=new QPushButton(QStringLiteral("启用平移预览（不发送运动）"),manualGroup);
-    manualForm->addRow(previewButton);
+    detailsForm->addRow(previewButton);
+    detailsForm->addRow(m_startTeleopButton);
     connect(previewButton,&QPushButton::clicked,this,[this]{
         emit manualPreviewRequested(m_axisSelection,m_axisGain->value(),m_axisDeadzone->value());
     });
@@ -143,14 +150,25 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
         QStringLiteral("ServoP · 实时位置直接跟随（受限）"),
         QStringLiteral("ServoJ · 逆运动学连续跟随（实验）")});
     m_realModeSelector->setCurrentIndex(0);
-    manualForm->addRow(QStringLiteral("实体控制模式"),m_realModeSelector);
+    detailsForm->addRow(QStringLiteral("实体控制模式"),m_realModeSelector);
     auto* actions=new QHBoxLayout();
     auto* stepButton=new QPushButton(QStringLiteral("执行单步（确认）"),manualGroup);
     auto* servoButton=new QPushButton(QStringLiteral("启动 ServoP 连续遥控"),manualGroup);
     stepButton->setToolTip(QStringLiteral("先用平移预览生成目标，按住 Touch 按钮时捕获一个小幅目标，再人工确认执行"));
     servoButton->setToolTip(QStringLiteral("先松开 Touch Button1；重新按下时捕获当前机器人实际坐标。需要物理急停。"));
-    actions->addWidget(stepButton);actions->addWidget(servoButton);
-    manualForm->addRow(actions);
+    detailsForm->addRow(stepButton);
+    manualForm->addRow(servoButton);
+    auto* mappingToggle=new QToolButton(manualGroup);
+    mappingToggle->setText(QStringLiteral("轴映射、死区与实验模式"));
+    mappingToggle->setCheckable(true);
+    mappingToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    mappingToggle->setArrowType(Qt::RightArrow);
+    manualForm->addRow(mappingToggle);
+    manualForm->addRow(mappingDetails);
+    mappingDetails->hide();
+    connect(mappingToggle,&QToolButton::toggled,mappingDetails,&QWidget::setVisible);
+    connect(mappingToggle,&QToolButton::toggled,mappingToggle,[mappingToggle](bool on){mappingToggle->setArrowType(on?Qt::DownArrow:Qt::RightArrow);});
+    delete actions;
     connect(stepButton,&QPushButton::clicked,this,&ControlPanelWidget::singleStepRequested);
     connect(m_realModeSelector,QOverload<int>::of(&QComboBox::currentIndexChanged),
             this,[this,servoButton](int mode){
@@ -182,8 +200,10 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     auto* adminLayout=new QVBoxLayout(adminPanel);
     adminLayout->setContentsMargins(0,0,0,0);
     QGridLayout* stateGridLayout = new QGridLayout();
-    stateGridLayout->addWidget(m_powerOnButton, 0, 0);
-    stateGridLayout->addWidget(m_enableRobotButton, 1, 0);
+    auto* powerRow=new QHBoxLayout();
+    powerRow->addWidget(m_powerOnButton);
+    powerRow->addWidget(m_enableRobotButton);
+    mainVLayout->insertLayout(0,powerRow);
     stateGridLayout->addWidget(m_disableRobotButton, 1, 1);
     stateGridLayout->addWidget(m_clearErrorButton, 0, 1);
     adminLayout->addLayout(stateGridLayout);
@@ -202,6 +222,8 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
         [adminToggle](bool expanded){adminToggle->setArrowType(expanded?Qt::DownArrow:Qt::RightArrow);});
 
     //加入跟布局
+    m_emergencyStopButton->hide();
+    m_stopTeleopButton->hide();
     rootLayout->addWidget(touchGroup);
     rootLayout->addWidget(TCPGroup);
     rootLayout->addWidget(robotGroup);
