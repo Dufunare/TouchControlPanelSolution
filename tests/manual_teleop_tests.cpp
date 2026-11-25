@@ -140,5 +140,13 @@ int main() {
         setPose(r);assert(audit.capture(state)==OrientationCapture::Added);
     }
     assert(!audit.report().unique);
+    assert(!audit.hasZyxMismatch(state.sessionEpoch)); // inconclusive is not a contradiction
+    audit.clear();
+    assert(!audit.hasZyxMismatch(state.sessionEpoch)); // empty audit must not block
+    setPose({15,20,30});
+    state.actualQuaternion=qzyx({0,0,0});
+    assert(audit.capture(state)==OrientationCapture::Added);
+    assert(audit.hasZyxMismatch(state.sessionEpoch));
+    assert(!audit.hasZyxMismatch(state.sessionEpoch+1));
     std::cout<<"Manual mapping preview tests passed\n";
 }
