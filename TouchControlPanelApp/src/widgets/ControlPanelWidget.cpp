@@ -162,7 +162,8 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     m_realModeSelector=new QComboBox(manualGroup);
     m_realModeSelector->addItems({
         QStringLiteral("ServoP · 固定轴直接位置（默认）"),
-        QStringLiteral("ServoJ · 逆运动学连续跟随（实验）")});
+        QStringLiteral("ServoJ · 逆运动学连续跟随（实验）"),
+        QStringLiteral("ServoP · 固定TCP实体旋转（小角试验）")});
     m_realModeSelector->setCurrentIndex(0);
     detailsForm->addRow(QStringLiteral("实体控制模式"),m_realModeSelector);
     auto* actions=new QHBoxLayout();
@@ -191,11 +192,15 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
         emit stopTeleopRequested();
         servoButton->setText(mode==0 ?
             QStringLiteral("启动 ServoP 连续遥控"):
+            mode==2?QStringLiteral("启动 ServoP 实体旋转试验"):
             QStringLiteral("启动 ServoJ 连续遥控（实验）"));
     });
     connect(servoButton,&QPushButton::clicked,this,[this]{
         if(m_realModeSelector->currentIndex()==0)
             emit continuousServoPRequested(
+                m_axisSelection,m_axisGain->value(),m_axisDeadzone->value());
+        else if(m_realModeSelector->currentIndex()==2)
+            emit rotationServoPRequested(
                 m_axisSelection,m_axisGain->value(),m_axisDeadzone->value());
         else
             emit continuousServoRequested(
