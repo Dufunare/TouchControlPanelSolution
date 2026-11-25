@@ -104,6 +104,8 @@ private:
     bool m_fixedAxisPosePreview=false;
     touchpanel::teleop::OrientationConventionAudit m_orientationAudit;
     std::uint64_t m_previewReleaseCounter=0;
+    std::uint64_t m_fixedPreviewSession=0;
+    int m_fixedPreviewUser=-1,m_fixedPreviewTool=-1;
     touchpanel::teleop::ManualAxisMap m_manualMap{};
     int m_calibrationUser=-1,m_calibrationTool=-1;
     std::uint64_t m_calibrationSessionEpoch=0,m_calibrationTouchEpoch=0;
