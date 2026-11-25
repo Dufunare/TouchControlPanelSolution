@@ -117,7 +117,7 @@ void GLCoordinateWidget::setDeviceState(const touchpanel::DeviceState& state) {
     const int minimumMs=m_videoActive?60:0;
     if(validityChanged || !m_previewRefreshAge.isValid() ||
        m_previewRefreshAge.elapsed()>=minimumMs) {
-        m_previewRefreshAge.restart();
+        m_previewRefreshAge.start();
         if(isVisible())update();
     }
 }
