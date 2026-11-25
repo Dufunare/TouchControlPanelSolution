@@ -60,6 +60,7 @@ namespace touchpanel
         std::atomic<int> failureCode{HD_SUCCESS};
         bool schedulerStarted = false;  // owned by the UI thread
         std::atomic<bool> button1Pressed{ false };
+        std::atomic<std::uint64_t> button1ReleaseCounter{0};
 
         std::atomic<std::uint64_t> sampleCounter{ 0 };
         std::atomic<int> lastErrorCode{ HD_SUCCESS };
@@ -128,7 +129,10 @@ namespace touchpanel
             const bool orientationOk=teleop::properRotation(orientation);
             if(orientationOk)for(int i=0;i<9;++i)self->rotation[i].store(orientation[i],std::memory_order_relaxed);
             self->orientationValid.store(orientationOk,std::memory_order_relaxed);
-            self->button1Pressed.store((currentButtons & HD_DEVICE_BUTTON_1) != 0, std::memory_order_relaxed);
+            const bool pressed=(currentButtons & HD_DEVICE_BUTTON_1)!=0;
+            const bool wasPressed=self->button1Pressed.exchange(pressed,std::memory_order_relaxed);
+            if(wasPressed && !pressed)
+                self->button1ReleaseCounter.fetch_add(1,std::memory_order_relaxed);
             self->sampleCounter.fetch_add(1, std::memory_order_relaxed);
             // XYZ validity must not depend on stylus orientation. Continuous
             // translation teleop does not use the Touch rotation at all.
@@ -383,6 +387,7 @@ namespace touchpanel
             for(int i=0;i<9;++i)state.rotationMatrix[i]=m_impl->rotation[i].load(std::memory_order_relaxed);
             state.orientationValid=m_impl->orientationValid.load(std::memory_order_relaxed);
             state.button1Pressed=m_impl->button1Pressed.load(std::memory_order_relaxed);
+            state.button1ReleaseCounter=m_impl->button1ReleaseCounter.load(std::memory_order_relaxed);
             state.sampleCounter=m_impl->sampleCounter.load(std::memory_order_relaxed);
             state.valid=m_impl->valid.load(std::memory_order_relaxed);
             const auto after=m_impl->frameVersion.load(std::memory_order_acquire);
