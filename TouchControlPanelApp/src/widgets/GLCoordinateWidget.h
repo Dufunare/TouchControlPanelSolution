@@ -46,7 +46,9 @@ private:
                 const std::vector<Vertex>& vertices);
     void draw(QOpenGLVertexArrayObject& vao,int count,unsigned mode,float width=1.0f);
     void buildStaticScene();
-    void updateDynamicGeometry();
+    void buildStylusGeometry();
+    void updateTrailGeometry();
+    QMatrix4x4 stylusModelMatrix() const;
     QMatrix4x4 viewMatrix() const;
     QVector3D renderPosition() const;
     void releaseResources();
@@ -54,6 +56,7 @@ private:
     touchpanel::DeviceState m_state{};
     touchpanel::visualization::DisplayOrigin m_origin;
     std::deque<QVector3D> m_trail;
+    bool m_trailDirty=true;
     bool m_haveValidPose=false;
     bool m_follow=false;
     QVector3D m_cameraTarget{};
