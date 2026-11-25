@@ -56,4 +56,43 @@ inline bool manualPositionPreview(const ManualAxisMap& map,Vec3 touchDelta,
     }
     return true;
 }
+
+// Fixed-device-axis rotation preview, using the SAME signed permutation
+// as translation. M may be a reflection; M*R*M^T still has determinant +1.
+// Rotation is 1:1 in angle, independent of the translation scale.
+// Z-Y-X RPY is the project's preview convention, not a verified firmware
+// convention. No motion command is authorized by this pure math helper.
+inline Mat3 manualAxisMatrix(const ManualAxisMap& map) {
+    Mat3 m{};
+    if(!validManualAxisMap(map))return m;
+    for(int i=0;i<3;++i)
+        m[3*i+map.output[i]%3]=map.output[i]>=3?-1.0:1.0;
+    return m;
+}
+inline bool fixedAxisPosePreview(const ManualAxisMap& map,const Clutch& anchor,
+                                 Vec3 touchPosition,Mat3 touchRotation,
+                                 Vec3 referenceRpy,Pose6& target) {
+    if(!anchor.valid || !validManualAxisMap(map) || !finite(referenceRpy) ||
+       !properRotation(anchor.touchRotation) || !properRotation(touchRotation) ||
+       !manualPositionPreview(map,sub(touchPosition,anchor.touchPosition),
+                              anchor.robotPose,target))return false;
+    const auto m=manualAxisMatrix(map);
+    const auto delta=mul(touchRotation,transpose(anchor.touchRotation));
+    const auto robotDelta=mul(mul(m,delta),transpose(m));
+    const auto start=rpyToMatrix({anchor.robotPose[3],anchor.robotPose[4],
+                                  anchor.robotPose[5]});
+    const auto desired=mul(robotDelta,start);
+    Vec3 rpy{};
+    if(!matrixToRpy(desired,referenceRpy,rpy))return false;
+    // Consider the second equivalent ZYX Euler representation as well.
+    // Keep the branch closest to the preceding preview to avoid a 180deg
+    // representational flip when the captured RPY uses the other branch.
+    Vec3 other={rpy[0]+180.0,180.0-rpy[1],rpy[2]+180.0};
+    for(int i=0;i<3;++i)other[i]=unwrapNear(other[i],referenceRpy[i]);
+    if(norm(sub(other,referenceRpy))<norm(sub(rpy,referenceRpy)))rpy=other;
+    if(!finite(rpy) || rotationDistanceDeg(rpyToMatrix(rpy),desired)>0.1)
+        return false;
+    for(int i=0;i<3;++i)target[i+3]=rpy[i];
+    return true;
+}
 } // namespace touchpanel::teleop
