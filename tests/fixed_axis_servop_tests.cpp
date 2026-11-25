@@ -55,26 +55,38 @@ int main() {
     assert(c.acknowledgeSentTarget(t.target));
     const Pose6 second={12,-205,306,175,2,17};
     const Vec3 relocated={-130,90,-60};
-    assert(c.tick(false,relocated,second,false,105,map).action==ServoPAction::Released);
+    t=c.tick(false,relocated,second,false,105,map);
+    assert(t.action==ServoPAction::Released && t.releaseStopRequired);
+    assert(c.releaseStopPending());
     assert(c.anchorRobot()==Pose6{});
     assert(c.anchorTouch()==Vec3{});
-    // Early re-press is rejected once, not queued to capture later.
+    // Early re-press and even fresh idle before ACK cannot rearm.
     assert(c.tick(true,relocated,second,false,106,map).action==ServoPAction::RegripBlocked);
     assert(c.tick(true,{100,100,100},second,true,107,map).action==ServoPAction::None);
+    for(std::uint64_t seq=108;seq<=110;++seq)
+        assert(c.tick(false,relocated,second,true,seq,map).action==ServoPAction::None);
     assert(c.phase()==ServoPPhase::WaitingForIdle);
-    assert(c.tick(false,relocated,second,true,108,map).action==ServoPAction::None);
-    assert(c.tick(false,relocated,second,true,109,map).action==ServoPAction::None);
-    assert(c.tick(false,relocated,second,true,110,map).action==ServoPAction::Ready);
-    assert(c.tick(true,relocated,second,true,111,map).action==ServoPAction::Captured);
+    assert(c.acknowledgeReleaseStop(110));
+    assert(!c.acknowledgeReleaseStop(110));
+    // A rejected press can overlap stop confirmation but never move.
+    assert(c.tick(true,relocated,second,true,111,map).action==ServoPAction::RegripBlocked);
+    assert(c.tick(true,relocated,second,true,111,map).action==ServoPAction::None);
+    assert(c.tick(true,relocated,second,true,112,map).action==ServoPAction::None);
+    assert(c.tick(true,relocated,second,true,113,map).action==ServoPAction::None);
+    assert(c.phase()==ServoPPhase::WaitingForIdle);
+    // Once three distinct post-ACK idle states are observed, release
+    // immediately makes READY; a fresh subsequent press captures.
+    assert(c.tick(false,relocated,second,true,113,map).action==ServoPAction::Ready);
+    assert(c.tick(true,relocated,second,true,114,map).action==ServoPAction::Captured);
     assert(c.anchorRobot()==second && c.anchorTouch()==relocated);
-    assert(c.tick(true,relocated,second,false,112,map).action==ServoPAction::None);
-    t=c.tick(true,add(relocated,{0,0,2}),second,false,113,map);
+    assert(c.tick(true,relocated,second,false,115,map).action==ServoPAction::None);
+    t=c.tick(true,add(relocated,{0,0,2}),second,false,116,map);
     assert(t.action==ServoPAction::Send && t.intentValid);
     assert(near(t.intent[0],second[0]) && near(t.intent[1],second[1]-4));
     assert(near(t.intent[2],second[2]));
     assert(c.acknowledgeSentTarget(t.target));
     auto changed=map;changed.scale=1;
-    assert(c.tick(true,relocated,second,false,114,changed).action==ServoPAction::Invalid);
+    assert(c.tick(true,relocated,second,false,117,changed).action==ServoPAction::Invalid);
 
     // The same raw intent survives bounds; it is NOT the transmitted pose.
     FixedAxisServoP limited;
@@ -84,8 +96,51 @@ int main() {
     assert(t.action==ServoPAction::Send);
     assert(servoPCartesianDistance(t.target,robot)<=kServoPCommandLeadMm+1e-7);
     assert(limited.acknowledgeSentTarget(t.target));
+    // Stationary hand produces NO catch-up command, even if the raw
+    // anchored goal is 200mm away and measured TCP later moves.
+    const Pose6 firstSent=t.target;
     assert(limited.tick(true,add(hand,{100,0,0}),robot,false,205,map).action==
+           ServoPAction::None);
+    assert(limited.tick(true,add(hand,{101,0,0}),robot,false,206,map).action==
            ServoPAction::TrackingHold);
+    assert(limited.tick(true,add(hand,{101,0,0}),firstSent,false,207,map).action==
+           ServoPAction::None);
+    t=limited.tick(true,add(hand,{102,0,0}),firstSent,false,208,map);
+    assert(t.action==ServoPAction::Send && near(t.target[0],firstSent[0]+2));
+    assert(limited.acknowledgeSentTarget(t.target));
+    t=limited.tick(true,add(hand,{101,0,0}),firstSent,false,209,map);
+    assert(t.action==ServoPAction::Send && near(t.target[0],firstSent[0]));
+    assert(limited.acknowledgeSentTarget(t.target));
+
+    // No lost release edge when the button is repressed before a GUI tick.
+    t=limited.tick(true,hand,firstSent,false,210,map,true);
+    assert(t.action==ServoPAction::Released && t.releaseStopRequired);
+    assert(limited.tick(true,hand,firstSent,true,211,map).action==
+           ServoPAction::RegripBlocked);
+    assert(limited.releaseStopPending());
+
+    // A clutch with no transmitted motion must not request ResetRobot.
+    FixedAxisServoP noMotion;
+    arm(noMotion,robot,hand,map,600);
+    t=noMotion.tick(false,hand,robot,true,604,map);
+    assert(t.action==ServoPAction::Released && !t.releaseStopRequired);
+    assert(!noMotion.releaseStopPending());
+    assert(noMotion.tick(false,hand,robot,true,605,map).action==ServoPAction::None);
+    assert(noMotion.tick(false,hand,robot,true,606,map).action==ServoPAction::None);
+    assert(noMotion.tick(false,hand,robot,true,607,map).action==ServoPAction::Ready);
+
+    // Same-direction fine movement crosses the existing duplicate filter.
+    // A stationary sample discards the sub-deadband residual.
+    FixedAxisServoP fine;
+    auto unit=map;unit.scale=1;
+    arm(fine,robot,hand,unit,700);
+    assert(fine.tick(true,add(hand,{0.15,0,0}),robot,false,704,unit).action==ServoPAction::None);
+    t=fine.tick(true,add(hand,{0.35,0,0}),robot,false,705,unit);
+    assert(t.action==ServoPAction::Send && near(t.target[0],robot[0]+0.35));
+    assert(fine.acknowledgeSentTarget(t.target));
+    assert(fine.tick(true,add(hand,{0.5,0,0}),robot,false,706,unit).action==ServoPAction::None);
+    assert(fine.tick(true,add(hand,{0.5,0,0}),robot,false,707,unit).action==ServoPAction::None);
+    assert(fine.tick(true,add(hand,{0.7,0,0}),robot,false,708,unit).action==ServoPAction::None);
     // Regression: continue the SAME clutch beyond both the old 60mm
     // default and 180mm maximum. Model measured TCP following each
     // accepted setpoint; never change the existing per-command envelope.
@@ -115,11 +170,17 @@ int main() {
     t=wall.tick(true,add(hand,{0,0,10}),edge,false,304,map);
     assert(t.intentValid && (t.wallHoldAxisMask&2U) && t.action==ServoPAction::None);
     t=wall.tick(true,add(hand,{3,0,10}),edge,false,305,map);
-    assert(t.action==ServoPAction::Send && (t.wallHoldAxisMask&2U));
+    assert(t.action==ServoPAction::Send && !(t.wallHoldAxisMask&2U));
     assert(near(t.target[0],edge[0]+6) && near(t.target[1],edge[1]));
+    assert(checkServoPWorkspace(t.target).code==ServoPWorkspaceCode::Allowed);
+    assert(wall.acknowledgeSentTarget(t.target));
+    // Reversing by 1mm moves inward immediately. It is not necessary
+    // to backtrack the entire discarded outward hand displacement.
+    t=wall.tick(true,add(hand,{3,0,9}),edge,false,306,map);
+    assert(t.action==ServoPAction::Send && near(t.target[1],edge[1]+2));
     assert(checkServoPWorkspace(t.target).code==ServoPWorkspaceCode::Allowed);
     FixedAxisServoP invalid;
     Pose6 outside=robot;outside[1]=-413.58;
     assert(invalid.tick(false,hand,outside,true,400,map).action==ServoPAction::Invalid);
-    std::cout<<"48 signed-axis maps, independent regrip, continuous travel and preserved command bounds passed\n";
+    std::cout<<"48 signed-axis maps, sync/no catch-up, release-stop ACK, regrip, continuous travel and preserved command bounds passed\n";
 }
