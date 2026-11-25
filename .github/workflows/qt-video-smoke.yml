@@ -1,0 +1,31 @@
+name: Qt Video Preview Smoke
+on:
+  pull_request:
+    paths:
+      - 'TouchControlPanelApp/src/**'
+      - 'shared/**'
+      - 'ControlBackend/include/**'
+      - 'tests/qt-video-smoke/**'
+      - '.github/workflows/qt-video-smoke.yml'
+  push:
+    branches: [feat/teleop-6dof-calibration-safe-movl]
+    paths:
+      - 'TouchControlPanelApp/src/**'
+      - 'shared/**'
+      - 'ControlBackend/include/**'
+      - 'tests/qt-video-smoke/**'
+      - '.github/workflows/qt-video-smoke.yml'
+jobs:
+  qt-preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated Qt toolchain
+        run: sudo apt-get update && sudo apt-get install -y qt6-base-dev libqt6opengl6-dev qt6-image-formats-plugins libgl1-mesa-dri xvfb xauth
+      - name: Compile video and UI components
+        run: cmake -S tests/qt-video-smoke -B /tmp/qt-video-build && cmake --build /tmp/qt-video-build -j2
+      - name: Run local UDP and geometry smoke
+        run: LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a /tmp/qt-video-build/qt_video_smoke
+      - name: Run local independent telemetry watchdog smoke
+        run: /tmp/qt-video-build/qt_control_thread_smoke

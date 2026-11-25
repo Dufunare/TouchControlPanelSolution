@@ -20,6 +20,7 @@ namespace touchpanel
         bool start();
         void stop();
         void reset();
+        bool requestCalibrationCheck();
 
         DeviceState latestState() const;
 
