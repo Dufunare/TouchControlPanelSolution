@@ -3,12 +3,16 @@ on:
   pull_request:
     paths:
       - 'TouchControlPanelApp/src/**'
+      - 'shared/**'
+      - 'ControlBackend/include/**'
       - 'tests/qt-video-smoke/**'
       - '.github/workflows/qt-video-smoke.yml'
   push:
     branches: [feat/teleop-6dof-calibration-safe-movl]
     paths:
       - 'TouchControlPanelApp/src/**'
+      - 'shared/**'
+      - 'ControlBackend/include/**'
       - 'tests/qt-video-smoke/**'
       - '.github/workflows/qt-video-smoke.yml'
 jobs:
@@ -23,3 +27,5 @@ jobs:
         run: cmake -S tests/qt-video-smoke -B /tmp/qt-video-build && cmake --build /tmp/qt-video-build -j2
       - name: Run local UDP and geometry smoke
         run: LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a /tmp/qt-video-build/qt_video_smoke
+      - name: Run local independent telemetry watchdog smoke
+        run: /tmp/qt-video-build/qt_control_thread_smoke
