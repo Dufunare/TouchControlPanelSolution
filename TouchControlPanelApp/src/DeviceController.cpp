@@ -28,6 +28,20 @@ namespace
         return true;
     }
 
+    QString servoPWorkspaceProblem(const touchpanel::teleop::Pose6& pose)
+    {
+        using namespace touchpanel::teleop;
+        const auto result=checkServoPWorkspace(pose);
+        if(result.code==ServoPWorkspaceCode::Allowed)return {};
+        if(result.code==ServoPWorkspaceCode::XYZOutside)
+            return QStringLiteral("实际 TCP %1=%2 mm，超出实验软件范围 [%3, %4] mm。"
+                                  "请由现场人员按设备规定确认安全位置；不会自动回位。")
+                .arg(QStringLiteral("XYZ").mid(result.axis,1))
+                .arg(result.value,0,'f',2).arg(result.minimum,0,'f',0)
+                .arg(result.maximum,0,'f',0);
+        return QStringLiteral("实际 TCP 位姿数值/姿态无效，不能作为离合基准。");
+    }
+
     QString decodeBackendText(const std::string& text)
     {
         const QString utf8Text = QString::fromUtf8(text.c_str());
@@ -659,6 +673,16 @@ void DeviceController::confirmSingleStep()
     emit backendMessageChanged(QStringLiteral("单步 MovL 已下发；等待应答及 8891 到位确认"));
 }
 
+QString DeviceController::servoPWorkspaceStatus() const
+{
+    if(!m_relayStateClient || !m_relayStateClient->hasFreshState())
+        return QStringLiteral("工作空间：等待 8891 有效反馈");
+    const auto s=m_relayStateClient->snapshot();
+    const auto problem=servoPWorkspaceProblem(s.tcpPose);
+    if(!problem.isEmpty())return QStringLiteral("ServoP 不可启动：")+problem;
+    return QStringLiteral("工作空间：当前 TCP 在实验软件范围内（非物理安全确认）");
+}
+
 void DeviceController::startContinuousServoP()
 {
     if(m_realMode!=RealMode::None || !m_backend ||
@@ -682,6 +706,12 @@ void DeviceController::startContinuousServoP()
             .arg(s.feedbackAgeMs).arg(s.relayStatusAgeMs));
         return;
     }
+    const auto workspaceProblem=servoPWorkspaceProblem(s.tcpPose);
+    if(!workspaceProblem.isEmpty()) {
+        emit backendMessageChanged(QStringLiteral("[SERVOP START BLOCKED] ")+workspaceProblem+
+            QStringLiteral(" 未进入遥控待命，未发送运动指令。"));
+        return;
+    }
     // Re-arm from a clean state after the previous release, aborted start or
     // controlled stop. reset() preserves the configured mode but clears the
     // clutch, its previous target, and pending motion candidates.
@@ -702,6 +732,10 @@ void DeviceController::startContinuousServoP()
     m_motionCommandSent=false;
     m_manualPreview=false;
     m_servoPReleaseTimer.invalidate();
+    m_servoPTrackingHolding=false;
+    m_servoPFeedbackHolding=false;
+    m_servoPTrackingHoldTimer.invalidate();
+    m_servoPTrackingLogTimer.invalidate();
     m_servoPStatsTimer.start();
     m_servoPTickTimer.invalidate();
     m_servoPSendTimer.invalidate();
@@ -984,6 +1018,11 @@ void DeviceController::runServoPTick()
             .arg(robot.feedbackAgeMs).arg(robot.relayStatusAgeMs));
         return;
     }
+    const auto workspaceProblem=servoPWorkspaceProblem(robot.tcpPose);
+    if(!workspaceProblem.isEmpty()) {
+        haltRealMotion(QStringLiteral("[SERVOP ACTUAL WORKSPACE] ")+workspaceProblem);
+        return;
+    }
     if(m_servoPFeedbackHolding) {
         m_servoPFeedbackHolding=false;
         emit backendMessageChanged(QStringLiteral(
@@ -1063,6 +1102,17 @@ void DeviceController::runServoPTick()
         haltRealMotion(QStringLiteral("ServoP：相对映射/工作空间目标无效，已停止"));
         return;
     }
+    // Record every active sample, including planner HOLD/None, rather than
+    // measuring only the frames that happened to be sent.
+    if(m_cartesianServoP.phase()==touchpanel::teleop::ServoPPhase::Active &&
+       outcome.action!=Action::Captured) {
+        touchpanel::teleop::Pose6 directMapped{};
+        if(touchpanel::teleop::manualPositionPreview(
+               m_manualMap,touchpanel::teleop::sub(st.positionMm,m_cartesianServoP.anchorTouch()),
+               m_cartesianServoP.anchorRobot(),directMapped))
+            m_servoPFollowMetrics.observeMappedDemand(directMapped,robot.tcpPose);
+        if(outcome.feedbackLimited)m_servoPFollowMetrics.noteLeadLimit();
+    }
     if(outcome.action==Action::TrackingHold) {
         // The current Touch goal remains a goal, NOT a queued packet.
         // Stop emitting farther-ahead targets until the actual robot
@@ -1079,9 +1129,8 @@ void DeviceController::runServoPTick()
                 "等待8891实际TCP跟上；不排队补发旧目标"));
             m_servoPTrackingLogTimer.restart();
         }
-        return;
-    }
-    if(outcome.action==Action::Ready) {
+        // Still run the rate/hold statistics below; no motion is sent.
+    } else if(outcome.action==Action::Ready) {
         m_servoPReleaseTimer.invalidate();
         emit backendMessageChanged(QStringLiteral(
             "[SERVOP READY] 已检测到 Button1 松开及连续 8891 静止反馈；"
@@ -1147,15 +1196,6 @@ void DeviceController::runServoPTick()
             if(reportWall)m_servoPWallLogTimer.restart();
             m_servoPWallMask=outcome.wallHoldAxisMask;
         }
-        // Read-only diagnostic: original master-style Touch mapped demand
-        // before clutch saturation, live TCP lookahead and rate limiting.
-        touchpanel::teleop::Pose6 directMapped{};
-        if(touchpanel::teleop::manualPositionPreview(
-               m_manualMap,
-               touchpanel::teleop::sub(st.positionMm,m_cartesianServoP.anchorTouch()),
-               m_cartesianServoP.anchorRobot(),directMapped))
-            m_servoPFollowMetrics.observeMappedDemand(directMapped,robot.tcpPose);
-        if(outcome.feedbackLimited)m_servoPFollowMetrics.noteLeadLimit();
         const auto& anchorPose=m_cartesianServoP.anchorRobot();
         // Never silently change the already captured robot orientation.
         for(int i=3;i<6;++i) {
@@ -1193,9 +1233,12 @@ void DeviceController::runServoPTick()
             if(m_servoPTrackingHolding) {
                 m_servoPTrackingHolding=false;
                 m_servoPTrackingHoldTimer.invalidate();
-                m_servoPTrackingLogTimer.invalidate();
-                emit backendMessageChanged(QStringLiteral(
-                    "[SERVOP TRACKING RESUMED] 新Touch目标可安全下发"));
+                if(!m_servoPTrackingLogTimer.isValid() ||
+                   m_servoPTrackingLogTimer.elapsed()>=2000) {
+                    emit backendMessageChanged(QStringLiteral(
+                        "[SERVOP TRACKING RESUMED] 新Touch目标通过仲裁"));
+                    m_servoPTrackingLogTimer.restart();
+                }
             }
         } else {
             using TrackingDecision=touchpanel::teleop::ServoPTrackingDecision;
