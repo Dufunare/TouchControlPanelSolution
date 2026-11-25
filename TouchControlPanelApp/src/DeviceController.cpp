@@ -113,12 +113,6 @@ void DeviceController::setRelayStateClient(RelayStateClient* client)
     m_relayStateClient = client;
 }
 
-bool DeviceController::setServoPClutchTravelLimit(double limitMm)
-{
-    return !realMotionActive() &&
-        m_cartesianServoP.setClutchTravelLimitMm(limitMm);
-}
-
 bool DeviceController::realMotionActive() const
 {
     return m_realMode!=RealMode::None;
@@ -730,7 +724,6 @@ void DeviceController::startContinuousServoP()
     m_servoPTotalSendUs=0;
     m_servoPSendSamples=0;
     m_servoPSentPackets=0;
-    m_servoPWasSaturated=false;
     m_servoPHasTarget=false;
     m_servoPWorkspaceBlocked=false;
     m_servoPWorkspaceAxis=-1;
@@ -747,7 +740,7 @@ void DeviceController::startContinuousServoP()
         "按住连续运动，松开即不再下发目标；重新按下不追逐松开期间的 Touch 移动。"
         "固定设备轴映射；首次按下不发送运动。"
         "当前配置在每次离合内锁定，设备间无需空间点对标定。"
-        "保留硬件异常、软件空间和现有指令安全包络。"));
+        "不设置单次离合总行程上限；保留硬件异常、软件空间和现有指令安全包络。"));
 }
 
 void DeviceController::startContinuousServo()
@@ -1148,7 +1141,6 @@ void DeviceController::runServoPTick()
             "下一次按下将重新捕获双方的当前坐标"));
     } else if(outcome.action==Action::Captured) {
         m_clutchCalibrationEpoch=st.calibrationEpoch;
-        m_servoPWasSaturated=false;
         m_servoPHasTarget=false;
         m_servoPWorkspaceBlocked=false;
         m_servoPWorkspaceAxis=-1;
@@ -1283,14 +1275,6 @@ void DeviceController::runServoPTick()
         m_servoPHasTarget=true;
         ++m_servoPSentPackets;
     }
-    if(outcome.saturated && !m_servoPWasSaturated) {
-        emit backendMessageChanged(QStringLiteral(
-            "[SERVOP LIMIT] 本次 Touch 目标位移 %1mm；"
-            "ServoP 目标限制在本次基准 %2mm 内，达到限制不重置机械臂")
-            .arg(outcome.rawDistanceMm,0,'f',1)
-            .arg(m_cartesianServoP.clutchTravelLimitMm(),0,'f',1));
-    }
-    m_servoPWasSaturated=outcome.saturated;
     if(m_cartesianServoP.phase()==touchpanel::teleop::ServoPPhase::Active &&
        m_servoPStatsTimer.isValid() &&
        m_servoPStatsTimer.elapsed()>=2000) {
@@ -1314,7 +1298,7 @@ void DeviceController::runServoPTick()
             "已发送设定点路径速度=%2mm/s 按发送次数=%3 "
             "FeedbackLead限幅=%4 TrackingHold帧=%5 WorkspaceHold帧=%6 "
             "目标模式=%7 前视限幅=%8mm 原始映射距实机=%9mm "
-            "窗口峰值=%10mm（原始值未受离合/空间裁剪）")
+            "窗口峰值=%10mm（原始值未受空间/指令裁剪）")
             .arg(follow.actualPathMm/seconds,0,'f',1)
             .arg(follow.setpointPathMm/seconds,0,'f',1)
             .arg(follow.sent).arg(follow.leadLimited)
