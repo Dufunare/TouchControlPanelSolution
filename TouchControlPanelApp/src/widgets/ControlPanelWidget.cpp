@@ -155,7 +155,7 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     // stays available as an explicit experimental alternative.
     m_realModeSelector=new QComboBox(manualGroup);
     m_realModeSelector->addItems({
-        QStringLiteral("ServoP · 固定轴相对平移（默认）"),
+        QStringLiteral("ServoP · 固定轴同步优先（默认）"),
         QStringLiteral("ServoJ · 逆运动学连续跟随（实验）")});
     m_realModeSelector->setCurrentIndex(0);
     detailsForm->addRow(QStringLiteral("实体控制模式"),m_realModeSelector);
