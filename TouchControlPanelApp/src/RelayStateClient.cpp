@@ -103,7 +103,7 @@ void RelayStateClient::disconnectRelay() {
     invalidate(QStringLiteral("v2 遥测已断开"));
 }
 void RelayStateClient::invalidate(const QString& why) {
-    if(orientationProbePending())finishOrientationProbe(QStringLiteral("会话失效；结果作废"));
+    if(orientationProbePending())finishOrientationProbe(QStringLiteral("会话失效；结果作废"),true);
     const bool wasValid=m_valid||m_ready||m_handshaken;
     m_valid=false;m_ready=false;m_handshaken=false;m_session.clear();
     m_sequence=0;m_stateAge.invalidate();m_relayAge.invalidate();m_codec.reset();
@@ -260,7 +260,7 @@ void RelayStateClient::handleFrame(const QByteArray& bytes) {
 }
 bool RelayStateClient::requestOrientationIkProbe(const std::array<double,6>& pose) {
     using namespace touchpanel::teleop;
-    if(QThread::currentThread()!=thread() || orientationProbePending())return false;
+    if(QThread::currentThread()!=thread() || orientationProbeInterlock())return false;
     const auto s=snapshot();
     if(!idleForExperimentalStep(s,0,0) || feedbackZyxErrorDeg(s)>0.5 ||
        checkServoPWorkspace(pose).code!=ServoPWorkspaceCode::Allowed)return false;
@@ -277,32 +277,41 @@ bool RelayStateClient::requestOrientationIkProbe(const std::array<double,6>& pos
         std::string_view(json.constData(),static_cast<size_t>(json.size())));
     if(wire.empty() || m_socket.write(wire.data(),static_cast<qint64>(wire.size()))!=
                       static_cast<qint64>(wire.size())) {
-        finishOrientationProbe(QStringLiteral("诊断请求写入失败；不授权运动"));
+        finishOrientationProbe(QStringLiteral("诊断请求写入失败；不授权运动"),true);
         return false;
     }
     return true;
 }
-void RelayStateClient::finishOrientationProbe(const QString& result) {
+void RelayStateClient::finishOrientationProbe(const QString& result,bool uncertain) {
+    m_probeUncertain=m_probeUncertain||uncertain;
     m_probeId.clear();m_probeCommand.clear();m_probeAge.invalidate();m_probeStart={};
-    emit orientationProbeFinished(QStringLiteral("[ROTATION IK / READ ONLY] ")+result);
+    emit orientationProbeFinished(QStringLiteral("[ROTATION IK / READ ONLY] ")+result+
+        (m_probeUncertain?QStringLiteral("；Dashboard 应答链路未确认，已锁定新实体模式。请由现场人员确认停止并恢复中转站与控制端会话。"):QString()));
 }
 void RelayStateClient::handleOrientationProbeReply(const QJsonObject& o) {
     using namespace touchpanel::teleop;
     if(o.value("type").toString()!="reply" || o.value("target_port").toInt()!=29999 ||
        o.value("command_name").toString().compare(QStringLiteral("InverseSolution"),Qt::CaseInsensitive)!=0 ||
-       !o.value("controller_code").isDouble() || o.value("controller_code").toInt(-1)!=0) {
-        finishOrientationProbe(QStringLiteral("控制器/中转站拒绝逆解，或应答格式不匹配"));
+       !o.value("controller_code").isDouble()) {
+        finishOrientationProbe(QStringLiteral("中转站异常或应答格式不匹配"),true);
         return;
     }
     static const QRegularExpression reply(
-        QStringLiteral(R"(^\s*0\s*,\s*\{([^{}]*)\}\s*,\s*(InverseSolution\s*\(.*\))\s*;?\s*$)"),
+        QStringLiteral(R"(^\s*(-?\d+)\s*,\s*\{([^{}]*)\}\s*,\s*(InverseSolution\s*\(.*\))\s*;?\s*$)"),
         QRegularExpression::CaseInsensitiveOption);
     const auto match=reply.match(o.value("raw_reply").toString());
-    if(!match.hasMatch() || !matchingIkEcho(m_probeCommand,match.captured(2))) {
-        finishOrientationProbe(QStringLiteral("逆解回显与完整请求不匹配；丢弃结果"));
+    bool codeOk=false;
+    const int rawCode=match.captured(1).toInt(&codeOk);
+    if(!match.hasMatch() || !codeOk || rawCode!=o.value("controller_code").toDouble() ||
+       !matchingIkEcho(m_probeCommand,match.captured(3))) {
+        finishOrientationProbe(QStringLiteral("逆解回显与完整请求不匹配；丢弃结果"),true);
         return;
     }
-    const auto fields=match.captured(1).split(',');
+    if(rawCode!=0) {
+        finishOrientationProbe(QStringLiteral("控制器拒绝目标，ErrorID=%1；没有运动").arg(rawCode));
+        return;
+    }
+    const auto fields=match.captured(2).split(',');
     if(fields.size()!=6) {
         finishOrientationProbe(QStringLiteral("逆解返回的关节数无效"));
         return;
@@ -328,9 +337,17 @@ void RelayStateClient::handleOrientationProbeReply(const QJsonObject& o) {
     if(!sameStart) {
         finishOrientationProbe(QStringLiteral("逆解期间机器人状态变化或超时；丢弃结果"));return;
     }
-    const auto msg=QStringLiteral("seq=%1 目标=%2 解=(%3) 最大关节差=%4° RTT=%5ms；仅终点逆解证据，不保证路径、限位或无碰撞")
+    // CR3 nominal mechanical ranges from CR-series manual v1.8, Annex A.
+    // For diagnostics only: these are NOT the installed safety settings.
+    QStringList specOutside;
+    for(int i=0;i<6;++i)
+        if(std::abs(joints[i])>(i==2?155.0:360.0))
+            specOutside<<QStringLiteral("J%1").arg(i+1);
+    const auto msg=QStringLiteral("seq=%1 目标=%2 解=(%3) 最大关节差=%4° RTT=%5ms；"
+        "CR3手册名义关节范围=%6；仅终点逆解证据，不保证路径、现场限位或无碰撞")
         .arg(m_probeStart.stateSeq).arg(m_probeCommand).arg(sixText(joints))
-        .arg(maxDelta,0,'f',3).arg(m_probeAge.elapsed());
+        .arg(maxDelta,0,'f',3).arg(m_probeAge.elapsed())
+        .arg(specOutside.isEmpty()?QStringLiteral("未超出"):QStringLiteral("超出 ")+specOutside.join(','));
     finishOrientationProbe(msg);
 }
 
@@ -432,7 +449,7 @@ void RelayStateClient::refreshStatus() {
     if(orientationProbePending() &&
        (!touchpanel::teleop::idleForExperimentalStep(snapshot(),0,0) ||
         !m_probeAge.isValid() || m_probeAge.elapsed()>1500))
-        finishOrientationProbe(QStringLiteral("诊断超时或空闲反馈失效；不重试、不授权运动"));
+        finishOrientationProbe(QStringLiteral("诊断超时或空闲反馈失效；不重试、不授权运动"),true);
     if(m_valid&&m_stateAge.isValid()&&m_stateAge.elapsed()>kFreshMs) {
         m_valid=false;emit stateInvalidated();
     }
