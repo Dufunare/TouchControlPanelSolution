@@ -53,8 +53,8 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     endpointLayout->addRow("中转站 IP：", m_transitIpEdit);
     endpointLayout->addRow("中转站端口：", m_transitPortSpin);
 
-    m_robotConnectButton = new QPushButton("建立 TCP 连接", TCPGroup);
-    m_robotDisconnectButton = new QPushButton("断开 TCP 连接", TCPGroup);
+    m_robotConnectButton = new QPushButton("连接中转站", TCPGroup);
+    m_robotDisconnectButton = new QPushButton("断开", TCPGroup);
 
     TCPLayout->addLayout(endpointLayout);
     auto* connectionRow=new QHBoxLayout();
@@ -254,6 +254,12 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     connect(m_stopDragButton, &QPushButton::clicked, this, &ControlPanelWidget::stopDragRequested);
     connect(m_startTeleopButton, &QPushButton::clicked, this, &ControlPanelWidget::startTeleopRequested);
     connect(m_stopTeleopButton, &QPushButton::clicked, this, &ControlPanelWidget::stopTeleopRequested);
+}
+
+QString ControlPanelWidget::relayHost() const
+{
+    const QString host=m_transitIpEdit->text().trimmed();
+    return host.isEmpty()?QStringLiteral("192.168.100.194"):host;
 }
 
 void ControlPanelWidget::setAxisChoice(int robotAxis,int sourceCode)
