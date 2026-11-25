@@ -146,6 +146,12 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     m_axisDeadzone->setToolTip(QStringLiteral("设为 0 可使用精确的轴向位移比例；仍保留重复目标过滤。"));
     auto* previewButton=new QPushButton(QStringLiteral("启用平移预览（不发送运动）"),manualGroup);
     detailsForm->addRow(previewButton);
+    auto* posePreviewButton=new QPushButton(QStringLiteral("固定轴六维预览（只读）"),manualGroup);
+    posePreviewButton->setToolTip(QStringLiteral("同一离合内映射 XYZ 和相对姿态；不下发机械臂旋转"));
+    detailsForm->addRow(posePreviewButton);
+    connect(posePreviewButton,&QPushButton::clicked,this,[this]{
+        emit fixedAxisPosePreviewRequested(m_axisSelection,m_axisGain->value(),m_axisDeadzone->value());
+    });
     detailsForm->addRow(m_startTeleopButton);
     connect(previewButton,&QPushButton::clicked,this,[this]{
         emit manualPreviewRequested(m_axisSelection,m_axisGain->value(),m_axisDeadzone->value());
@@ -155,7 +161,7 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     // stays available as an explicit experimental alternative.
     m_realModeSelector=new QComboBox(manualGroup);
     m_realModeSelector->addItems({
-        QStringLiteral("ServoP · 固定轴同步优先（默认）"),
+        QStringLiteral("ServoP · 固定轴直接位置（默认）"),
         QStringLiteral("ServoJ · 逆运动学连续跟随（实验）")});
     m_realModeSelector->setCurrentIndex(0);
     detailsForm->addRow(QStringLiteral("实体控制模式"),m_realModeSelector);
