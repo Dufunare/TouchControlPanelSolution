@@ -119,24 +119,6 @@ bool DeviceController::setServoPClutchTravelLimit(double limitMm)
         m_cartesianServoP.setClutchTravelLimitMm(limitMm);
 }
 
-bool DeviceController::setServoPFollowSpeedLimit(double limitMmPerSec)
-{
-    return !realMotionActive() &&
-        m_cartesianServoP.setFollowSpeedLimitMmPerSec(limitMmPerSec);
-}
-
-bool DeviceController::setServoPFeedbackLeadLimit(double limitMm)
-{
-    return !realMotionActive() &&
-        m_cartesianServoP.setFeedbackLeadLimitMm(limitMm);
-}
-
-bool DeviceController::setServoPVirtualWallSlideEnabled(bool enabled)
-{
-    return !realMotionActive() &&
-        m_cartesianServoP.setVirtualWallSlideEnabled(enabled);
-}
-
 bool DeviceController::realMotionActive() const
 {
     return m_realMode!=RealMode::None;
@@ -680,6 +662,21 @@ QString DeviceController::servoPWorkspaceStatus() const
     const auto s=m_relayStateClient->snapshot();
     const auto problem=servoPWorkspaceProblem(s.tcpPose);
     if(!problem.isEmpty())return QStringLiteral("ServoP 不可启动：")+problem;
+    if(m_realMode==RealMode::CartesianServoP) {
+        if(m_servoPFeedbackHolding)return QStringLiteral("离合：反馈暂失，已停发；恢复后松开再按");
+        switch(m_cartesianServoP.phase()) {
+        case touchpanel::teleop::ServoPPhase::NeedRelease:
+            return QStringLiteral("离合：先松开 Button1，等待就绪");
+        case touchpanel::teleop::ServoPPhase::Ready:
+            return QStringLiteral("离合：就绪，可按下 Button1 重新抓取");
+        case touchpanel::teleop::ServoPPhase::Active:
+            if(m_servoPTrackingHolding)return QStringLiteral("离合：跟踪保护暂停");
+            if(m_servoPWallMask)return QStringLiteral("离合：软件边界限制部分轴");
+            return QStringLiteral("离合：控制中，松开可重新定位 Touch");
+        case touchpanel::teleop::ServoPPhase::WaitingForIdle:
+            return QStringLiteral("离合：已松开，等待机械臂实测停稳");
+        }
+    }
     return QStringLiteral("工作空间：当前 TCP 在实验软件范围内（非物理安全确认）");
 }
 
@@ -712,19 +709,8 @@ void DeviceController::startContinuousServoP()
             QStringLiteral(" 未进入遥控待命，未发送运动指令。"));
         return;
     }
-    // Re-arm from a clean state after the previous release, aborted start or
-    // controlled stop. reset() preserves the configured mode but clears the
-    // clutch, its previous target, and pending motion candidates.
+    // A single fixed-axis live controller; no legacy trajectory mode.
     m_cartesianServoP.reset();
-    // Restore the working master's position-target semantics, but do not
-    // copy its unbounded goal jumps or hardcoded RPY. This mode uses the
-    // CURRENT Touch sample and a bounded 20mm setpoint lead/jump, plus
-    // independent 8891 validity and 25mm last-sent hard tracking guard.
-    if(!m_cartesianServoP.setDirectResponseEnabled(true) ||
-       !m_cartesianServoP.setVirtualWallSlideEnabled(true)) {
-        emit backendMessageChanged(QStringLiteral("ServoP 直接跟随参数未能安全设置"));
-        return;
-    }
     m_realMode=RealMode::CartesianServoP;
     m_motionSession=s.sessionEpoch;
     m_motionUser=s.userIndex;
@@ -759,8 +745,9 @@ void DeviceController::startContinuousServoP()
     emit backendMessageChanged(QStringLiteral(
         "ServoP 相对遥控已待命：必须先松开 Button1；下次按下同步抓取 Touch 与机器人当前位姿。"
         "按住连续运动，松开即不再下发目标；重新按下不追逐松开期间的 Touch 移动。"
-        "首次按下本身不下发运动。当前为实时位置直接跟随，"
-        "旧版逐帧速度推进器已退出；保持软件空间和反馈异常停止保护。"));
+        "固定设备轴映射；首次按下不发送运动。"
+        "当前配置在每次离合内锁定，设备间无需空间点对标定。"
+        "保留硬件异常、软件空间和现有指令安全包络。"));
 }
 
 void DeviceController::startContinuousServo()
@@ -982,8 +969,6 @@ void DeviceController::runServoPTick()
         m_servoPTickTimer.restart():DEVICE_CONTROLLER_MOTION_INTERVAL_MS;
     if(!m_servoPTickTimer.isValid())m_servoPTickTimer.start();
     m_servoPMaxTickGapMs=std::max(m_servoPMaxTickGapMs,actualGapMs);
-    // Normalize against the actual timer interval, but cap catch-up.
-    const double elapsedSeconds=std::max(0.001,actualGapMs/1000.0);
     const bool touchRunning=m_backend && m_backend->isRunning();
     const bool legacyConnected=m_robotBackend && m_robotBackend->isTransitConnected();
     const bool feedbackFresh=m_relayStateClient && m_relayStateClient->hasFreshState();
@@ -1096,7 +1081,7 @@ void DeviceController::runServoPTick()
     }
     const auto outcome=m_cartesianServoP.tick(
         st.button1Pressed,st.positionMm,robot.tcpPose,idle,
-        robot.stateSeq,m_manualMap,elapsedSeconds);
+        robot.stateSeq,m_manualMap);
     using Action=touchpanel::teleop::ServoPAction;
     if(outcome.action==Action::Invalid) {
         haltRealMotion(QStringLiteral("ServoP：相对映射/工作空间目标无效，已停止"));
@@ -1104,14 +1089,12 @@ void DeviceController::runServoPTick()
     }
     // Record every active sample, including planner HOLD/None, rather than
     // measuring only the frames that happened to be sent.
-    if(m_cartesianServoP.phase()==touchpanel::teleop::ServoPPhase::Active &&
-       outcome.action!=Action::Captured) {
-        touchpanel::teleop::Pose6 directMapped{};
-        if(touchpanel::teleop::manualPositionPreview(
-               m_manualMap,touchpanel::teleop::sub(st.positionMm,m_cartesianServoP.anchorTouch()),
-               m_cartesianServoP.anchorRobot(),directMapped))
-            m_servoPFollowMetrics.observeMappedDemand(directMapped,robot.tcpPose);
+    if(outcome.intentValid) {
+        // Record the actual controller's immutable, unmodified input intent,
+        // including HOLD frames. Never recompute from a mutable GUI mapping.
+        m_servoPFollowMetrics.observeMappedDemand(outcome.intent,robot.tcpPose);
         if(outcome.feedbackLimited)m_servoPFollowMetrics.noteLeadLimit();
+        if(outcome.wallHoldAxisMask)m_servoPFollowMetrics.noteWorkspaceHold();
     }
     if(outcome.action==Action::TrackingHold) {
         // The current Touch goal remains a goal, NOT a queued packet.
@@ -1130,6 +1113,11 @@ void DeviceController::runServoPTick()
             m_servoPTrackingLogTimer.restart();
         }
         // Still run the rate/hold statistics below; no motion is sent.
+    } else if(outcome.action==Action::RegripBlocked) {
+        emit backendMessageChanged(QStringLiteral(
+            "[SERVOP REGRIP BLOCKED] 此次按下早于离合就绪；"
+            "请松开 Button1，待三次不同的有效停稳反馈后重新按下。"
+            "不会在保持按下期间延迟捕获或补发目标。"));
     } else if(outcome.action==Action::Ready) {
         m_servoPReleaseTimer.invalidate();
         emit backendMessageChanged(QStringLiteral(
@@ -1204,81 +1192,25 @@ void DeviceController::runServoPTick()
                 return;
             }
         }
-        const touchpanel::teleop::Vec3 toRobot={
-            outcome.target[0]-robot.tcpPose[0],
-            outcome.target[1]-robot.tcpPose[1],
-            outcome.target[2]-robot.tcpPose[2]};
-        const double tracking=touchpanel::teleop::norm(toRobot);
-        const auto& accepted=m_cartesianServoP.lastAcceptedTarget();
-        const touchpanel::teleop::Vec3 lastError={
-            accepted[0]-robot.tcpPose[0],accepted[1]-robot.tcpPose[1],
-            accepted[2]-robot.tcpPose[2]};
-        const double lastLag=touchpanel::teleop::norm(lastError);
-        using TrackingDecision=touchpanel::teleop::ServoPTrackingDecision;
-        // Direct mode performs its command/feedback arbitration in the
-        // dedicated planner. Do NOT reapply the old soft-hold hysteresis:
-        // it would make the robot repeatedly wait for 11mm lag even when
-        // the new latest-Touch command is already valid and corrective.
-        // A separate always-on check at the beginning of runServoPTick()
-        // still stops on >25mm LAST-SENT vs ACTUAL mismatch and on
-        // persistent lack of progress.
-        if(m_cartesianServoP.directResponseEnabled()) {
-            if(!std::isfinite(lastLag) ||
-               lastLag>touchpanel::teleop::kServoPTrackingErrorMm) {
-                haltRealMotion(QStringLiteral(
-                    "ServoP：已发送目标实际跟踪误差=%1mm 超过硬限制")
-                    .arg(lastLag,0,'f',2));
-                return;
-            }
-            if(m_servoPTrackingHolding) {
-                m_servoPTrackingHolding=false;
-                m_servoPTrackingHoldTimer.invalidate();
-                if(!m_servoPTrackingLogTimer.isValid() ||
-                   m_servoPTrackingLogTimer.elapsed()>=2000) {
-                    emit backendMessageChanged(QStringLiteral(
-                        "[SERVOP TRACKING RESUMED] 新Touch目标通过仲裁"));
-                    m_servoPTrackingLogTimer.restart();
-                }
-            }
-        } else {
-            using TrackingDecision=touchpanel::teleop::ServoPTrackingDecision;
-            const auto decision=touchpanel::teleop::servoPTrackingDecision(
-                lastLag,tracking,m_servoPTrackingHolding,
-                m_servoPTrackingHoldTimer.isValid()?
-                    static_cast<int>(m_servoPTrackingHoldTimer.elapsed()):0,
-                m_cartesianServoP.feedbackLeadLimitMm());
-            if(decision==TrackingDecision::Abort) {
-                haltRealMotion(QStringLiteral(
-                    "ServoP 已发送目标跟踪失效：LastLag=%1mm "
-                    "CandidateLag=%2mm Hold=%3ms")
-                    .arg(lastLag,0,'f',2).arg(tracking,0,'f',2)
-                    .arg(m_servoPTrackingHoldTimer.isValid()?
-                         m_servoPTrackingHoldTimer.elapsed():0));
-                return;
-            }
-            if(decision==TrackingDecision::Hold) {
-                m_servoPFollowMetrics.noteTrackingHold();
-                m_cartesianServoP.rejectUnsentTarget();
-                if(!m_servoPTrackingHolding) {
-                    m_servoPTrackingHolding=true;
-                    m_servoPTrackingHoldTimer.start();
-                }
-                if(!m_servoPTrackingLogTimer.isValid() ||
-                   m_servoPTrackingLogTimer.elapsed()>=2000) {
-                    emit backendMessageChanged(QStringLiteral(
-                        "[SERVOP TRACKING HOLD] LastLag=%1mm "
-                        "CandidateLag=%2mm")
-                        .arg(lastLag,0,'f',2).arg(tracking,0,'f',2));
-                    m_servoPTrackingLogTimer.restart();
-                }
-                return;
-            }
-            if(m_servoPTrackingHolding) {
-                m_servoPTrackingHolding=false;
-                m_servoPTrackingHoldTimer.invalidate();
-                m_servoPTrackingLogTimer.invalidate();
+        // Exactly one live command arbiter. The independent hard
+        // last-sent/actual check above runs even when no command is sent.
+        const double lastLag=touchpanel::teleop::servoPCartesianDistance(
+            m_cartesianServoP.lastAcceptedTarget(),robot.tcpPose);
+        if(!std::isfinite(lastLag) ||
+           lastLag>touchpanel::teleop::kServoPTrackingErrorMm) {
+            haltRealMotion(QStringLiteral(
+                "ServoP：已发送目标实际跟踪误差=%1mm 超过硬限制")
+                .arg(lastLag,0,'f',2));
+            return;
+        }
+        if(m_servoPTrackingHolding) {
+            m_servoPTrackingHolding=false;
+            m_servoPTrackingHoldTimer.invalidate();
+            if(!m_servoPTrackingLogTimer.isValid() ||
+               m_servoPTrackingLogTimer.elapsed()>=2000) {
                 emit backendMessageChanged(QStringLiteral(
-                    "[SERVOP TRACKING RESUMED] 跟踪恢复"));
+                    "[SERVOP TRACKING RESUMED] 新Touch目标通过仲裁"));
+                m_servoPTrackingLogTimer.restart();
             }
         }
         m_servoPSendTimer.start();
@@ -1385,10 +1317,8 @@ void DeviceController::runServoPTick()
             .arg(follow.setpointPathMm/seconds,0,'f',1)
             .arg(follow.sent).arg(follow.leadLimited)
             .arg(follow.trackingHeld).arg(follow.workspaceHeld)
-            .arg(m_cartesianServoP.directResponseEnabled()?
-                 QStringLiteral("Touch直接映射（无逐帧速度追赶器）"):
-                 QStringLiteral("旧轨迹限制"))
-            .arg(m_cartesianServoP.feedbackLeadLimitMm(),0,'f',1)
+            .arg(QStringLiteral("固定设备坐标轴 / 独立离合"))
+            .arg(touchpanel::teleop::kServoPCommandLeadMm,0,'f',1)
             .arg(follow.latestMappedLagMm,0,'f',1)
             .arg(follow.maxMappedLagMm,0,'f',1));
         m_servoPFollowMetrics.clearWindow();
