@@ -474,6 +474,8 @@ void DeviceController::probeRotationCandidate()
     const auto s=m_relayStateClient->snapshot();
     const auto st=m_backend->latestState();
     if(!m_orientationAudit.supportsZyx(s) || !idleForExperimentalStep(s,0,0) ||
+       s.sessionEpoch!=m_fixedPreviewSession ||
+       s.userIndex!=m_fixedPreviewUser || s.toolIndex!=m_fixedPreviewTool ||
        !st.valid || !st.schedulerRunning || !st.deviceCalibrated ||
        !st.orientationValid || !st.button1Pressed ||
        st.calibrationEpoch!=m_clutchCalibrationEpoch ||
@@ -643,6 +645,13 @@ void DeviceController::onMotionTick()
         return;
     }
     const auto robotSnapshot=m_relayStateClient->snapshot();
+    if(m_fixedAxisPosePreview && m_motionBaselineReady &&
+       (robotSnapshot.sessionEpoch!=m_fixedPreviewSession ||
+        robotSnapshot.userIndex!=m_fixedPreviewUser ||
+        robotSnapshot.toolIndex!=m_fixedPreviewTool)) {
+        invalidateTeleopBaseline();
+        return;
+    }
     if(!m_manualPreview && !m_fixedAxisPosePreview && m_calibrationApplied &&
        (robotSnapshot.sessionEpoch!=m_calibrationSessionEpoch ||
         st.calibrationEpoch!=m_calibrationTouchEpoch)) {
@@ -665,6 +674,11 @@ void DeviceController::onMotionTick()
         // Re-capture after each release or invalidation. Never use legacy GetPose cache.
         if (!m_relayStateClient->tryGetFreshPose(m_robotPoseOrigin)) return;
         m_clutchCalibrationEpoch=st.calibrationEpoch;
+        if(m_fixedAxisPosePreview) {
+            m_fixedPreviewSession=robotSnapshot.sessionEpoch;
+            m_fixedPreviewUser=robotSnapshot.userIndex;
+            m_fixedPreviewTool=robotSnapshot.toolIndex;
+        }
         m_touchOrigin = st.positionMm;
         m_touchRotationOrigin = st.rotationMatrix;
         m_motionBaselineReady = true;
