@@ -93,6 +93,13 @@ public:
         m_samples[m_count++]=measured;
         return OrientationCapture::Added;
     }
+    // Manual evidence is optional for live following. A missing or
+    // inconclusive audit is not a veto; an observed contradiction in
+    // this session remains a veto. Live quaternion checks are separate.
+    bool hasZyxMismatch(std::uint64_t session) const {
+        return session!=0 && session==m_session && m_lastSeq!=0 &&
+               m_worst[0]>0.5;
+    }
     bool supportsZyx(const RobotSnapshot& s) const {
         const auto r=report();
         return r.unique && r.bestOrder==0 && m_session!=0 &&
