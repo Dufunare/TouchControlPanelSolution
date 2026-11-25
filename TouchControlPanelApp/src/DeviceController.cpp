@@ -17,7 +17,7 @@ namespace
 
     bool servoPMeasuredIdle(const touchpanel::RobotSnapshot& s)
     {
-        if(s.robotMode!=5 || s.running || s.error || s.dragging ||
+        if(s.robotMode!=5 || s.running || s.queuedMotion || s.error || s.dragging ||
            s.jogging || s.paused ||
            !touchpanel::finiteSix(s.tcpVelocity) ||
            !touchpanel::finiteSix(s.jointVelocity))
@@ -668,7 +668,9 @@ QString DeviceController::servoPWorkspaceStatus() const
             if(m_servoPWallMask)return QStringLiteral("离合：软件边界限制部分轴");
             return QStringLiteral("离合：控制中，松开可重新定位 Touch");
         case touchpanel::teleop::ServoPPhase::WaitingForIdle:
-            return QStringLiteral("离合：已松开，等待机械臂实测停稳");
+            if(m_cartesianServoP.releaseStopPending())
+                return QStringLiteral("离合：已请求软件停止，等待应答");
+            return QStringLiteral("离合：等待实测停稳；提前按下须松开再按");
         }
     }
     return QStringLiteral("工作空间：当前 TCP 在实验软件范围内（非物理安全确认）");
@@ -733,14 +735,15 @@ void DeviceController::startContinuousServoP()
     m_invalidTouchTicks=0;
     m_staleTouchTicks=0;
     m_lastTouchSampleCounter=st.sampleCounter;
+    m_servoPLastReleaseCounter=st.button1ReleaseCounter;
     invalidateTeleopBaseline();
     if(!m_motionTimer.isActive())m_motionTimer.start();
     emit backendMessageChanged(QStringLiteral(
-        "ServoP 相对遥控已待命：必须先松开 Button1；下次按下同步抓取 Touch 与机器人当前位姿。"
-        "按住连续运动，松开即不再下发目标；重新按下不追逐松开期间的 Touch 移动。"
-        "固定设备轴映射；首次按下不发送运动。"
-        "当前配置在每次离合内锁定，设备间无需空间点对标定。"
-        "不设置单次离合总行程上限；保留硬件异常、软件空间和现有指令安全包络。"));
+        "ServoP 同步优先遥控已待命：先松开 Button1，等待就绪后按下抓取两端坐标。"
+        "仅跟随新产生的 Touch 位移，不补发受限位移。"
+        "松开立即停发；若本次发过运动指令则请求一次 ResetRobot 软件停止。"
+        "确认应答及新鲜停稳反馈后才允许重新离合。"
+        "保留固定轴映射、比例、工作空间和指令安全包络。"));
 }
 
 void DeviceController::startContinuousServo()
@@ -809,6 +812,21 @@ void DeviceController::handleRobotOperation(const QString& operation,bool succes
         m_stepAwaitingReply=false;
         m_stepReplyAccepted=true;
         emit backendMessageChanged(QStringLiteral("单步命令已接收，等待机器人实际到位"));
+    }
+    if(operation==QStringLiteral("ResetRobot") &&
+       m_realMode==RealMode::CartesianServoP &&
+       m_cartesianServoP.releaseStopPending()) {
+        const auto observed=m_relayStateClient?
+            m_relayStateClient->snapshot():touchpanel::RobotSnapshot{};
+        if(!success || observed.sessionEpoch!=m_motionSession ||
+           !touchpanel::teleop::continuousTelemetryAgesHealthy(observed) ||
+           !m_cartesianServoP.acknowledgeReleaseStop(observed.stateSeq)) {
+            haltRealMotion(QStringLiteral("ServoP：松手停止确认失败：")+detail);
+            return;
+        }
+        emit backendMessageChanged(QStringLiteral(
+            "[SERVOP STOP ACK] 软件停止已应答；仍需后续三次不同的有效空闲反馈。"));
+        return;
     }
     if(operation==QStringLiteral("ResetRobot") &&
        m_realMode==RealMode::Continuous && m_continuousStopping) {
@@ -967,11 +985,23 @@ void DeviceController::runServoPTick()
     const bool feedbackFresh=m_relayStateClient && m_relayStateClient->hasFreshState();
     const auto robot=m_relayStateClient
         ? m_relayStateClient->snapshot() : touchpanel::RobotSnapshot{};
+    const auto st=m_backend?m_backend->latestState():touchpanel::DeviceState{};
+    const bool releaseObserved=st.valid &&
+        st.button1ReleaseCounter!=m_servoPLastReleaseCounter;
     // A brief feedback gap cannot authorize ANY new motion. Disarm
     // clutch; existing 400ms watchdog still escalates persistent loss.
     if(touchRunning && legacyConnected &&
        touchpanel::teleop::servoPRecoverableFeedbackGap(
            robot,m_motionSession,m_motionUser,m_motionTool)) {
+        // Do not erase an in-flight stop handshake and accidentally
+        // rearm after a telemetry interruption. A release during the
+        // gap must not be treated as permission to finish old motion.
+        if(m_cartesianServoP.phase()==touchpanel::teleop::ServoPPhase::WaitingForIdle ||
+           (m_motionCommandSent && st.valid &&
+            (releaseObserved || !st.button1Pressed))) {
+            haltRealMotion(QStringLiteral("ServoP：离合释放/停止期间反馈不新鲜"));
+            return;
+        }
         if(!m_servoPFeedbackHolding) {
             m_servoPFeedbackHolding=true;
             m_cartesianServoP.reset();
@@ -1007,7 +1037,6 @@ void DeviceController::runServoPTick()
             "[SERVOP FEEDBACK RECOVERED] 反馈已恢复；"
             "必须松开Button1并等待机器人停稳，才可重新抓取基准"));
     }
-    const auto st=m_backend->latestState();
     if(!st.schedulerRunning || !st.deviceCalibrated ||
        robot.sessionEpoch!=m_motionSession ||
        robot.userIndex!=m_motionUser || robot.toolIndex!=m_motionTool ||
@@ -1034,6 +1063,7 @@ void DeviceController::runServoPTick()
     }
     m_staleTouchTicks=0;
     m_lastTouchSampleCounter=st.sampleCounter;
+    m_servoPLastReleaseCounter=st.button1ReleaseCounter;
     if(m_cartesianServoP.phase()==touchpanel::teleop::ServoPPhase::Active &&
        st.calibrationEpoch!=m_clutchCalibrationEpoch) {
         haltRealMotion(QStringLiteral("ServoP：Touch 校准代次变化"));
@@ -1062,19 +1092,20 @@ void DeviceController::runServoPTick()
             return;
         }
     }
-    // A missing idle transition after button release is not evidence of
-    // safety. The original ServoP stops sending without ResetRobot. Allow
-    // it to finish the last target, but demand a measured stop within 1.5s.
+    // A software stop ACK plus distinct post-ACK idle feedback is
+    // required before any new clutch. Keep the original 1.5s release
+    // deadline; missing ACK/idle terminates this teleop session.
     if(m_cartesianServoP.phase()==touchpanel::teleop::ServoPPhase::WaitingForIdle &&
        m_servoPReleaseTimer.isValid() &&
-       m_servoPReleaseTimer.elapsed()>1500 && !idle) {
+       m_servoPReleaseTimer.elapsed()>1500 &&
+       (m_cartesianServoP.releaseStopPending() || !idle)) {
         haltRealMotion(QStringLiteral(
-            "ServoP：Button1 松开后 1.5 秒仍未检测到机器人停稳；已请求软件停止"));
+            "ServoP：松手后 1.5 秒内未确认停止应答/实际停稳"));
         return;
     }
     const auto outcome=m_cartesianServoP.tick(
         st.button1Pressed,st.positionMm,robot.tcpPose,idle,
-        robot.stateSeq,m_manualMap);
+        robot.stateSeq,m_manualMap,releaseObserved);
     using Action=touchpanel::teleop::ServoPAction;
     if(outcome.action==Action::Invalid) {
         haltRealMotion(QStringLiteral("ServoP：相对映射/工作空间目标无效，已停止"));
@@ -1131,11 +1162,14 @@ void DeviceController::runServoPTick()
         // Still run the rate/hold statistics below; no motion is sent.
     } else if(outcome.action==Action::RegripBlocked) {
         emit backendMessageChanged(QStringLiteral(
-            "[SERVOP REGRIP BLOCKED] 此次按下早于离合就绪；"
-            "请松开 Button1，待三次不同的有效停稳反馈后重新按下。"
-            "不会在保持按下期间延迟捕获或补发目标。"));
+            "[SERVOP REGRIP BLOCKED] 此次按下早于停止确认；"
+            "等待应答及三次不同的有效停稳反馈，松开后重新按下。"
+            "不会在保持按下期间自动开始运动。"));
     } else if(outcome.action==Action::Ready) {
         m_servoPReleaseTimer.invalidate();
+        // Release stop was acknowledged and measured idle (or this
+        // clutch never transmitted); no outstanding motion from it.
+        m_motionCommandSent=false;
         emit backendMessageChanged(QStringLiteral(
             "[SERVOP READY] 已检测到 Button1 松开及连续 8891 静止反馈；"
             "下一次按下将重新捕获双方的当前坐标"));
@@ -1173,10 +1207,18 @@ void DeviceController::runServoPTick()
         m_servoPHasTarget=false;
         m_servoPTrackingHolding=false;
         m_servoPTrackingHoldTimer.invalidate();
-        emit backendMessageChanged(QStringLiteral(
-            "[SERVOP RELEASE] Button1 已松开，立即停止下发 ServoP；"
-            "机械臂可能完成最后一个目标，须待 8891 连续确认停稳后再按。"
-            "Touch 在释放期间移动不会改变机器人目标。"));
+        // Pure clutch release already prevents any further ServoP sends.
+        // Request software stop only once per clutch that sent a command;
+        // a no-motion clutch does not generate unnecessary ResetRobot.
+        if(outcome.releaseStopRequired) {
+            emit backendMessageChanged(QStringLiteral(
+                "[SERVOP RELEASE STOP] 已停发 ServoP，正在请求 ResetRobot；"
+                "等待停止应答和后续实测停稳，非物理急停。"));
+            m_robotBackend->requestControlledStop();
+        } else {
+            emit backendMessageChanged(QStringLiteral(
+                "[SERVOP RELEASE] 本次未发送运动指令；等待实测停稳。"));
+        }
     } else if(outcome.action==Action::Send) {
         const auto& anchorPose=m_cartesianServoP.anchorRobot();
         // Never silently change the already captured robot orientation.
@@ -1298,12 +1340,12 @@ void DeviceController::runServoPTick()
             "已发送设定点路径速度=%2mm/s 按发送次数=%3 "
             "FeedbackLead限幅=%4 TrackingHold帧=%5 WorkspaceHold帧=%6 "
             "目标模式=%7 前视限幅=%8mm 原始映射距实机=%9mm "
-            "窗口峰值=%10mm（原始值未受空间/指令裁剪）")
+            "窗口峰值=%10mm（原始绝对映射仅诊断，不补偿）")
             .arg(follow.actualPathMm/seconds,0,'f',1)
             .arg(follow.setpointPathMm/seconds,0,'f',1)
             .arg(follow.sent).arg(follow.leadLimited)
             .arg(follow.trackingHeld).arg(follow.workspaceHeld)
-            .arg(QStringLiteral("固定设备坐标轴 / 独立离合"))
+            .arg(QStringLiteral("固定轴同步优先 / 不补偿丢弃位移"))
             .arg(touchpanel::teleop::kServoPCommandLeadMm,0,'f',1)
             .arg(follow.latestMappedLagMm,0,'f',1)
             .arg(follow.maxMappedLagMm,0,'f',1));
