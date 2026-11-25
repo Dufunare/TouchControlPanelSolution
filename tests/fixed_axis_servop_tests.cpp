@@ -206,6 +206,7 @@ int main() {
     for(int i=0;i<3;++i)assert(t.target[i]==rotationOrigin[i]);
     assert(t.target[3]>0 && t.target[3]<=kServoPRotationStepDeg);
     assert(rotating.acknowledgeSentTarget(t.target));
+    assert(!rotating.discardUnsentClutch(804)); // cannot erase a sent clutch
     auto followed6D=t.target;
     assert(rtick(true,5,followed6D,true,805,handOrigin).action==ServoPAction::None);
     Vec3 moved=add(handOrigin,{1,0,0});
@@ -241,6 +242,21 @@ int main() {
     rotating.reset();
     assert(!rotating.sixAxisEnabled());
 
+    // A missed snapshot before any command must not kill the mode or
+    // retain an armed stale clutch. Re-press while disarmed never sends.
+    assert(rotating.configureSixAxis(rotationOrigin));
+    for(unsigned n=0;n<3;++n)
+        assert(rtick(false,0,rotationOrigin,true,900+n,handOrigin).action==
+               (n==2?ServoPAction::Ready:ServoPAction::None));
+    assert(rotating.discardUnsentClutch(903));
+    assert(rotating.sixAxisEnabled());
+    assert(rotating.phase()==ServoPPhase::NeedRelease);
+    assert(rtick(true,5,rotationOrigin,true,904,moved).action==ServoPAction::RegripBlocked);
+    for(unsigned n=0;n<3;++n)
+        assert(rtick(false,0,rotationOrigin,true,905+n,handOrigin).action==
+               (n==2?ServoPAction::Ready:ServoPAction::None));
+    assert(rtick(true,0,rotationOrigin,true,908,handOrigin).action==ServoPAction::Captured);
+
     touchpanel::RobotSnapshot snapshot;
     snapshot.sessionEstablished=snapshot.relayStatusSeen=snapshot.feedbackSeen=true;
     snapshot.relayReady=snapshot.port29999Connected=snapshot.port30003Connected=snapshot.port30004Connected=true;
@@ -253,12 +269,20 @@ int main() {
     assert(servoP6DFeedbackHealthy(snapshot,1,measured));
     auto bad=snapshot;bad.actualQuaternionValid=false;
     assert(!servoP6DFeedbackHealthy(bad,1,measured));
+    assert(checkServoP6DFeedback(bad,1,measured).fault==ServoP6DFault::Quaternion);
     bad=snapshot;bad.feedbackAgeMs=151;
     assert(!servoP6DFeedbackHealthy(bad,1,measured));
+    assert(checkServoP6DFeedback(bad,1,measured).fault==ServoP6DFault::FeedbackAge);
+    bad=snapshot;bad.relayStatusAgeMs=351;
+    assert(checkServoP6DFeedback(bad,1,measured).fault==ServoP6DFault::RelayAge);
     bad=snapshot;bad.jointTarget[4]=3.1;
     assert(!servoP6DFeedbackHealthy(bad,1,measured));
+    auto fault=checkServoP6DFeedback(bad,1,measured);
+    assert(fault.fault==ServoP6DFault::JointTracking && fault.joint==4 && near(fault.value,3.1));
     bad=snapshot;bad.jointVelocity[4]=5.1;
     assert(!servoP6DFeedbackHealthy(bad,1,measured));
+    fault=checkServoP6DFeedback(bad,1,measured);
+    assert(fault.fault==ServoP6DFault::JointSpeed && fault.joint==4 && near(fault.value,5.1));
     auto advanced=snapshot;advanced.tcpPose[0]+=20;
     advanced.jointPosition[4]=10;advanced.jointTarget[4]=10;
     assert(servoP6DFeedbackHealthy(advanced,1,measured));
