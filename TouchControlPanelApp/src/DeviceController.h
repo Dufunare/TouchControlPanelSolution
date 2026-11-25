@@ -14,6 +14,7 @@
 #include "TouchBackend.h"
 #include "TeleopGeometry.h"
 #include "ManualTeleop.h"
+#include "OrientationConventionAudit.h"
 #include "FixedAxisServoP.h"
 #include "ServoPFlowGuard.h"
 #include "ServoPFollowMetrics.h"
@@ -65,6 +66,8 @@ public slots:
     void startTeleop();
     void startManualPreview();
     void startFixedAxisPosePreview();
+    void captureOrientationEvidence();
+    void resetOrientationEvidence();
     void prepareSingleStep();
     void confirmSingleStep();
     void startContinuousServo();
@@ -98,6 +101,7 @@ private:
     bool m_calibrationApplied=false;
     bool m_manualPreview=false;
     bool m_fixedAxisPosePreview=false;
+    touchpanel::teleop::OrientationConventionAudit m_orientationAudit;
     std::uint64_t m_previewReleaseCounter=0;
     touchpanel::teleop::ManualAxisMap m_manualMap{};
     int m_calibrationUser=-1,m_calibrationTool=-1;
