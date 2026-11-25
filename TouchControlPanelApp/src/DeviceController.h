@@ -136,6 +136,7 @@ private:
     qint64 m_servoPTotalSendUs=0;
     int m_servoPSendSamples=0;
     std::uint64_t m_servoPLastStateSeq=0;
+    std::uint64_t m_servoPLastReleaseCounter=0;
     int m_servoPSentPackets=0;
     std::array<double,6> m_lastServoPCartesianTarget{};
     bool m_servoPHasTarget=false;
