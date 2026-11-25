@@ -76,8 +76,8 @@ public:
     ServoPTick tick(bool pressed,Vec3 touch,const Pose6& actual,
                     bool idle,std::uint64_t seq,const ManualAxisMap& mapping,
                     bool releaseObserved=false,
-                    const Mat3& touchRotation=identity(),
-                    const Mat3& actualRotation=identity()) {
+                    const Mat3& touchRotation=Mat3{},
+                    const Mat3& actualRotation=Mat3{}) {
         ServoPTick out;
         if(!finite(touch)||!validManualAxisMap(mapping)||seq==0||
            checkServoPWorkspace(actual).code!=ServoPWorkspaceCode::Allowed ||
@@ -234,8 +234,10 @@ private:
         if(!std::isfinite(delta) || delta<=0) {
             out.action=ServoPAction::Invalid;return out;
         }
-        const double fraction=std::min(1.0,kRotationTrialStepDeg/delta);
-        for(int i=3;i<6;++i)next[i]+=fraction*(raw[i]-m_lastSent[i]);
+        // Leave headroom for the three-decimal ServoP wire representation.
+        const double fraction=std::min(1.0,(kRotationTrialStepDeg-0.002)/delta);
+        for(int i=3;i<6;++i)next[i]=std::round((next[i]+fraction*(raw[i]-m_lastSent[i]))*1000.0)/1000.0;
+        if(next==m_lastSent)return out;
         if(!rotationTrialCandidateAllowed(next,m_lastSent,m_robot0,m_rotationSessionOrigin,measured)) {
             // Consume a rejected input; never chase a stale hand gesture
             // when the robot catches up or a boundary becomes available.
