@@ -149,7 +149,7 @@ void RelayVideoClient::readDatagrams()
         return;
     }
     if(latest.isEmpty())return;
-    m_lastDecodeAttempt.restart();
+    m_lastDecodeAttempt.start();
     QBuffer buffer(&latest);
     if (!buffer.open(QIODevice::ReadOnly)) return;
     QImageReader reader(&buffer,"JPEG");
