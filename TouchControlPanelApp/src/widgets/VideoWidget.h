@@ -1,19 +1,15 @@
 #pragma once
 
-#include <atomic>
+#include <cstdint>
 #include <mutex>
-
 #include <QImage>
 #include <QWidget>
 
-class QLabel;
-class QResizeEvent;
+class QPaintEvent;
+namespace cv { class Mat; }
 
-namespace cv
-{
-    class Mat;
-}
-
+// setFrame()/showNoSignal() are mailbox-only and safe on the video worker.
+// All widget painting and mirror controls stay on the GUI thread.
 class VideoWidget : public QWidget
 {
 public:
@@ -25,16 +21,18 @@ public:
     void showNoSignal();
     void clearFrame();
     bool hasSignal() const;
+    bool saveFrame(const QString& path) const;
+    void setMirrored(bool mirrored);
     void updateFrame();
 
 protected:
-    void resizeEvent(QResizeEvent* event) override;
+    void paintEvent(QPaintEvent* event) override;
 
 private:
-    QLabel* m_videoLabel = nullptr;
-    QLabel* m_noSignalLabel = nullptr;
-
     mutable std::mutex m_frameMutex;
-    QImage m_currentFrame;
-    std::atomic<bool> m_hasSignal{ false };
+    QImage m_latestFrame;
+    std::uint64_t m_revision=0;
+    QImage m_displayFrame;
+    std::uint64_t m_displayRevision=0;
+    bool m_mirrored=false;
 };
