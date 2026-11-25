@@ -25,7 +25,10 @@ RelayVideoClient::RelayVideoClient(QObject* parent)
     m_heartbeat.setParent(this);
     m_signalWatchdog.setParent(this);
     m_drainTimer.setParent(this);
-    m_drainTimer.setInterval(kDrainIntervalMs);
+    // Match PR #2's arrival-driven reception, but coalesce busy bursts
+    // on the worker and rate-limit decode attempts instead of polling.
+    m_drainTimer.setSingleShot(true);
+    connect(&m_socket,&QUdpSocket::readyRead,this,&RelayVideoClient::scheduleDrain);
     connect(&m_drainTimer, &QTimer::timeout, this, &RelayVideoClient::readDatagrams);
     m_heartbeat.setInterval(kHeartbeatMs);
     connect(&m_heartbeat, &QTimer::timeout, this, &RelayVideoClient::sendHeartbeat);
@@ -81,7 +84,7 @@ void RelayVideoClient::start(const QString& relayHost, quint16 relayPort)
     sendHeartbeat();
     m_heartbeat.start();
     m_signalWatchdog.start();
-    m_drainTimer.start();
+    m_lastDecodeAttempt.invalidate();
     publishState(QStringLiteral("等待中转站 UVC 摄像头画面…"));
 }
 
@@ -100,6 +103,7 @@ void RelayVideoClient::stop()
     m_heartbeat.stop();
     m_signalWatchdog.stop();
     m_drainTimer.stop();
+    m_lastDecodeAttempt.invalidate();
 
     if (m_active) {
         m_socket.writeDatagram("VIDEO_STOP", m_relayAddress, m_relayPort);
@@ -110,6 +114,16 @@ void RelayVideoClient::stop()
     m_socket.close();
     emit frameLost();
     publishState(QStringLiteral("已停止"));
+}
+
+void RelayVideoClient::scheduleDrain()
+{
+    if(!m_active || m_drainTimer.isActive())return;
+    const qint64 elapsed=m_lastDecodeAttempt.isValid()?m_lastDecodeAttempt.elapsed():
+        kDrainIntervalMs;
+    const int remaining=elapsed>=kDrainIntervalMs?0:
+        static_cast<int>(kDrainIntervalMs-elapsed);
+    m_drainTimer.start(remaining);
 }
 
 void RelayVideoClient::readDatagrams()
@@ -128,7 +142,14 @@ void RelayVideoClient::readDatagrams()
             static_cast<unsigned char>(bytes.at(1))!=0xd8) continue;
         latest=bytes;
     }
-    if (latest.isEmpty() || m_socket.hasPendingDatagrams()) return;
+    if(m_socket.hasPendingDatagrams()) {
+        // Never decode a historical frame while unread packets remain.
+        // Yield to the worker event loop before another bounded batch.
+        m_drainTimer.start(2);
+        return;
+    }
+    if(latest.isEmpty())return;
+    m_lastDecodeAttempt.restart();
     QBuffer buffer(&latest);
     if (!buffer.open(QIODevice::ReadOnly)) return;
     QImageReader reader(&buffer,"JPEG");
