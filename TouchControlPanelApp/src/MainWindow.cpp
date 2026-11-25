@@ -156,12 +156,15 @@ MainWindow::MainWindow(QWidget* parent)
     videoTools->addWidget(videoStart);
     videoTools->addWidget(videoStop);
     videoTools->addWidget(videoSnapshot);
-    videoTools->addWidget(videoMirror);
-    videoTools->addWidget(videoPort);
     videoTools->addStretch(1);
+    auto* videoOptions=new QHBoxLayout();
+    videoOptions->addWidget(videoMirror);
+    videoOptions->addWidget(videoPort);
+    videoOptions->addStretch(1);
     auto* videoState=new QLabel(QStringLiteral("UVC 视频 · 已停止"),videoPanel);
     videoState->setWordWrap(true);
     videoLayout->addLayout(videoTools);
+    videoLayout->addLayout(videoOptions);
     videoLayout->addWidget(videoState);
     videoLayout->addWidget(m_videoWidget,1);
     videoStop->setEnabled(false);
