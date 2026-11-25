@@ -17,6 +17,7 @@ class ControlPanelWidget : public QWidget
 
 public:
     explicit ControlPanelWidget(QWidget* parent = nullptr);
+    QString relayHost() const;
 
 signals:
     //touch控制信号
