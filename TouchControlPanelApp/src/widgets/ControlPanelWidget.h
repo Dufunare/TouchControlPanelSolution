@@ -46,7 +46,7 @@ signals:
     void manualPreviewRequested(const std::array<int,3>& axes,double gain,double deadzone);
     void singleStepRequested();
     void continuousServoRequested(const std::array<int,3>& axes,double gain,double deadzone);
-    void continuousServoPRequested(const std::array<int,3>& axes,double gain,double deadzone,double clutchTravelMm);
+    void continuousServoPRequested(const std::array<int,3>& axes,double gain,double deadzone);
 
 private:
     void setAxisChoice(int robotAxis,int sourceCode);
@@ -54,7 +54,6 @@ private:
     std::array<QComboBox*,3> m_axisCombos{{nullptr,nullptr,nullptr}};
     QDoubleSpinBox* m_axisGain=nullptr;
     QDoubleSpinBox* m_axisDeadzone=nullptr;
-    QComboBox* m_servoPTravel=nullptr;
     QComboBox* m_realModeSelector=nullptr;
     QPushButton* m_resetAxesButton=nullptr;
     bool m_mappingLocked=false;
