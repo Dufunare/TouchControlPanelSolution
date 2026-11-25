@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QWidget>
+#include <QElapsedTimer>
 
 #include "DeviceState.h"
 
@@ -36,4 +37,5 @@ private:
     QPlainTextEdit* m_messageValue = nullptr;
     QPlainTextEdit* m_txValue = nullptr;
     QPlainTextEdit* m_rxValue = nullptr;
+    QElapsedTimer m_sampleCounterUiAge;
 };
