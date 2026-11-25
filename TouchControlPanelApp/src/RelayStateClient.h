@@ -6,6 +6,8 @@
 #include <QTcpSocket>
 #include <QTimer>
 #include <array>
+#include <chrono>
+#include <mutex>
 #include "RelayV2Frame.h"
 #include "RobotTelemetry.h"
 
@@ -29,6 +31,7 @@ private:
     void invalidate(const QString& reason);
     void sendHello();
     void refreshStatus();
+    void publishReadOnlySnapshot();
     QString buildTelemetrySummary() const;
     QTcpSocket m_socket;
     QTimer m_watchdog;
@@ -46,4 +49,8 @@ private:
     quint64 m_sequence=0;
     std::array<double,6> m_pose{},m_joints{};
     QString m_status=QStringLiteral("未连接 v2 遥测");
+    mutable std::mutex m_publicMutex;
+    touchpanel::RobotSnapshot m_publicSnapshot{};
+    QString m_publicStatus=QStringLiteral("未连接 v2 遥测");
+    std::chrono::steady_clock::time_point m_publicTime{};
 };
