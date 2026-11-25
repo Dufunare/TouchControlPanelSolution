@@ -833,15 +833,15 @@ QString DeviceController::servoPWorkspaceStatus() const
 
 void DeviceController::startContinuousServoP()
 {
-    startServoP(false);
-}
-
-void DeviceController::startRotationServoP()
-{
     startServoP(true);
 }
 
-void DeviceController::startServoP(bool rotationTrial)
+void DeviceController::startTranslationServoP()
+{
+    startServoP(false);
+}
+
+void DeviceController::startServoP(bool sixAxis)
 {
     if(m_relayStateClient && m_relayStateClient->orientationProbeInterlock()) {
         emit backendMessageChanged(QStringLiteral("只读姿态诊断仍在途或Dashboard链路不确定，禁止启动实体控制；查看诊断日志"));
@@ -874,25 +874,24 @@ void DeviceController::startServoP(bool rotationTrial)
             QStringLiteral(" 未进入遥控待命，未发送运动指令。"));
         return;
     }
-    // Rotation is an explicit small-angle commissioning trial, not a
-    // relaxation of the default translation controller or controller limits.
+    // The default ServoP follows both position and orientation. Preserve
+    // session-scoped orientation evidence and all independent stop gates.
     touchpanel::teleop::Mat3 measured{};
-    if(rotationTrial &&
+    if(sixAxis &&
        (st.button1Pressed || !st.orientationValid ||
         !touchpanel::teleop::properRotation(st.rotationMatrix) ||
         !m_orientationAudit.supportsZyx(s) ||
-        !touchpanel::teleop::rotationTrialFeedbackHealthy(s,s,measured))) {
+        !touchpanel::teleop::servoP6DFeedbackHealthy(s,s.sessionEpoch,measured))) {
         emit backendMessageChanged(QStringLiteral(
             "[ROTATION START BLOCKED] 需先松开 Button1；本次会话唯一 ZYX 证据、"
-            "User/Tool=0、新鲜有效四元数、Touch 姿态及局部试验关节/工作空间检查均须通过。"));
+            "User/Tool=0、新鲜有效四元数、Touch 姿态及关节/工作空间检查均须通过。"));
         return;
     }
     m_cartesianServoP.reset();
-    if(rotationTrial && !m_cartesianServoP.configureRotationTrial(s.tcpPose)) {
-        emit backendMessageChanged(QStringLiteral("[ROTATION START BLOCKED] 初始姿态不适合试验"));
+    if(sixAxis && !m_cartesianServoP.configureSixAxis(s.tcpPose)) {
+        emit backendMessageChanged(QStringLiteral("[ROTATION START BLOCKED] 初始姿态无效或接近欧拉角奇异"));
         return;
     }
-    m_rotationTrialStart=rotationTrial?s:touchpanel::RobotSnapshot{};
     m_rotationLagTimer.invalidate();
     m_lastServoPCartesianTarget=s.tcpPose;
     m_realMode=RealMode::CartesianServoP;
@@ -931,11 +930,11 @@ void DeviceController::startServoP(bool rotationTrial)
     m_servoPLastReleaseCounter=st.button1ReleaseCounter;
     invalidateTeleopBaseline();
     if(!m_motionTimer.isActive())m_motionTimer.start();
-    if(rotationTrial) {
+    if(sixAxis) {
         emit backendMessageChanged(QStringLiteral(
-            "[ROTATION ARMED] 固定 TCP 三轴实体旋转试验已待命；本次启动总姿态目标范围2°，"
-            "每帧角度步长0.20°，前视1°，保留独立关节/跟踪/停止监控。"
-            "只在新离合中产生新目标；松手停止，受限位移不补发。非安全认证。"));
+            "[SERVOP 6D ARMED] 六自由度连续跟随已待命：平移使用所选比例，旋转1:1。"
+            "共用 Button1 离合；松手停止，不补发被限制的输入。"
+            "保留位置、姿态、关节和反馈保护。"));
         return;
     }
     emit backendMessageChanged(QStringLiteral(
@@ -1192,26 +1191,26 @@ void DeviceController::runServoPTick()
     const auto st=m_backend?m_backend->latestState():touchpanel::DeviceState{};
     const bool releaseObserved=st.valid &&
         st.button1ReleaseCounter!=m_servoPLastReleaseCounter;
-    const bool rotationTrial=m_cartesianServoP.rotationTrialEnabled();
+    const bool sixAxis=m_cartesianServoP.sixAxisEnabled();
     touchpanel::teleop::Mat3 measuredRotation=touchpanel::teleop::identity();
-    if(rotationTrial) {
+    if(sixAxis) {
         using namespace touchpanel::teleop;
         const auto evidence=m_orientationAudit.report();
         // Do NOT fall through to the ordinary recoverable-gap path: that
-        // resets the planner. A trial fault terminates the whole mode.
+        // resets the planner. A six-axis feedback fault ends the mode.
         if(!touchRunning || !legacyConnected || !feedbackFresh ||
            !st.valid || !st.orientationValid || !st.schedulerRunning ||
            !st.deviceCalibrated || !properRotation(st.rotationMatrix) ||
            !evidence.unique || evidence.bestOrder!=0 ||
            m_orientationAudit.session()!=robot.sessionEpoch ||
            actualGapMs>100 ||
-           !rotationTrialFeedbackHealthy(robot,m_rotationTrialStart,measuredRotation)) {
+           !servoP6DFeedbackHealthy(robot,m_motionSession,measuredRotation)) {
             haltRealMotion(QStringLiteral("[ROTATION STOP] 姿态/关节/位置/反馈/时序保护未通过"));
             return;
         }
         const double lag=rotationDistanceDeg(
             servoPRotation(m_lastServoPCartesianTarget),measuredRotation);
-        if(!std::isfinite(lag) || lag>kRotationTrialHardTrackingDeg) {
+        if(!std::isfinite(lag) || lag>kServoPRotationHardTrackingDeg) {
             haltRealMotion(QStringLiteral("[ROTATION STOP] 实际姿态跟踪误差 %1°").arg(lag,0,'f',3));
             return;
         }
@@ -1422,7 +1421,7 @@ void DeviceController::runServoPTick()
             "下一次按下将重新捕获双方的当前坐标"));
     } else if(outcome.action==Action::Captured) {
         m_clutchCalibrationEpoch=st.calibrationEpoch;
-        if(rotationTrial) {
+        if(sixAxis) {
             m_lastServoPCartesianTarget=robot.tcpPose;
             m_rotationLagTimer.invalidate();
         }
@@ -1472,13 +1471,12 @@ void DeviceController::runServoPTick()
         }
     } else if(outcome.action==Action::Send) {
         const auto& anchorPose=m_cartesianServoP.anchorRobot();
-        // Default translation still locks captured RPY. The rotation
-        // trial replaces only that lock with STRICTER independent angular
-        // and joint guards, and checks the final command again before send.
-        if(rotationTrial) {
-            if(!touchpanel::teleop::rotationTrialCandidateAllowed(
+        // Six-axis mode checks the final combined target against both
+        // position and angular guards. Translation-only still locks RPY.
+        if(sixAxis) {
+            if(!touchpanel::teleop::servoP6DCandidateAllowed(
                     outcome.target,m_cartesianServoP.lastAcceptedTarget(),
-                    anchorPose,m_rotationTrialStart.tcpPose,measuredRotation)) {
+                    robot.tcpPose,measuredRotation)) {
                 haltRealMotion(QStringLiteral("[ROTATION STOP] 最终六维目标未通过旋转仲裁"));
                 return;
             }
@@ -1519,7 +1517,7 @@ void DeviceController::runServoPTick()
         ++m_servoPSendSamples;
         using SendCode=touchpanel::CommunicationBackend::ServoPSendCode;
         if(send.code==SendCode::OutsideWorkspace) {
-            if(rotationTrial) {
+            if(sixAxis) {
                 m_cartesianServoP.rejectUnsentTarget();
                 haltRealMotion(QStringLiteral("[ROTATION STOP] 目标被工作空间检查拒绝"));
                 return;
@@ -1616,16 +1614,16 @@ void DeviceController::runServoPTick()
             error=touchpanel::teleop::norm(pending);
         }
         const auto& follow=m_servoPFollowMetrics.window();
-        if(rotationTrial) {
+        if(sixAxis) {
             using namespace touchpanel::teleop;
             emit backendMessageChanged(QStringLiteral(
-                "[ROTATION FOLLOW] 实际相对本次启动=%1° 已发送目标相对启动=%2° "
-                "实际角误差=%3° 固定TCP偏移=%4mm 本窗口发送=%5")
-                .arg(rotationDistanceDeg(measuredRotation,servoPRotation(m_rotationTrialStart.tcpPose)),0,'f',3)
+                "[ROTATION FOLLOW] 实际相对离合=%1° 已发送目标相对离合=%2° "
+                "实际角误差=%3° TCP相对离合位移=%4mm 本窗口发送=%5")
+                .arg(rotationDistanceDeg(measuredRotation,servoPRotation(anchorPose)),0,'f',3)
                 .arg(rotationDistanceDeg(servoPRotation(m_lastServoPCartesianTarget),
-                                         servoPRotation(m_rotationTrialStart.tcpPose)),0,'f',3)
+                                         servoPRotation(anchorPose)),0,'f',3)
                 .arg(rotationDistanceDeg(measuredRotation,servoPRotation(m_lastServoPCartesianTarget)),0,'f',3)
-                .arg(servoPCartesianDistance(robot.tcpPose,m_rotationTrialStart.tcpPose),0,'f',3)
+                .arg(servoPCartesianDistance(robot.tcpPose,anchorPose),0,'f',3)
                 .arg(follow.sent));
         }
         emit backendMessageChanged(QStringLiteral(
@@ -1638,7 +1636,7 @@ void DeviceController::runServoPTick()
             .arg(follow.setpointPathMm/seconds,0,'f',1)
             .arg(follow.sent).arg(follow.leadLimited)
             .arg(follow.trackingHeld).arg(follow.workspaceHeld)
-            .arg(rotationTrial?QStringLiteral("固定TCP旋转试验 / XYZ锁定"):
+            .arg(sixAxis?QStringLiteral("六自由度固定轴连续跟随"):
                 QStringLiteral("master式直接位置 / 不补偿受限位移"))
             .arg(touchpanel::teleop::kServoPCommandLeadMm,0,'f',1)
             .arg(follow.latestMappedLagMm,0,'f',1)
@@ -1915,7 +1913,6 @@ void DeviceController::haltRealMotion(const QString& cause)
         m_pollTimer.setInterval(DEVICE_CONTROLLER_POLL_INTERVAL_MS);
     m_realMode=RealMode::None;
     m_cartesianServoP.reset();
-    m_rotationTrialStart={};
     m_rotationLagTimer.invalidate();
     m_servoPTrackingHolding=false;
     m_servoPFeedbackHolding=false;
