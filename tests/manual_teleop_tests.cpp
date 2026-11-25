@@ -69,16 +69,16 @@ int main() {
         rotated,refRpy,sixPose));
     assert(std::abs(sixPose[0]-104)<1e-6 && std::abs(sixPose[1]+108)<1e-6 &&
            std::abs(sixPose[2]-206)<1e-6);
-    const auto base=rpyToMatrix(refRpy);
+    const auto baseRotation=rpyToMatrix(refRpy);
     auto mapped=rpyToMatrix({sixPose[3],sixPose[4],sixPose[5]});
-    assert(rotationDistanceDeg(mapped,mul(rpyToMatrix({0,-10,0}),base))<1e-5);
+    assert(rotationDistanceDeg(mapped,mul(rpyToMatrix({0,-10,0}),baseRotation))<1e-5);
     // Reflection of a polar axis is not the same as reflecting an axial
     // rotation vector; conjugation keeps a proper right-handed rotation.
     sixMap.output={0,1,5};
     assert(fixedAxisPosePreview(sixMap,anchor,anchor.touchPosition,
         rotated,refRpy,sixPose));
     mapped=rpyToMatrix({sixPose[3],sixPose[4],sixPose[5]});
-    assert(rotationDistanceDeg(mapped,mul(rpyToMatrix({0,0,10}),base))<1e-5);
+    assert(rotationDistanceDeg(mapped,mul(rpyToMatrix({0,0,10}),baseRotation))<1e-5);
     assert(!fixedAxisPosePreview(sixMap,anchor,anchor.touchPosition,
         Mat3{},refRpy,sixPose));
     // Alternate Euler branch stays continuous around an already captured
