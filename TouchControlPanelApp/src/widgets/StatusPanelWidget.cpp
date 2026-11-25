@@ -150,7 +150,7 @@ void StatusPanelWidget::setDeviceState(const touchpanel::DeviceState& state)
     if(!m_sampleCounterUiAge.isValid() || m_sampleCounterUiAge.elapsed()>=200 ||
        !state.schedulerRunning) {
         setChanged(m_counterValue,QString::number(state.sampleCounter));
-        m_sampleCounterUiAge.restart();
+        m_sampleCounterUiAge.start();
     }
     switch(state.calibrationStatus) {
     case touchpanel::TouchCalibrationStatus::Ok:
