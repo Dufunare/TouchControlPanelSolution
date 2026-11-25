@@ -450,7 +450,7 @@ void DeviceController::captureOrientationEvidence()
     const QString status=report.unique?
         QStringLiteral("候选 %1 与样本一致（仅姿态数值证据，不授权运动）")
             .arg(QString::fromLatin1(kRotationOrders[report.bestOrder].data(),3)):
-        QStringLiteral("证据不足/约定不匹配，实体旋转仍未授权");
+        QStringLiteral("未确定唯一姿态约定（只读诊断）；六维控制独立检查实时姿态，已观测不一致仍阻止启动");
     emit backendMessageChanged(QStringLiteral(
         "[ROTATION AUDIT] session=%1 seq=%2 %3 distinct=%4 "
         "RPY=(%5,%6,%7) Q=(%8,%9,%10,%11) | %12 | %13")
@@ -874,13 +874,14 @@ void DeviceController::startServoP(bool sixAxis)
             QStringLiteral(" 未进入遥控待命，未发送运动指令。"));
         return;
     }
-    // The default ServoP follows both position and orientation. Preserve
-    // session-scoped orientation evidence and all independent stop gates.
+    // The default ServoP checks the current measured orientation.
+    // No manually collected multi-pose audit is required to start.
+    // Preserve an explicit observed mismatch and all live stop gates.
     touchpanel::teleop::Mat3 measured{};
     if(sixAxis &&
        (st.button1Pressed || !st.orientationValid ||
         !touchpanel::teleop::properRotation(st.rotationMatrix) ||
-        !m_orientationAudit.supportsZyx(s) ||
+        m_orientationAudit.hasZyxMismatch(s.sessionEpoch) ||
         !touchpanel::teleop::servoP6DFeedbackHealthy(s,s.sessionEpoch,measured))) {
         // Explain the existing gate without changing any permission,
         // threshold, or live motion behavior.
@@ -900,15 +901,9 @@ void DeviceController::startServoP(bool sixAxis)
                 reasons<<QStringLiteral("实际 RPY 与四元数不一致：ZYX 误差=%1°（上限0.5°）")
                     .arg(error,0,'f',3);
         }
-        const auto audit=m_orientationAudit.report();
-        if(m_orientationAudit.session()!=s.sessionEpoch || !audit.unique || audit.bestOrder!=0)
-            reasons<<QStringLiteral("本会话 ZYX 证据未通过：有效不同姿态=%1，"
-                                    "候选=%2，唯一=%3，证据会话=%4，当前会话=%5")
-                .arg(audit.count)
-                .arg(audit.count?QString::fromLatin1(kRotationOrders[audit.bestOrder].data(),3):
-                                  QStringLiteral("未采集"))
-                .arg(audit.unique?QStringLiteral("是"):QStringLiteral("否"))
-                .arg(m_orientationAudit.session()).arg(s.sessionEpoch);
+        if(m_orientationAudit.hasZyxMismatch(s.sessionEpoch))
+            reasons<<QStringLiteral("本会话已有实际姿态与 ZYX 不一致的记录：最大误差=%1°")
+                .arg(m_orientationAudit.report().worstError[0],0,'f',3);
         if(s.feedbackAgeMs<0 || s.feedbackAgeMs>150 ||
            s.relayStatusAgeMs<0 || s.relayStatusAgeMs>350)
             reasons<<QStringLiteral("六维反馈时效未通过：FeedbackAge=%1ms（上限150），"
@@ -1248,14 +1243,12 @@ void DeviceController::runServoPTick()
     touchpanel::teleop::Mat3 measuredRotation=touchpanel::teleop::identity();
     if(sixAxis) {
         using namespace touchpanel::teleop;
-        const auto evidence=m_orientationAudit.report();
         // Do NOT fall through to the ordinary recoverable-gap path: that
         // resets the planner. A six-axis feedback fault ends the mode.
         if(!touchRunning || !legacyConnected || !feedbackFresh ||
            !st.valid || !st.orientationValid || !st.schedulerRunning ||
            !st.deviceCalibrated || !properRotation(st.rotationMatrix) ||
-           !evidence.unique || evidence.bestOrder!=0 ||
-           m_orientationAudit.session()!=robot.sessionEpoch ||
+           m_orientationAudit.hasZyxMismatch(robot.sessionEpoch) ||
            actualGapMs>100 ||
            !servoP6DFeedbackHealthy(robot,m_motionSession,measuredRotation)) {
             haltRealMotion(QStringLiteral("[ROTATION STOP] 姿态/关节/位置/反馈/时序保护未通过"));
