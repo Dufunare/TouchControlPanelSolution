@@ -261,6 +261,7 @@ MainWindow::MainWindow(QWidget* parent)
     connect(workspaceTimer,&QTimer::timeout,this,[this,workspaceLabel]{
         const auto text=m_controller->servoPWorkspaceStatus();
         if(workspaceLabel->text()!=text)workspaceLabel->setText(text);
+        m_controlPanel->setMappingLocked(m_controller->realMotionActive());
     });
     workspaceLabel->setText(m_controller->servoPWorkspaceStatus());
     workspaceTimer->start(250);
@@ -333,17 +334,26 @@ MainWindow::MainWindow(QWidget* parent)
                 statusBar()->showMessage(QStringLiteral("先停止当前实体控制，再启动 ServoP"),5000);
                 return;
             }
+            QString mappingDescription;
+            for(int axis=0;axis<3;++axis) {
+                const int code=axes[axis];
+                if(axis)mappingDescription+=QStringLiteral("；");
+                mappingDescription+=QStringLiteral("机器人 %1 ← %2Touch %3")
+                    .arg(QStringLiteral("XYZ").mid(axis,1))
+                    .arg(code>=3?QStringLiteral("−"):QStringLiteral("+"))
+                    .arg(QStringLiteral("XYZ").mid(code%3,1));
+            }
             const auto choice=QMessageBox::warning(this,
-                QStringLiteral("确认 ServoP 实体连续遥控"),
+                QStringLiteral("确认固定轴 ServoP 遥控"),
                 QStringLiteral(
-                    "将通过 8888→30003 连续发送 ServoP，控制真实机械臂。\n"
-                    "按下 Button1 捕获此刻 Touch 与机器人坐标，按下当帧绝不发运动指令。\n"
-                    "松开立即停止发送；机械臂可能执行最后一个目标，"
-                    "必须等待反馈停稳，重新按下才捕获新的坐标基准。\n"
-                    "默认坐标映射 X←Touch X, Y←−Touch Z, Z←Touch Y，末端姿态固定在基准姿态。\n"
-                    "本版为实时位置直接响应（不再使用旧版速度追赶器）；"
-                    "单次目标跳变和实际TCP超前均限制为20mm，仍可能有突发动作。\n"
-                    "先在隔离的安全空间内确认方向；独立物理急停必须随手可用。"),
+                    "%1\n移动比例：%2×；每轴输入死区：%3 mm\n"
+                    "使用当前机器人 User/Tool 坐标约定及固定末端姿态，不需要设备间点对标定。\n"
+                    "按住前先确认离合就绪；首次按下只记录两端实际位置，不发送运动。\n"
+                    "松开停发，可重新定位 Touch；机械臂可能完成末条目标，"
+                    "待实测停稳后必须重新按下。\n"
+                    "原软件工作空间、离合行程、20mm 指令限制和反馈异常停止仍有效，"
+                    "均不是物理碰撞保护。必须确认方向和独立物理急停。")
+                    .arg(mappingDescription).arg(gain,0,'f',2).arg(deadzone,0,'f',2),
                 QMessageBox::Yes|QMessageBox::No,QMessageBox::No);
             if(choice!=QMessageBox::Yes)return;
             if(!m_controller->setServoPClutchTravelLimit(clutchTravelMm)) {
@@ -352,6 +362,7 @@ MainWindow::MainWindow(QWidget* parent)
             }
             m_controller->setManualPreviewMapping(mapping);
             m_controller->startContinuousServoP();
+            m_controlPanel->setMappingLocked(m_controller->realMotionActive());
         });
     connect(m_controlPanel,&ControlPanelWidget::continuousServoRequested,this,
         [this](const std::array<int,3>& axes,double gain,double deadzone){
