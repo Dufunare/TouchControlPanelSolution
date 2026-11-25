@@ -79,12 +79,14 @@ MainWindow::MainWindow(QWidget* parent)
     auto* orientationEvidenceButton=new QPushButton(QStringLiteral("采集当前姿态证据（只读）"),advancedPanel);
     orientationEvidenceButton->setToolTip(QStringLiteral("读取同一反馈帧的 RPY 与实际四元数，比较六种欧拉角顺序。需要 User=0/Tool=0；不发送运动。"));
     auto* orientationResetButton=new QPushButton(QStringLiteral("清除姿态证据"),advancedPanel);
+    auto* orientationProbeButton=new QPushButton(QStringLiteral("验证六维预览目标逆解（只读）"),advancedPanel);
+    orientationProbeButton->setToolTip(QStringLiteral("对当前固定轴六维预览目标调用控制器 InverseSolution；仅计算，不执行。"));
     auto* relativeCalibrationButton=new QPushButton(QStringLiteral("相对位移与方向标定"),advancedPanel);
     auto* calibrationButton=new QPushButton(QStringLiteral("绝对空间点对标定"),advancedPanel);
     auto* originButton=new QPushButton(QStringLiteral("将当前位置设为 GL 原点"),advancedPanel);
     auto* resetOriginButton=new QPushButton(QStringLiteral("恢复 GL 原始坐标"),advancedPanel);
     for(auto* button:{calibrationCheckButton,orientationEvidenceButton,
-                      orientationResetButton,relativeCalibrationButton,
+                      orientationResetButton,orientationProbeButton,relativeCalibrationButton,
                       calibrationButton,originButton,resetOriginButton})
         advancedLayout->addWidget(button);
     if(auto* layout=qobject_cast<QVBoxLayout*>(m_controlPanel->layout())) {
@@ -104,6 +106,8 @@ MainWindow::MainWindow(QWidget* parent)
             m_controller,&DeviceController::captureOrientationEvidence);
     connect(orientationResetButton,&QPushButton::clicked,
             m_controller,&DeviceController::resetOrientationEvidence);
+    connect(orientationProbeButton,&QPushButton::clicked,
+            m_controller,&DeviceController::probeRotationCandidate);
     connect(relativeCalibrationButton,&QPushButton::clicked,this,[this]{
         if(m_controller->realMotionActive())return;
         RelativeCalibrationDialog dialog(m_controller,m_relayStateClient,this);
