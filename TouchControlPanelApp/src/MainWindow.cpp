@@ -404,6 +404,30 @@ MainWindow::MainWindow(QWidget* parent)
                 controller->startContinuousServoP();
             },Qt::QueuedConnection);
         });
+    connect(m_controlPanel,&ControlPanelWidget::rotationServoPRequested,this,
+        [this](const std::array<int,3>& axes,double gain,double deadzone){
+            touchpanel::teleop::ManualAxisMap mapping;
+            mapping.output=axes;mapping.scale=gain;mapping.deadzoneMm=deadzone;
+            if(!touchpanel::teleop::validManualAxisMap(mapping) || m_controller->realMotionActive()) {
+                statusBar()->showMessage(QStringLiteral("先停止实体控制并确认固定轴映射"),5000);
+                return;
+            }
+            const auto choice=QMessageBox::warning(this,
+                QStringLiteral("确认 CR3 实体旋转小角试验"),
+                QStringLiteral("这将启用真实机械臂运动，而非预览。\n"
+                    "固定当前 TCP 的 XYZ；触控笔旋转按所选固定轴映射，平移比例不影响角度。\n"
+                    "本次启动的姿态目标总范围2°，每帧0.20°，松开 Button1 停发并请求软件停止。\n"
+                    "已由现场合格人员验证本局部试验区域、实际控制器限位、负载、碰撞/奇异风险和独立物理急停，"
+                    "隔离人员并确认能够安全停止；数值约束不能替代这些防护。\n"
+                    "需要本次会话 ZYX 实测证据。是否确认进入试验待命？"),
+                QMessageBox::Yes|QMessageBox::No,QMessageBox::No);
+            if(choice!=QMessageBox::Yes)return;
+            QMetaObject::invokeMethod(m_controller,[controller=m_controller,mapping]{
+                if(controller->realMotionActive())return;
+                controller->setManualPreviewMapping(mapping);
+                controller->startRotationServoP();
+            },Qt::QueuedConnection);
+        });
     connect(m_controlPanel,&ControlPanelWidget::continuousServoRequested,this,
         [this](const std::array<int,3>& axes,double gain,double deadzone){
             touchpanel::teleop::ManualAxisMap mapping;
