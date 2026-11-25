@@ -36,6 +36,10 @@ struct RobotSnapshot {
     // establish pending motion or a non-idle physical robot state.
     bool queuedMotion = false;
     std::array<double,6> tcpPose{};
+    // Optional V3 ActualQuaternion [w,x,y,z] from the SAME robot_state.
+    // Missing/invalid orientation does not invalidate translation telemetry.
+    std::array<double,4> actualQuaternion{};
+    bool actualQuaternionValid=false;
     std::array<double,6> jointPosition{};
     std::array<double,6> jointVelocity{};
     std::array<double,6> tcpVelocity{};
