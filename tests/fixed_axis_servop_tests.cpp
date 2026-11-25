@@ -81,11 +81,34 @@ int main() {
     arm(limited,robot,hand,map,200);
     t=limited.tick(true,add(hand,{100,0,0}),robot,false,204,map);
     assert(t.intentValid && near(t.intent[0],robot[0]+200));
-    assert(t.saturated && t.action==ServoPAction::Send);
+    assert(t.action==ServoPAction::Send);
     assert(servoPCartesianDistance(t.target,robot)<=kServoPCommandLeadMm+1e-7);
     assert(limited.acknowledgeSentTarget(t.target));
     assert(limited.tick(true,add(hand,{100,0,0}),robot,false,205,map).action==
            ServoPAction::TrackingHold);
+    // Regression: continue the SAME clutch beyond both the old 60mm
+    // default and 180mm maximum. Model measured TCP following each
+    // accepted setpoint; never change the existing per-command envelope.
+    FixedAxisServoP longClutch;
+    arm(longClutch,robot,hand,map,500);
+    Pose6 followed=robot;
+    for(unsigned step=1;step<=30;++step) {
+        t=longClutch.tick(true,add(hand,{5.0*step,0,0}),followed,
+                          false,503+step,map);
+        assert(t.intentValid && t.action==ServoPAction::Send);
+        assert(near(t.target[0],robot[0]+10.0*step));
+        assert(servoPCartesianDistance(t.target,followed)<=kServoPCommandLeadMm+1e-7);
+        assert(checkServoPWorkspace(t.target).code==ServoPWorkspaceCode::Allowed);
+        assert(longClutch.acknowledgeSentTarget(t.target));
+        followed=t.target;
+    }
+    assert(near(followed[0]-robot[0],300.0));
+    assert(longClutch.anchorRobot()==robot);
+    assert(longClutch.anchorTouch()==hand);
+    assert(longClutch.phase()==ServoPPhase::Active);
+    assert(longClutch.tick(false,hand,followed,false,534,map).action==
+           ServoPAction::Released);
+
     FixedAxisServoP wall;
     Pose6 edge=robot;edge[1]=-349.97;
     arm(wall,edge,hand,map,300);
@@ -98,5 +121,5 @@ int main() {
     FixedAxisServoP invalid;
     Pose6 outside=robot;outside[1]=-413.58;
     assert(invalid.tick(false,hand,outside,true,400,map).action==ServoPAction::Invalid);
-    std::cout<<"48 signed-axis maps, independent regrip and preserved command bounds passed\n";
+    std::cout<<"48 signed-axis maps, independent regrip, continuous travel and preserved command bounds passed\n";
 }
