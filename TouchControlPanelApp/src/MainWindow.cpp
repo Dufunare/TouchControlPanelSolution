@@ -148,6 +148,9 @@ MainWindow::MainWindow(QWidget* parent)
     auto* videoStop=new QPushButton(QStringLiteral("停止"),videoPanel);
     auto* videoSnapshot=new QPushButton(QStringLiteral("截图"),videoPanel);
     auto* videoMirror=new QCheckBox(QStringLiteral("镜像"),videoPanel);
+    auto* show3D=new QCheckBox(QStringLiteral("3D 预览"),videoPanel);
+    show3D->setChecked(true);
+    show3D->setToolTip(QStringLiteral("仅控制显示；隐藏 3D 可减少绘制负载，不影响实体控制"));
     auto* videoPort=new QSpinBox(videoPanel);
     videoPort->setRange(1,65535);
     videoPort->setValue(8886);
@@ -159,6 +162,7 @@ MainWindow::MainWindow(QWidget* parent)
     videoTools->addStretch(1);
     auto* videoOptions=new QHBoxLayout();
     videoOptions->addWidget(videoMirror);
+    videoOptions->addWidget(show3D);
     videoOptions->addWidget(videoPort);
     videoOptions->addStretch(1);
     auto* videoState=new QLabel(QStringLiteral("UVC 视频 · 已停止"),videoPanel);
@@ -182,7 +186,8 @@ MainWindow::MainWindow(QWidget* parent)
     });
     connect(videoMirror,&QCheckBox::toggled,m_videoWidget,&VideoWidget::setMirrored);
     connect(m_videoClient,&RelayVideoClient::stateChanged,this,
-        [videoStart,videoStop,videoSnapshot,videoPort,videoState](bool active,bool receiving,const QString& detail){
+        [this,videoStart,videoStop,videoSnapshot,videoPort,videoState](bool active,bool receiving,const QString& detail){
+            m_glWidget->setVideoActive(active);
             videoStart->setEnabled(!active);
             videoStop->setEnabled(active);
             videoPort->setEnabled(!active);
@@ -215,6 +220,7 @@ MainWindow::MainWindow(QWidget* parent)
     auto* glLayout=new QVBoxLayout(glPanel);
     glLayout->setContentsMargins(4,4,4,4);
     glLayout->addWidget(m_glWidget,1);
+    connect(show3D,&QCheckBox::toggled,glPanel,&QWidget::setVisible);
     auto* previewSplitter=new QSplitter(Qt::Vertical,this);
     previewSplitter->setObjectName(QStringLiteral("previewSplitter"));
     previewSplitter->addWidget(videoPanel);
