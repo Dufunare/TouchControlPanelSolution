@@ -43,8 +43,10 @@ MainWindow::MainWindow(QWidget* parent)
     setMinimumSize(940,620);
 
 	//组件初始化
-    m_relayStateClient = new RelayStateClient(this);
-    m_controller = new DeviceController(&m_backend, &m_communicationBackend, this);
+    m_controlThread=new QThread(this);
+    m_controlThread->setObjectName(QStringLiteral("TeleopControlThread"));
+    m_relayStateClient = new RelayStateClient();
+    m_controller = new DeviceController(&m_backend, &m_communicationBackend);
     m_controller->setRelayStateClient(m_relayStateClient);
     m_controlPanel = new ControlPanelWidget(this);
     m_glWidget = new GLCoordinateWidget(this);
@@ -95,15 +97,25 @@ MainWindow::MainWindow(QWidget* parent)
     connect(calibrationCheckButton,&QPushButton::clicked,
             m_controller,&DeviceController::checkTouchCalibration);
     connect(relativeCalibrationButton,&QPushButton::clicked,this,[this]{
+        if(m_controller->realMotionActive())return;
         RelativeCalibrationDialog dialog(m_controller,m_relayStateClient,this);
-        connect(&dialog,&RelativeCalibrationDialog::calibrationSaved,m_controller,
-            &DeviceController::applyPreviewCalibration);
+        connect(&dialog,&RelativeCalibrationDialog::calibrationSaved,this,
+            [this](const touchpanel::teleop::Calibration& calibration,int user,int tool){
+                QMetaObject::invokeMethod(m_controller,[controller=m_controller,calibration,user,tool]{
+                    controller->applyPreviewCalibration(calibration,user,tool);
+                },Qt::QueuedConnection);
+            });
         dialog.exec();
     });
     connect(calibrationButton,&QPushButton::clicked,this,[this]{
+        if(m_controller->realMotionActive())return;
         TeleopCalibrationDialog dialog(m_controller,m_relayStateClient,this);
-        connect(&dialog,&TeleopCalibrationDialog::calibrationSaved,m_controller,
-            &DeviceController::applyPreviewCalibration);
+        connect(&dialog,&TeleopCalibrationDialog::calibrationSaved,this,
+            [this](const touchpanel::teleop::Calibration& calibration,int user,int tool){
+                QMetaObject::invokeMethod(m_controller,[controller=m_controller,calibration,user,tool]{
+                    controller->applyPreviewCalibration(calibration,user,tool);
+                },Qt::QueuedConnection);
+            });
         dialog.exec();
     });
     connect(originButton,&QPushButton::clicked,this,[this]{
@@ -258,12 +270,11 @@ MainWindow::MainWindow(QWidget* parent)
     workspaceLabel->setMaximumWidth(600);
     statusBar()->addPermanentWidget(workspaceLabel,1);
     auto* workspaceTimer=new QTimer(this);
-    connect(workspaceTimer,&QTimer::timeout,this,[this,workspaceLabel]{
-        const auto text=m_controller->servoPWorkspaceStatus();
-        if(workspaceLabel->text()!=text)workspaceLabel->setText(text);
+    connect(m_controller,&DeviceController::servoPStatusChanged,workspaceLabel,&QLabel::setText);
+    connect(workspaceTimer,&QTimer::timeout,this,[this]{
         m_controlPanel->setMappingLocked(m_controller->realMotionActive());
     });
-    workspaceLabel->setText(m_controller->servoPWorkspaceStatus());
+    workspaceLabel->setText(QStringLiteral("工作空间：等待 8891 有效反馈"));
     workspaceTimer->start(250);
     statusBar()->showMessage("准备就绪：请先初始化设备。");
 
@@ -280,11 +291,16 @@ MainWindow::MainWindow(QWidget* parent)
         m_controller, &DeviceController::connectTransit);
     connect(m_controlPanel, &ControlPanelWidget::robotConnectRequested, this,
         [this](const QString& ip, quint16) {
-            m_relayStateClient->connectToRelay(ip.trimmed().isEmpty() ?
-                QStringLiteral("192.168.100.194") : ip.trimmed(), 8891);
+            const QString host=ip.trimmed().isEmpty()?QStringLiteral("192.168.100.194"):ip.trimmed();
+            QMetaObject::invokeMethod(m_relayStateClient,[client=m_relayStateClient,host]{
+                client->connectToRelay(host,8891);
+            },Qt::QueuedConnection);
         });
     connect(m_controlPanel,&ControlPanelWidget::relayV2ConnectRequested,this,[this](const QString& ip){
-        m_relayStateClient->connectToRelay(ip.trimmed().isEmpty()?QStringLiteral("192.168.100.194"):ip.trimmed(),8891);
+        const QString host=ip.trimmed().isEmpty()?QStringLiteral("192.168.100.194"):ip.trimmed();
+        QMetaObject::invokeMethod(m_relayStateClient,[client=m_relayStateClient,host]{
+            client->connectToRelay(host,8891);
+        },Qt::QueuedConnection);
     });
     connect(m_controlPanel,&ControlPanelWidget::relayV2DisconnectRequested,m_relayStateClient,&RelayStateClient::disconnectRelay);
     connect(m_controlPanel, &ControlPanelWidget::robotDisconnectRequested,
@@ -311,8 +327,21 @@ MainWindow::MainWindow(QWidget* parent)
         [this](const std::array<int,3>& axes,double gain,double deadzone){
             touchpanel::teleop::ManualAxisMap mapping;
             mapping.output=axes;mapping.scale=gain;mapping.deadzoneMm=deadzone;
-            m_controller->setManualPreviewMapping(mapping);
-            if(touchpanel::teleop::validManualAxisMap(mapping))m_controller->startManualPreview();
+            QMetaObject::invokeMethod(m_controller,[controller=m_controller,mapping]{
+                if(controller->realMotionActive())return;
+                controller->setManualPreviewMapping(mapping);
+                if(touchpanel::teleop::validManualAxisMap(mapping))controller->startManualPreview();
+            },Qt::QueuedConnection);
+        });
+    connect(m_controlPanel,&ControlPanelWidget::fixedAxisPosePreviewRequested,this,
+        [this](const std::array<int,3>& axes,double gain,double deadzone){
+            touchpanel::teleop::ManualAxisMap mapping;
+            mapping.output=axes;mapping.scale=gain;mapping.deadzoneMm=deadzone;
+            QMetaObject::invokeMethod(m_controller,[controller=m_controller,mapping]{
+                if(controller->realMotionActive() || !touchpanel::teleop::validManualAxisMap(mapping))return;
+                controller->setManualPreviewMapping(mapping);
+                controller->startFixedAxisPosePreview();
+            },Qt::QueuedConnection);
         });
     connect(m_controlPanel,&ControlPanelWidget::singleStepRequested,
         m_controller,&DeviceController::prepareSingleStep);
@@ -320,7 +349,7 @@ MainWindow::MainWindow(QWidget* parent)
         [this](const QString& message){
             if(QMessageBox::question(this,QStringLiteral("确认机器人单步运动"),
                  message,QMessageBox::Yes|QMessageBox::No,QMessageBox::No)==QMessageBox::Yes)
-                m_controller->confirmSingleStep();
+                QMetaObject::invokeMethod(m_controller,&DeviceController::confirmSingleStep,Qt::QueuedConnection);
         });
     connect(m_controlPanel,&ControlPanelWidget::continuousServoPRequested,this,
         [this](const std::array<int,3>& axes,double gain,double deadzone){
@@ -349,7 +378,7 @@ MainWindow::MainWindow(QWidget* parent)
                     "%1\n移动比例：%2×；每轴输入死区：%3 mm\n"
                     "使用当前机器人 User/Tool 坐标约定及固定末端姿态，不需要设备间点对标定。\n"
                     "按住前先确认离合就绪；首次按下只记录两端实际位置，不发送运动。\n"
-                    "同步优先：仅消费新位移，跟不上时不补偿，实际总位移可能小于比例。\n"
+                    "master 式直接位置目标；保护层丢弃的位移不补偿，实际总位移可能小于比例。\n"
                     "松开停发，发过运动指令时请求 ResetRobot 软件停止；"
                     "应答和实测停稳后才能重新按下。\n"
                     "不限制单次离合总行程；原软件工作空间、20mm 指令限制和反馈异常停止仍有效，"
@@ -357,9 +386,11 @@ MainWindow::MainWindow(QWidget* parent)
                     .arg(mappingDescription).arg(gain,0,'f',2).arg(deadzone,0,'f',2),
                 QMessageBox::Yes|QMessageBox::No,QMessageBox::No);
             if(choice!=QMessageBox::Yes)return;
-            m_controller->setManualPreviewMapping(mapping);
-            m_controller->startContinuousServoP();
-            m_controlPanel->setMappingLocked(m_controller->realMotionActive());
+            QMetaObject::invokeMethod(m_controller,[controller=m_controller,mapping]{
+                if(controller->realMotionActive())return;
+                controller->setManualPreviewMapping(mapping);
+                controller->startContinuousServoP();
+            },Qt::QueuedConnection);
         });
     connect(m_controlPanel,&ControlPanelWidget::continuousServoRequested,this,
         [this](const std::array<int,3>& axes,double gain,double deadzone){
@@ -380,8 +411,11 @@ MainWindow::MainWindow(QWidget* parent)
                     "仅启用平移；末端姿态锁定。是否继续？"),
                 QMessageBox::Yes|QMessageBox::No,QMessageBox::No);
             if(choice!=QMessageBox::Yes)return;
-            m_controller->setManualPreviewMapping(mapping);
-            m_controller->startContinuousServo();
+            QMetaObject::invokeMethod(m_controller,[controller=m_controller,mapping]{
+                if(controller->realMotionActive())return;
+                controller->setManualPreviewMapping(mapping);
+                controller->startContinuousServo();
+            },Qt::QueuedConnection);
         });
     connect(m_controlPanel, &ControlPanelWidget::stopTeleopRequested,
         m_controller, &DeviceController::stopTeleop);
@@ -417,11 +451,38 @@ MainWindow::MainWindow(QWidget* parent)
         {
             statusBar()->showMessage(message);
         });
+    // One owner for live control state, 8891 socket, timer and stop ACKs.
+    // Widget updates and other GUI work never run on this thread.
+    m_relayStateClient->moveToThread(m_controlThread);
+    m_controller->moveToThread(m_controlThread);
+    connect(m_controlThread,&QThread::finished,m_controller,&QObject::deleteLater);
+    connect(m_controlThread,&QThread::finished,m_relayStateClient,&QObject::deleteLater);
+    m_controlThread->start();
 }
 
 
 MainWindow::~MainWindow()
 {
+    // Tear down backend callbacks and sockets before deleting their owner.
+    // Normal closeEvent requests a motion stop before permitting exit.
+    if(m_controlThread && m_controlThread->isRunning()) {
+        QMetaObject::invokeMethod(m_controller,[this]{
+            m_controller->stopTeleop();
+            m_controller->stopStreaming();
+            m_controller->disconnectTransit();
+            m_relayStateClient->disconnectRelay();
+            m_controller->resetBackend();
+            m_communicationBackend.setMessageCallback({});
+            m_communicationBackend.setConnectionCallback({});
+            m_communicationBackend.setRobotStatusCallback({});
+            m_communicationBackend.setTcpTxCallback({});
+            m_communicationBackend.setTcpRxCallback({});
+            m_communicationBackend.setOperationCallback({});
+            m_communicationBackend.setJointSolutionCallback({});
+        },Qt::BlockingQueuedConnection);
+        m_controlThread->quit();
+        m_controlThread->wait();
+    }
     // Stop subscription and socket/timers on their owning thread before
     // the video mailbox/widget is destroyed. No worker references robot I/O.
     if(m_videoThread && m_videoThread->isRunning()) {
@@ -435,7 +496,7 @@ MainWindow::~MainWindow()
 void MainWindow::closeEvent(QCloseEvent* event)
 {
     if(m_controller && m_controller->realMotionActive()) {
-        m_controller->stopTeleop();
+        QMetaObject::invokeMethod(m_controller,&DeviceController::stopTeleop,Qt::QueuedConnection);
         QMessageBox::warning(this,QStringLiteral("已请求停止遥控"),
             QStringLiteral("已发送软件停止请求，请确认 8891 反馈显示机器人停止。"
                             "如运动未停止，请立即使用物理急停。确认后再关闭窗口。"));
