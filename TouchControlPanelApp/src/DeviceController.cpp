@@ -62,6 +62,20 @@ DeviceController::DeviceController(
     QObject* parent)
     : QObject(parent), m_backend(backend), m_robotBackend(communicationBackend)
 {
+    // Member QObjects migrate with the controller. Their destructors
+    // detach from the parent before QObject base destruction.
+    m_pollTimer.setParent(this);
+    m_motionTimer.setParent(this);
+    m_statusTimer.setParent(this);
+    m_statusTimer.setInterval(250);
+    connect(&m_statusTimer,&QTimer::timeout,this,[this]{
+        const QString status=servoPWorkspaceStatus();
+        if(status!=m_lastServoPStatus) {
+            m_lastServoPStatus=status;
+            emit servoPStatusChanged(status);
+        }
+    });
+    m_statusTimer.start();
     m_pollTimer.setInterval(DEVICE_CONTROLLER_POLL_INTERVAL_MS); 
     m_pollTimer.setTimerType(Qt::PreciseTimer);
     m_motionTimer.setInterval(DEVICE_CONTROLLER_MOTION_INTERVAL_MS);
