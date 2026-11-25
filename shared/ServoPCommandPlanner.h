@@ -46,7 +46,8 @@ inline ServoPCommandPlan planServoPCommand(const Pose6& latestTouchGoal,
         out.disposition=ServoPCommandDisposition::Invalid;
         return out;
     }
-    if(checkServoPWorkspace(lastSent).code!=ServoPWorkspaceCode::Allowed) {
+    if(checkServoPWorkspace(lastSent).code!=ServoPWorkspaceCode::Allowed ||
+       checkServoPWorkspace(actualTcp).code!=ServoPWorkspaceCode::Allowed) {
         out.disposition=ServoPCommandDisposition::Invalid;
         return out;
     }
@@ -117,7 +118,13 @@ inline ServoPCommandPlan planServoPCommand(const Pose6& latestTouchGoal,
     // after the robot has moved unexpectedly (still below the hard stop).
     out.heldAxes|=holdOutwardServoPAxes(next,lastSent);
     const double advanced=servoPCartesianDistance(next,lastSent);
-    if(!std::isfinite(advanced)||
+    // Recheck the *final* candidate after all projections. Never authorize
+    // a command outside the original envelope because of rounding or an
+    // intermediate projection.
+    const double finalLead=servoPCartesianDistance(next,actualTcp);
+    if(!std::isfinite(advanced)||!std::isfinite(finalLead)||
+       advanced>kServoPCommandMaxJumpMm+1e-7 ||
+       finalLead>kServoPCommandLeadMm+1e-7 ||
        checkServoPWorkspace(next).code!=ServoPWorkspaceCode::Allowed) {
         out.disposition=ServoPCommandDisposition::Invalid;
         return out;
