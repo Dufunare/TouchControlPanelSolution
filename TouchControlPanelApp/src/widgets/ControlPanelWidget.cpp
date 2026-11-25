@@ -103,7 +103,7 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     QVBoxLayout* teleopLayout = new QVBoxLayout();
     // Preview is in the advanced mapping section; stop stays visible in the toolbar.
     mainVLayout->addLayout(teleopLayout);
-    auto* manualGroup=new QGroupBox(QStringLiteral("平移轴映射与灵敏度"),robotGroup);
+    auto* manualGroup=new QGroupBox(QStringLiteral("固定设备坐标轴 · 平移遥控"),robotGroup);
     auto* manualForm=new QFormLayout(manualGroup);
     auto* mappingDetails=new QWidget(manualGroup);
     auto* detailsForm=new QFormLayout(mappingDetails);
@@ -115,27 +115,39 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
         m_axisCombos[i]->addItems(choices);
         m_axisCombos[i]->setCurrentIndex(m_axisSelection[i]);
         m_axisCombos[i]->setToolTip(QStringLiteral("每个 Touch 轴只使用一次；选择冲突轴时自动交换"));
-        detailsForm->addRow(QStringLiteral("机器人 %1:").arg(QStringLiteral("XYZ").at(i)),m_axisCombos[i]);
+        manualForm->addRow(QStringLiteral("机器人 %1 ←").arg(QStringLiteral("XYZ").at(i)),m_axisCombos[i]);
         connect(m_axisCombos[i],QOverload<int>::of(&QComboBox::currentIndexChanged),
                 this,[this,i](int selected){setAxisChoice(i,selected);});
     }
+    m_resetAxesButton=new QPushButton(QStringLiteral("恢复早期分支轴向"),manualGroup);
+    manualForm->addRow(m_resetAxesButton);
+    connect(m_resetAxesButton,&QPushButton::clicked,this,[this]{
+        m_axisSelection={{0,5,1}};
+        for(int i=0;i<3;++i) {
+            const QSignalBlocker block(m_axisCombos[i]);
+            m_axisCombos[i]->setCurrentIndex(m_axisSelection[i]);
+        }
+    });
     m_axisGain=new QDoubleSpinBox(manualGroup);
     m_axisGain->setRange(0.05,touchpanel::teleop::kManualTeleopMaximumScale);m_axisGain->setDecimals(2);
     m_axisGain->setSingleStep(0.05);m_axisGain->setValue(1.0);
     m_axisDeadzone=new QDoubleSpinBox(manualGroup);
     m_axisDeadzone->setRange(0,10);m_axisDeadzone->setSuffix(QStringLiteral(" mm"));
     m_axisDeadzone->setValue(0.3);
-    manualForm->addRow(QStringLiteral("比例（高比例请先 Dry Run）"),m_axisGain);
+    m_axisGain->setSuffix(QStringLiteral(" ×"));
+    m_axisGain->setToolTip(QStringLiteral("Touch 位移乘以此比例；不是机器人速度设置。启动后锁定。"));
+    manualForm->addRow(QStringLiteral("移动比例"),m_axisGain);
     m_servoPTravel=new QComboBox(manualGroup);
     m_servoPTravel->addItem(QStringLiteral("60 mm · 默认"),60.0);
     m_servoPTravel->addItem(QStringLiteral("120 mm · 扩展"),120.0);
     m_servoPTravel->addItem(QStringLiteral("180 mm · 扩展上限"),180.0);
     m_servoPTravel->setToolTip(QStringLiteral("仅影响单次按压的相对目标范围；不扩大XYZ工作空间边界"));
-    manualForm->addRow(QStringLiteral("ServoP 单次离合范围"),m_servoPTravel);
+    detailsForm->addRow(QStringLiteral("单次离合软件行程限制"),m_servoPTravel);
     // ServoP now uses the latest Touch target directly, with a fixed
     // bounded forward setpoint and independent hard 8891 safeguards.
     // Do not expose ineffective legacy speed/feedback-horizon knobs.
-    detailsForm->addRow(QStringLiteral("死区"),m_axisDeadzone);
+    detailsForm->addRow(QStringLiteral("每轴输入死区"),m_axisDeadzone);
+    m_axisDeadzone->setToolTip(QStringLiteral("设为 0 可使用精确的轴向位移比例；仍保留重复目标过滤。"));
     auto* previewButton=new QPushButton(QStringLiteral("启用平移预览（不发送运动）"),manualGroup);
     detailsForm->addRow(previewButton);
     detailsForm->addRow(m_startTeleopButton);
@@ -147,7 +159,7 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     // stays available as an explicit experimental alternative.
     m_realModeSelector=new QComboBox(manualGroup);
     m_realModeSelector->addItems({
-        QStringLiteral("ServoP · 实时位置直接跟随（受限）"),
+        QStringLiteral("ServoP · 固定轴相对平移（默认）"),
         QStringLiteral("ServoJ · 逆运动学连续跟随（实验）")});
     m_realModeSelector->setCurrentIndex(0);
     detailsForm->addRow(QStringLiteral("实体控制模式"),m_realModeSelector);
@@ -159,7 +171,7 @@ ControlPanelWidget::ControlPanelWidget(QWidget *parent)
     detailsForm->addRow(stepButton);
     manualForm->addRow(servoButton);
     auto* mappingToggle=new QToolButton(manualGroup);
-    mappingToggle->setText(QStringLiteral("轴映射、死区与实验模式"));
+    mappingToggle->setText(QStringLiteral("软件限制、预览与实验模式"));
     mappingToggle->setCheckable(true);
     mappingToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     mappingToggle->setArrowType(Qt::RightArrow);
@@ -260,6 +272,18 @@ QString ControlPanelWidget::relayHost() const
 {
     const QString host=m_transitIpEdit->text().trimmed();
     return host.isEmpty()?QStringLiteral("192.168.100.194"):host;
+}
+
+void ControlPanelWidget::setMappingLocked(bool locked)
+{
+    if(m_mappingLocked==locked)return;
+    m_mappingLocked=locked;
+    for(auto* combo:m_axisCombos)if(combo)combo->setEnabled(!locked);
+    if(m_axisGain)m_axisGain->setEnabled(!locked);
+    if(m_axisDeadzone)m_axisDeadzone->setEnabled(!locked);
+    if(m_servoPTravel)m_servoPTravel->setEnabled(!locked);
+    if(m_resetAxesButton)m_resetAxesButton->setEnabled(!locked);
+    // Keep the mode selector's existing stop-before-switch behavior.
 }
 
 void ControlPanelWidget::setAxisChoice(int robotAxis,int sourceCode)
