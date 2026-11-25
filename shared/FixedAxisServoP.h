@@ -22,17 +22,30 @@ public:
         m_idleSeq=0;
         m_idleCount=0;
         m_repressReported=false;
+        m_releaseStopPending=false;
     }
     ServoPPhase phase() const {return m_phase;}
     const Pose6& anchorRobot() const {return m_robot0;}
     const Vec3& anchorTouch() const {return m_touch0;}
     const Pose6& lastAcceptedTarget() const {return m_lastSent;}
     const ManualAxisMap& capturedMapping() const {return m_mapping;}
+    bool releaseStopPending() const {return m_releaseStopPending;}
+    // An ACK alone is not proof of a physical stop. Count only subsequent
+    // distinct idle feedback, and never capture while an early press is held.
+    bool acknowledgeReleaseStop(std::uint64_t observedSeq) {
+        if(m_phase!=ServoPPhase::WaitingForIdle || !m_releaseStopPending ||
+           observedSeq==0)return false;
+        m_releaseStopPending=false;
+        m_idleSeq=std::max(m_idleSeq,observedSeq);
+        m_idleCount=0;
+        return true;
+    }
 
     bool acknowledgeSentTarget(const Pose6& target) {
         if(m_phase!=ServoPPhase::Active || !m_pending ||
            target!=m_candidate)return false;
         m_lastSent=target;
+        m_sentDuringClutch=true;
         m_pending=false;
         return true;
     }
@@ -48,10 +61,13 @@ public:
         }
 
         if(m_phase==ServoPPhase::Active && !pressed) {
-            // Destroy all per-press coordinates and candidates immediately.
-            // The physical robot may still finish the last transmitted
-            // setpoint. A NEW press cannot capture until measured idle.
+            // Discard all unsent motion on release, then demand a stop
+            // request/ACK if this clutch ever transmitted a motion target.
+            // Never treat dropping the local goal as a physical stop.
+            const bool sent=m_sentDuringClutch;
             clearClutch();
+            m_releaseStopPending=sent;
+            out.releaseStopRequired=sent;
             m_phase=ServoPPhase::WaitingForIdle;
             m_idleCount=0;
             m_idleSeq=seq;
@@ -67,27 +83,31 @@ public:
         if(m_phase==ServoPPhase::NeedRelease ||
            m_phase==ServoPPhase::WaitingForIdle) {
             if(pressed) {
-                // A press made before readiness is NOT deferred and then
-                // captured at a later hand position. Require a new edge.
-                m_idleCount=0;
-                m_idleSeq=seq;
+                // A premature press cannot arm automatically later.
                 if(!m_repressReported) {
                     m_repressReported=true;
                     out.action=ServoPAction::RegripBlocked;
                 }
-                return out;
+            } else {
+                m_repressReported=false;
             }
-            m_repressReported=false;
-            if(!idle) {
+            // During a release stop, feedback before the ACK is not
+            // eligible. During initial arming, require Button1 up.
+            if(m_releaseStopPending || !idle ||
+               (m_phase==ServoPPhase::NeedRelease && pressed)) {
                 m_idleCount=0;
                 m_idleSeq=seq;
                 return out;
             }
+            // A rejected early press may overlap the physical stop. Count
+            // the actual idle feedback now, but require a fresh deliberate
+            // release and press. Do not impose another three samples once
+            // the operator has released a rejected press after confirmation.
             if(seq>m_idleSeq) {
                 m_idleSeq=seq;
-                ++m_idleCount;
+                if(m_idleCount<3)++m_idleCount;
             }
-            if(m_idleCount>=3) {
+            if(!pressed && m_idleCount>=3) {
                 m_phase=ServoPPhase::Ready;
                 out.action=ServoPAction::Ready;
             }
@@ -99,6 +119,8 @@ public:
             m_robot0=actual;
             m_mapping=mapping; // immutable throughout this press
             m_lastSent=actual;
+            m_previousMapped=actual;
+            m_smallResidual={};
             m_pending=false;
             m_phase=ServoPPhase::Active;
             out.action=ServoPAction::Captured;
@@ -125,12 +147,36 @@ public:
             return out;
         }
 
-        // The clutch anchor defines an origin, not a spherical workspace.
-        // Do not saturate the intent by distance from that origin. Apply
-        // only the existing independent command/absolute-workspace guard.
-        // Retain the raw intent for diagnostics; no change to the per-command
-        // jump, feedback lead, hard tracking stop or hardware fault gates.
-        const auto command=planServoPCommand(goal,m_lastSent,actual);
+        // Synchronization-first: consume only NEW operator displacement.
+        // Always advance the input reference, even if the command is
+        // clipped, blocked or later rejected. Never accumulate the unmet
+        // absolute-position error into a waypoint to chase after the hand
+        // stops. The original anchored goal remains diagnostic only.
+        const Vec3 inputDelta={goal[0]-m_previousMapped[0],
+                               goal[1]-m_previousMapped[1],
+                               goal[2]-m_previousMapped[2]};
+        m_previousMapped=goal;
+        const double inputNorm=norm(inputDelta);
+        if(!std::isfinite(inputNorm)) {
+            m_smallResidual={};
+            out.action=ServoPAction::Invalid;
+            return out;
+        }
+        // Only retain sub-deadband quantization during uninterrupted
+        // same-direction movement. A pause/reversal clears it. There is
+        // never a backlog of envelope-limited or workspace-blocked motion.
+        if(inputNorm<=1e-7) {
+            m_smallResidual={};
+            return out;
+        }
+        if(dot(inputDelta,m_smallResidual)<=0.0)m_smallResidual={};
+        const Vec3 step={inputDelta[0]+m_smallResidual[0],
+                         inputDelta[1]+m_smallResidual[1],
+                         inputDelta[2]+m_smallResidual[2]};
+        m_smallResidual={};
+        Pose6 requested=m_lastSent;
+        for(int i=0;i<3;++i)requested[i]+=step[i];
+        const auto command=planServoPCommand(requested,m_lastSent,actual);
         out.wallHoldAxisMask|=command.heldAxes;
         out.feedbackLimited=command.leadRestricted;
         switch(command.disposition) {
@@ -143,7 +189,12 @@ public:
             m_pending=true;
             out.target=m_candidate;
             out.action=ServoPAction::Send;break;
-        case ServoPCommandDisposition::None:break;
+        case ServoPCommandDisposition::None:
+            // Preserve only <0.3mm of quantization, never a clipped goal.
+            if(!command.heldAxes && !command.leadRestricted &&
+               !command.jumpRestricted && norm(step)<=kServoPCommandDeadbandMm)
+                m_smallResidual=step;
+            break;
         }
         return out;
     }
@@ -154,14 +205,20 @@ private:
         m_robot0={};
         m_lastSent={};
         m_candidate={};
+        m_previousMapped={};
+        m_smallResidual={};
         m_mapping={};
         m_pending=false;
+        m_sentDuringClutch=false;
     }
     ServoPPhase m_phase=ServoPPhase::NeedRelease;
     Vec3 m_touch0{};
-    Pose6 m_robot0{},m_lastSent{},m_candidate{};
+    Pose6 m_robot0{},m_lastSent{},m_candidate{},m_previousMapped{};
+    Vec3 m_smallResidual{};
     ManualAxisMap m_mapping{};
     bool m_pending=false;
+    bool m_sentDuringClutch=false;
+    bool m_releaseStopPending=false;
     bool m_repressReported=false;
     std::uint64_t m_idleSeq=0;
     unsigned m_idleCount=0;
