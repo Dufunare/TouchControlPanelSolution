@@ -12,8 +12,8 @@ namespace touchpanel::teleop {
 // One live control mode. Two independent fixed device coordinate systems.
 // The normal path is master-style absolute position mapping plus duplicate
 // filtering. An offset changes ONLY when the existing guard discards motion.
-// No rate integrator or old waypoint queue. The default remains position only;
-// a separate opt-in rotation-only commissioning trial shares this clutch.
+// One shared clutch for position and orientation; the controller may also
+// select translation-only. No trajectory queue or unbounded catch-up.
 // The caller must enforce live controller/telemetry/stop gates. The command
 // arbiter retains the existing experimental envelope, not a certified
 // physical speed, collision, or stopping-distance guarantee.
@@ -26,16 +26,14 @@ public:
         m_idleCount=0;
         m_repressReported=false;
         m_releaseStopPending=false;
-        m_rotationTrial=false;
-        m_rotationSessionOrigin={};
+        m_sixAxis=false;
     }
-    bool configureRotationTrial(const Pose6& origin) {
-        if(m_phase!=ServoPPhase::NeedRelease || !rotationTrialPoseValid(origin))return false;
-        m_rotationTrial=true;
-        m_rotationSessionOrigin=origin;
+    bool configureSixAxis(const Pose6& origin) {
+        if(m_phase!=ServoPPhase::NeedRelease || !servoPRotationPoseValid(origin))return false;
+        m_sixAxis=true;
         return true;
     }
-    bool rotationTrialEnabled() const {return m_rotationTrial;}
+    bool sixAxisEnabled() const {return m_sixAxis;}
     ServoPPhase phase() const {return m_phase;}
     const Pose6& anchorRobot() const {return m_robot0;}
     const Vec3& anchorTouch() const {return m_touch0;}
@@ -59,16 +57,17 @@ public:
         m_lastSent=target;
         // Keep the direct position law. Absorb rejected/clipped displacement
         // once, at the point of acceptance, instead of replaying it later.
-        if(m_rotationTrial)m_rotationTouchRef=m_rotationPendingTouch;
-        else for(int i=0;i<3;++i)m_commandOffset[i]=target[i]-m_rawGoal[i];
+        if(!m_sixAxis || m_pendingPositionAdvance)
+            for(int i=0;i<3;++i)m_commandOffset[i]=target[i]-m_rawGoal[i];
+        if(m_sixAxis)m_rotationTouchRef=m_rotationPendingTouch;
         m_sentDuringClutch=true;
         m_pending=false;
         return true;
     }
     void rejectUnsentTarget() {
         if(m_pending) {
-            if(m_rotationTrial)m_rotationTouchRef=m_rotationPendingTouch;
-            else for(int i=0;i<3;++i)m_commandOffset[i]=m_lastSent[i]-m_rawGoal[i];
+            for(int i=0;i<3;++i)m_commandOffset[i]=m_lastSent[i]-m_rawGoal[i];
+            if(m_sixAxis)m_rotationTouchRef=m_rotationPendingTouch;
         }
         m_pending=false;
     }
@@ -81,8 +80,8 @@ public:
         ServoPTick out;
         if(!finite(touch)||!validManualAxisMap(mapping)||seq==0||
            checkServoPWorkspace(actual).code!=ServoPWorkspaceCode::Allowed ||
-           (m_rotationTrial && (!properRotation(touchRotation) || !properRotation(actualRotation) ||
-               !rotationTrialPoseValid(actual)))) {
+           (m_sixAxis && (!properRotation(touchRotation) || !properRotation(actualRotation) ||
+               !servoPRotationPoseValid(actual)))) {
             out.action=ServoPAction::Invalid;
             return out;
         }
@@ -161,7 +160,6 @@ public:
             out.action=ServoPAction::Invalid;
             return out;
         }
-        if(m_rotationTrial)return tickRotation(touchRotation,actualRotation);
         Pose6 goal{};
         if(!manualPositionPreview(m_mapping,sub(touch,m_touch0),m_robot0,goal) ||
            !servoPFinitePose(goal)) {
@@ -183,11 +181,13 @@ public:
         m_rawGoal=goal;
         Pose6 requested=goal;
         for(int i=0;i<3;++i)requested[i]+=m_commandOffset[i];
+        if(m_sixAxis)for(int i=3;i<6;++i)requested[i]=m_lastSent[i];
         // Use the same 0.3mm duplicate filter and direct target on every
         // legal frame, then let the existing arbiter enforce its bounds.
         const auto command=planServoPCommand(requested,m_lastSent,actual);
         out.wallHoldAxisMask|=command.heldAxes;
         out.feedbackLimited=command.leadRestricted;
+        if(m_sixAxis)return combineSixAxis(out,command,touchRotation,actual,actualRotation);
         switch(command.disposition) {
         case ServoPCommandDisposition::Invalid:
             out.action=ServoPAction::Invalid;break;
@@ -213,39 +213,58 @@ public:
     }
 
 private:
-    ServoPTick tickRotation(const Mat3& touchRotation,const Mat3& measured) {
-        ServoPTick out;
-        // Relative matrix motion since the last consumed stylus sample.
-        // Translation remains exactly the captured TCP. Using the same
-        // conjugation as the six-dimensional preview preserves fixed axes.
+    ServoPTick combineSixAxis(ServoPTick out,const ServoPCommandPlan& command,
+                              const Mat3& touchRotation,const Pose6& actual,
+                              const Mat3& measured) {
+        if(command.disposition==ServoPCommandDisposition::Invalid) {
+            out.action=ServoPAction::Invalid;return out;
+        }
+        auto discard=[&]() {
+            for(int i=0;i<3;++i)m_commandOffset[i]=m_lastSent[i]-m_rawGoal[i];
+            m_rotationTouchRef=touchRotation;
+            out.feedbackLimited=true;
+            out.action=ServoPAction::TrackingHold;
+            return out;
+        };
+        if(command.disposition==ServoPCommandDisposition::TrackingHold)return discard();
+
+        // Preserve the existing direct clutch-relative position planner.
+        // Map relative stylus rotation into the very same ServoP target.
+        const bool positionAdvance=command.disposition==ServoPCommandDisposition::Send;
+        Pose6 next=positionAdvance?command.target:m_lastSent;
+        if(!positionAdvance)for(int i=0;i<3;++i)
+            if(command.leadRestricted || command.jumpRestricted ||
+               (command.heldAxes & (1U<<i)))
+                m_commandOffset[i]=m_lastSent[i]-m_rawGoal[i];
+
         Clutch ref;
         ref.valid=true;ref.touchRotation=m_rotationTouchRef;ref.robotPose=m_lastSent;
         Pose6 raw{};
         if(!fixedAxisPosePreview(m_mapping,ref,Vec3{},touchRotation,
-                                servoPRpy(m_lastSent),raw)) {
+                                 servoPRpy(m_lastSent),raw)) {
             out.action=ServoPAction::Invalid;return out;
         }
-        out.intent=raw;out.intentValid=true;
-        if(rotationDistanceDeg(servoPRotation(raw),servoPRotation(m_lastSent))<
-           kRotationTrialDeadbandDeg)return out;
-        Pose6 next=m_lastSent;
-        double delta=0;
-        for(int i=3;i<6;++i)delta+=std::abs(raw[i]-m_lastSent[i]);
-        if(!std::isfinite(delta) || delta<=0) {
-            out.action=ServoPAction::Invalid;return out;
+        for(int i=3;i<6;++i)out.intent[i]=raw[i];
+        const bool rotationAdvance=rotationDistanceDeg(servoPRotation(raw),
+            servoPRotation(m_lastSent))>=kServoPRotationDeadbandDeg;
+        if(rotationAdvance) {
+            double delta=0;
+            for(int i=3;i<6;++i)delta+=std::abs(raw[i]-m_lastSent[i]);
+            if(!std::isfinite(delta) || delta<=0) {
+                out.action=ServoPAction::Invalid;return out;
+            }
+            // Retain the former angular step limit and rounding headroom.
+            const double fraction=std::min(1.0,(kServoPRotationStepDeg-0.002)/delta);
+            for(int i=3;i<6;++i)
+                next[i]=std::round((m_lastSent[i]+fraction*(raw[i]-m_lastSent[i]))*1000.0)/1000.0;
         }
-        // Leave headroom for the three-decimal ServoP wire representation.
-        const double fraction=std::min(1.0,(kRotationTrialStepDeg-0.002)/delta);
-        for(int i=3;i<6;++i)next[i]=std::round((next[i]+fraction*(raw[i]-m_lastSent[i]))*1000.0)/1000.0;
         if(next==m_lastSent)return out;
-        if(!rotationTrialCandidateAllowed(next,m_lastSent,m_robot0,m_rotationSessionOrigin,measured)) {
-            // Consume a rejected input; never chase a stale hand gesture
-            // when the robot catches up or a boundary becomes available.
-            m_rotationTouchRef=touchRotation;
-            out.feedbackLimited=true;out.action=ServoPAction::TrackingHold;return out;
-        }
-        m_rotationPendingTouch=touchRotation;
-        m_candidate=next;m_pending=true;out.target=next;out.action=ServoPAction::Send;
+        // Neither channel can bypass the other channel's local guards.
+        if(!servoP6DCandidateAllowed(next,m_lastSent,actual,measured))return discard();
+        m_pendingPositionAdvance=positionAdvance;
+        m_rotationPendingTouch=rotationAdvance?touchRotation:m_rotationTouchRef;
+        m_candidate=next;m_pending=true;
+        out.target=next;out.action=ServoPAction::Send;
         return out;
     }
     void clearClutch() {
@@ -257,6 +276,7 @@ private:
         m_commandOffset={};
         m_mapping={};
         m_rotationTouchRef=identity();m_rotationPendingTouch=identity();
+        m_pendingPositionAdvance=false;
         m_pending=false;
         m_sentDuringClutch=false;
     }
@@ -265,8 +285,8 @@ private:
     Pose6 m_robot0{},m_lastSent{},m_candidate{},m_rawGoal{};
     Vec3 m_commandOffset{};
     ManualAxisMap m_mapping{};
-    bool m_rotationTrial=false;
-    Pose6 m_rotationSessionOrigin{};
+    bool m_sixAxis=false;
+    bool m_pendingPositionAdvance=false;
     Mat3 m_rotationTouchRef=identity(),m_rotationPendingTouch=identity();
     bool m_pending=false;
     bool m_sentDuringClutch=false;
