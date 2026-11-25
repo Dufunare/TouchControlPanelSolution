@@ -1,68 +1,28 @@
 #include "VideoWidget.h"
 
-#include <QLabel>
-#include <QMetaObject>
-#include <QPixmap>
-#include <QResizeEvent>
-#include <QStackedLayout>
-#include <QThread>
+#include <QPainter>
+#include <QSizePolicy>
+#include <QTimer>
 
-VideoWidget::VideoWidget(QWidget* parent)
-    : QWidget(parent)
+VideoWidget::VideoWidget(QWidget* parent) : QWidget(parent)
 {
-    setStyleSheet("background-color: #0B0D10;");
-
-    m_videoLabel = new QLabel(this);
-    m_videoLabel->setAlignment(Qt::AlignCenter);
-    m_videoLabel->setScaledContents(false);
-    m_videoLabel->setStyleSheet("background-color: transparent;");
-
-    m_noSignalLabel = new QLabel("NO SIGNAL", this);
-    m_noSignalLabel->setAlignment(Qt::AlignCenter);
-    m_noSignalLabel->setAttribute(Qt::WA_TransparentForMouseEvents, true);
-    m_noSignalLabel->setStyleSheet(
-        "background-color: rgba(0, 0, 0, 80);"
-        "color: rgba(220, 220, 220, 210);"
-        "font-size: 30px;"
-        "font-weight: 600;");
-
-    auto* stacked = new QStackedLayout(this);
-    stacked->setContentsMargins(0, 0, 0, 0);
-    stacked->setStackingMode(QStackedLayout::StackAll);
-    stacked->addWidget(m_videoLabel);
-    stacked->addWidget(m_noSignalLabel);
-
-    showNoSignal();
+    // A JPEG's native pixel dimensions must NEVER become a layout minimum.
+    // Paint within our own rect instead of allowing a pixmap QLabel to grow.
+    setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Ignored);
+    setMinimumSize(180,120);
+    setAttribute(Qt::WA_OpaquePaintEvent);
+    auto* refresh=new QTimer(this);
+    refresh->setInterval(40); // GUI displays latest available frame, <=25 FPS.
+    connect(refresh,&QTimer::timeout,this,&VideoWidget::updateFrame);
+    refresh->start();
 }
 
 void VideoWidget::setFrame(const QImage& image)
 {
-    if (QThread::currentThread() != thread())
-    {
-        const QImage copied = image.copy();
-        QMetaObject::invokeMethod(this,
-            [this, copied]()
-            {
-                setFrame(copied);
-            },
-            Qt::QueuedConnection);
-        return;
-    }
-
-    if (image.isNull())
-    {
-        showNoSignal();
-        return;
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(m_frameMutex);
-        m_currentFrame = image.copy();
-    }
-
-    m_hasSignal.store(true, std::memory_order_relaxed);
-    m_noSignalLabel->hide();
-    updateFrame();
+    // No QWidget calls, queued repaint events or deep copies in this path.
+    std::lock_guard<std::mutex> lock(m_frameMutex);
+    m_latestFrame=image;
+    ++m_revision;
 }
 
 void VideoWidget::setFrameFromMat(const cv::Mat& frame)
@@ -72,25 +32,7 @@ void VideoWidget::setFrameFromMat(const cv::Mat& frame)
 
 void VideoWidget::showNoSignal()
 {
-    if (QThread::currentThread() != thread())
-    {
-        QMetaObject::invokeMethod(this,
-            [this]()
-            {
-                showNoSignal();
-            },
-            Qt::QueuedConnection);
-        return;
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(m_frameMutex);
-        m_currentFrame = QImage();
-    }
-
-    m_hasSignal.store(false, std::memory_order_relaxed);
-    m_videoLabel->clear();
-    m_noSignalLabel->show();
+    setFrame(QImage());
 }
 
 void VideoWidget::clearFrame()
@@ -100,43 +42,55 @@ void VideoWidget::clearFrame()
 
 bool VideoWidget::hasSignal() const
 {
-    return m_hasSignal.load(std::memory_order_relaxed);
+    std::lock_guard<std::mutex> lock(m_frameMutex);
+    return !m_latestFrame.isNull();
 }
 
 void VideoWidget::updateFrame()
 {
-    if (QThread::currentThread() != thread())
-    {
-        QMetaObject::invokeMethod(this,
-            [this]()
-            {
-                updateFrame();
-            },
-            Qt::QueuedConnection);
-        return;
-    }
-
-    QImage frameCopy;
     {
         std::lock_guard<std::mutex> lock(m_frameMutex);
-        frameCopy = m_currentFrame;
+        if(m_displayRevision==m_revision)return;
+        m_displayFrame=m_latestFrame;
+        m_displayRevision=m_revision;
     }
-
-    if (!m_hasSignal.load(std::memory_order_relaxed) || frameCopy.isNull())
-    {
-        m_videoLabel->clear();
-        m_noSignalLabel->show();
-        return;
-    }
-
-    const QPixmap pix = QPixmap::fromImage(frameCopy);
-    const QSize targetSize = m_videoLabel->size();
-    m_videoLabel->setPixmap(pix.scaled(targetSize, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-    m_noSignalLabel->hide();
+    update();
 }
 
-void VideoWidget::resizeEvent(QResizeEvent* event)
+void VideoWidget::paintEvent(QPaintEvent*)
 {
-    QWidget::resizeEvent(event);
-    updateFrame();
+    QPainter painter(this);
+    painter.setClipRect(rect());
+    painter.fillRect(rect(),QColor(11,13,16));
+    if(m_displayFrame.isNull()) {
+        painter.setPen(QColor(170,181,195));
+        painter.drawText(rect(),Qt::AlignCenter,QStringLiteral("NO SIGNAL"));
+        return;
+    }
+    const QSize fitted=m_displayFrame.size().scaled(size(),Qt::KeepAspectRatio);
+    const QRect target((width()-fitted.width())/2,(height()-fitted.height())/2,
+                       fitted.width(),fitted.height());
+    painter.setRenderHint(QPainter::SmoothPixmapTransform,true);
+    if(m_mirrored) {
+        painter.translate(width(),0);
+        painter.scale(-1,1);
+    }
+    painter.drawImage(target,m_displayFrame);
+}
+
+bool VideoWidget::saveFrame(const QString& path) const
+{
+    QImage snapshot;
+    {
+        std::lock_guard<std::mutex> lock(m_frameMutex);
+        snapshot=m_latestFrame;
+    }
+    return !snapshot.isNull() && snapshot.save(path,"PNG");
+}
+
+void VideoWidget::setMirrored(bool mirrored)
+{
+    if(m_mirrored==mirrored)return;
+    m_mirrored=mirrored;
+    update();
 }
