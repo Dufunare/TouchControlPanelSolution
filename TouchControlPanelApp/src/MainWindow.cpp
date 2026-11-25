@@ -323,7 +323,7 @@ MainWindow::MainWindow(QWidget* parent)
                 m_controller->confirmSingleStep();
         });
     connect(m_controlPanel,&ControlPanelWidget::continuousServoPRequested,this,
-        [this](const std::array<int,3>& axes,double gain,double deadzone,double clutchTravelMm){
+        [this](const std::array<int,3>& axes,double gain,double deadzone){
             touchpanel::teleop::ManualAxisMap mapping;
             mapping.output=axes;mapping.scale=gain;mapping.deadzoneMm=deadzone;
             if(!touchpanel::teleop::validManualAxisMap(mapping)) {
@@ -351,15 +351,11 @@ MainWindow::MainWindow(QWidget* parent)
                     "按住前先确认离合就绪；首次按下只记录两端实际位置，不发送运动。\n"
                     "松开停发，可重新定位 Touch；机械臂可能完成末条目标，"
                     "待实测停稳后必须重新按下。\n"
-                    "原软件工作空间、离合行程、20mm 指令限制和反馈异常停止仍有效，"
+                    "不限制单次离合总行程；原软件工作空间、20mm 指令限制和反馈异常停止仍有效，"
                     "均不是物理碰撞保护。必须确认方向和独立物理急停。")
                     .arg(mappingDescription).arg(gain,0,'f',2).arg(deadzone,0,'f',2),
                 QMessageBox::Yes|QMessageBox::No,QMessageBox::No);
             if(choice!=QMessageBox::Yes)return;
-            if(!m_controller->setServoPClutchTravelLimit(clutchTravelMm)) {
-                statusBar()->showMessage(QStringLiteral("ServoP 单次离合范围无效"),5000);
-                return;
-            }
             m_controller->setManualPreviewMapping(mapping);
             m_controller->startContinuousServoP();
             m_controlPanel->setMappingLocked(m_controller->realMotionActive());
