@@ -388,7 +388,7 @@ MainWindow::MainWindow(QWidget* parent)
                 QStringLiteral("确认六自由度 ServoP 遥控"),
                 QStringLiteral(
                     "%1\n移动比例：%2×；每轴输入死区：%3 mm\n"
-                    "同一离合同时跟随 XYZ 和 Rx/Ry/Rz，旋转比例1:1；需当前会话 ZYX 实测证据与 User/Tool=0。\n"
+                    "同一离合同时跟随 XYZ 和 Rx/Ry/Rz，旋转比例1:1；检查实时 ZYX/四元数一致性及 User/Tool=0，无需手工采样。\n"
                     "按住前先确认离合就绪；首次按下只记录两端实际位置，不发送运动。\n"
                     "master 式直接位置目标；保护层丢弃的位移不补偿，实际总位移可能小于比例。\n"
                     "松开停发，发过运动指令时请求 ResetRobot 软件停止；"
