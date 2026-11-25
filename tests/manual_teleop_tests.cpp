@@ -1,4 +1,5 @@
 #include "../shared/ManualTeleop.h"
+#include "../shared/OrientationConventionAudit.h"
 #include <cassert>
 #include <iostream>
 using namespace touchpanel::teleop;
@@ -88,5 +89,56 @@ int main() {
     assert(fixedAxisPosePreview(sixMap,anchor,anchor.touchPosition,
         anchor.touchRotation,otherRef,sixPose));
     for(int i=0;i<6;++i)assert(std::abs(sixPose[i]-anchor.robotPose[i])<1e-5);
+    // Independent closed-form Hamilton quaternion for Rz*Ry*Rx.
+    auto qzyx=[](Vec3 a) {
+        const double x=a[0]*pi/360,y=a[1]*pi/360,z=a[2]*pi/360;
+        const double cx=std::cos(x),sx=std::sin(x),cy=std::cos(y),sy=std::sin(y),
+                     cz=std::cos(z),sz=std::sin(z);
+        return Quaternion4{cz*cy*cx+sz*sy*sx,cz*cy*sx-sz*sy*cx,
+                           cz*sy*cx+sz*cy*sx,sz*cy*cx-cz*sy*sx};
+    };
+    touchpanel::RobotSnapshot state;
+    state.sessionEstablished=state.relayStatusSeen=state.feedbackSeen=true;
+    state.relayReady=state.port29999Connected=state.port30003Connected=state.port30004Connected=true;
+    state.feedbackValid=state.enabled=true;
+    state.sessionEpoch=1;state.stateSeq=1;state.robotMode=5;
+    state.feedbackAgeMs=state.relayStatusAgeMs=10;
+    state.userIndex=state.toolIndex=0;
+    state.actualQuaternionValid=true;
+    OrientationConventionAudit audit;
+    auto setPose=[&](Vec3 r) {
+        ++state.stateSeq;
+        state.tcpPose={100,-100,300,r[0],r[1],r[2]};
+        state.actualQuaternion=qzyx(r);
+    };
+    setPose({15,20,30});
+    assert(audit.capture(state)==OrientationCapture::Added);
+    assert(audit.capture(state)==OrientationCapture::Duplicate);
+    ++state.stateSeq;
+    for(double& x:state.actualQuaternion)x=-x;
+    assert(audit.capture(state)==OrientationCapture::Duplicate); // q == -q
+    assert(!audit.report().unique);
+    setPose({-35,18,55});
+    assert(audit.capture(state)==OrientationCapture::Added);
+    setPose({70,-28,-40});
+    assert(audit.capture(state)==OrientationCapture::Added);
+    assert(audit.report().count==3 && audit.report().unique && audit.supportsZyx(state));
+    state.actualQuaternion={0,0,0,0};
+    assert(audit.capture(state)==OrientationCapture::Invalid);
+    assert(!audit.supportsZyx(state));
+    setPose({-20,-25,70});state.toolIndex=1;
+    assert(audit.capture(state)==OrientationCapture::Invalid);
+    state.toolIndex=0;state.feedbackAgeMs=200;
+    assert(audit.capture(state)==OrientationCapture::Invalid);
+    state.feedbackAgeMs=10;state.sessionEpoch=2;
+    assert(!audit.supportsZyx(state));
+    assert(audit.capture(state)==OrientationCapture::Added);
+    assert(audit.report().count==1 && !audit.report().unique);
+    // Pure single-axis motion cannot disambiguate an Euler convention.
+    audit.clear();
+    for(Vec3 r:std::array<Vec3,3>{{{30,0,0},{0,35,0},{0,0,40}}}) {
+        setPose(r);assert(audit.capture(state)==OrientationCapture::Added);
+    }
+    assert(!audit.report().unique);
     std::cout<<"Manual mapping preview tests passed\n";
 }
