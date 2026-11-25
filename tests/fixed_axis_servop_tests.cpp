@@ -206,38 +206,38 @@ int main() {
     for(int i=0;i<3;++i)assert(t.target[i]==rotationOrigin[i]);
     assert(t.target[3]>0 && t.target[3]<=kServoPRotationStepDeg);
     assert(rotating.acknowledgeSentTarget(t.target));
-    auto followed=t.target;
-    assert(rtick(true,5,followed,true,805,handOrigin).action==ServoPAction::None);
+    auto followed6D=t.target;
+    assert(rtick(true,5,followed6D,true,805,handOrigin).action==ServoPAction::None);
     Vec3 moved=add(handOrigin,{1,0,0});
-    t=rtick(true,5,followed,true,806,moved);
+    t=rtick(true,5,followed6D,true,806,moved);
     assert(t.action==ServoPAction::Send && near(t.target[0],rotationOrigin[0]+2));
-    assert(t.target[3]==followed[3]);
+    assert(t.target[3]==followed6D[3]);
     assert(rotating.acknowledgeSentTarget(t.target));
-    followed=t.target;
+    followed6D=t.target;
     double handAngle=5;
     for(unsigned i=0;i<20;++i) {
         handAngle+=1;
         moved=add(moved,{1,0,0});
-        t=rtick(true,handAngle,followed,true,807+i,moved);
+        t=rtick(true,handAngle,followed6D,true,807+i,moved);
         assert(t.action==ServoPAction::Send);
-        assert(t.target[0]>followed[0] && t.target[3]>followed[3]);
-        assert(servoP6DCandidateAllowed(t.target,followed,followed,servoPRotation(followed)));
+        assert(t.target[0]>followed6D[0] && t.target[3]>followed6D[3]);
+        assert(servoP6DCandidateAllowed(t.target,followed6D,followed6D,servoPRotation(followed6D)));
         assert(rotating.acknowledgeSentTarget(t.target));
-        followed=t.target;
+        followed6D=t.target;
     }
-    assert(followed[3]>2.0 && followed[0]-rotationOrigin[0]>2.0);
-    assert(rtick(false,handAngle,followed,false,830,moved).releaseStopRequired);
+    assert(followed6D[3]>2.0 && followed6D[0]-rotationOrigin[0]>2.0);
+    assert(rtick(false,handAngle,followed6D,false,830,moved).releaseStopRequired);
     assert(rotating.releaseStopPending());
     assert(rotating.acknowledgeReleaseStop(830));
     for(unsigned i=0;i<3;++i)
-        assert(rtick(false,0,followed,true,831+i,handOrigin).action==
+        assert(rtick(false,0,followed6D,true,831+i,handOrigin).action==
             (i==2?ServoPAction::Ready:ServoPAction::None));
-    assert(rtick(true,0,followed,true,834,handOrigin).action==ServoPAction::Captured);
-    assert(rtick(true,0,followed,true,835,handOrigin).action==ServoPAction::None);
-    t=rtick(true,-1,followed,true,836,handOrigin);
-    assert(t.action==ServoPAction::Send && t.target[3]<followed[3]);
+    assert(rtick(true,0,followed6D,true,834,handOrigin).action==ServoPAction::Captured);
+    assert(rtick(true,0,followed6D,true,835,handOrigin).action==ServoPAction::None);
+    t=rtick(true,-1,followed6D,true,836,handOrigin);
+    assert(t.action==ServoPAction::Send && t.target[3]<followed6D[3]);
     assert(rotating.acknowledgeSentTarget(t.target));
-    assert(rotating.tick(true,hand,followed,true,837,map).action==ServoPAction::Invalid);
+    assert(rotating.tick(true,hand,followed6D,true,837,map).action==ServoPAction::Invalid);
     rotating.reset();
     assert(!rotating.sixAxisEnabled());
 
