@@ -71,6 +71,20 @@ int main(int argc,char** argv) {
                 "preview layout minimums");
         require(!controls->geometry().intersects(center->geometry()),"sidebar overlaps center");
         require(!status->geometry().intersects(center->geometry()),"right sidebar overlaps center");
+        // Exercise both immutable stylus buffers and a changing trail,
+        // including the reduced repaint cadence while video is active.
+        touchpanel::DeviceState pose{};
+        pose.valid=true;pose.orientationValid=true;
+        pose.positionMm={10,20,30};
+        gl->setDeviceState(pose);
+        require(waitFor([&]{return gl->isValid();}),"software GL context");
+        require(!gl->grabFramebuffer().isNull(),"valid stylus framebuffer");
+        gl->setVideoActive(true);
+        pose.positionMm={25,20,30};
+        gl->setDeviceState(pose);
+        require(!gl->grabFramebuffer().isNull(),"changed stylus framebuffer");
+        gl->setVideoActive(false);
+        gl->clearTrail();
         QUdpSocket relay;
         require(relay.bind(QHostAddress(QHostAddress::LocalHost),quint16(0)),"loopback bind");
         VideoWorker worker(*video);
