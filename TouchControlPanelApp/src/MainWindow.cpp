@@ -1,6 +1,9 @@
 ﻿#include "MainWindow.h"
 
 #include <QSplitter>
+#include <QToolBar>
+#include <QLabel>
+#include <QTimer>
 #include <QScrollArea>
 #include <QFrame>
 #include <QLayout>
@@ -127,6 +130,27 @@ MainWindow::MainWindow(QWidget* parent)
     splitter->setSizes({ 280, 820, 420 });
 
     setCentralWidget(splitter);
+    auto* operationBar=addToolBar(QStringLiteral("遥控操作"));
+    operationBar->setMovable(false);
+    operationBar->setFloatable(false);
+    auto* stopButton=new QPushButton(QStringLiteral("停止遥控"),operationBar);
+    auto* emergencyButton=new QPushButton(QStringLiteral("软件急停（非物理急停）"),operationBar);
+    emergencyButton->setStyleSheet(QStringLiteral("QPushButton { background:#b91c1c; color:white; font-weight:bold; padding:8px; }"));
+    operationBar->addWidget(stopButton);
+    operationBar->addWidget(emergencyButton);
+    connect(stopButton,&QPushButton::clicked,m_controller,&DeviceController::stopTeleop);
+    connect(emergencyButton,&QPushButton::clicked,m_controller,&DeviceController::emergencyStopRobot);
+    auto* workspaceLabel=new QLabel(this);
+    workspaceLabel->setWordWrap(true);
+    workspaceLabel->setMaximumWidth(600);
+    statusBar()->addPermanentWidget(workspaceLabel,1);
+    auto* workspaceTimer=new QTimer(this);
+    connect(workspaceTimer,&QTimer::timeout,this,[this,workspaceLabel]{
+        const auto text=m_controller->servoPWorkspaceStatus();
+        if(workspaceLabel->text()!=text)workspaceLabel->setText(text);
+    });
+    workspaceLabel->setText(m_controller->servoPWorkspaceStatus());
+    workspaceTimer->start(250);
     statusBar()->showMessage("准备就绪：请先初始化设备。");
 
 	//信号与槽连接
