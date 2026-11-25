@@ -35,6 +35,7 @@ public:
     void setRelayStateClient(RelayStateClient* client);
     bool getTouchSnapshot(touchpanel::DeviceState& state) const;
     bool realMotionActive() const;
+    QString servoPWorkspaceStatus() const;
     void applyPreviewCalibration(const touchpanel::teleop::Calibration& calibration,int user,int tool);
     void setManualPreviewMapping(const touchpanel::teleop::ManualAxisMap& mapping);
     bool setServoPClutchTravelLimit(double limitMm);
