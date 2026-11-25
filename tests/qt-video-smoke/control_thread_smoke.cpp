@@ -37,7 +37,7 @@ static QByteArray robotState(int seq,int quaternionKind=1) {
     const QJsonArray zero{0,0,0,0,0,0};
     QJsonObject object{{"type","robot_state"},{"state_seq",QString::number(seq)},
         {"valid",true},{"robot_mode",5},
-        {"tool_vector_actual",QJsonArray{10,-100,300,175,2,17}},
+        {"tool_vector_actual",QJsonArray{10,-100,300,0,0,0}},
         {"q_actual",zero},{"qd_actual",zero},{"tcp_speed_actual",zero},
         {"q_target",zero},{"error_status",false},{"enable_status",true},
         {"drag_status",false},{"running_status",false},{"jog_status",false},
@@ -109,7 +109,59 @@ int main(int argc,char** argv) {
         require(waitFor([&]{const auto s=worker.client->snapshot();
             return s.stateSeq==4 && s.feedbackValid && !s.actualQuaternionValid;
         }),"malformed quaternion must not be inherited");
-        std::cout<<"Thread-owned relay, quaternion compatibility and independent watchdog passed\n";
+        // Exercise the real read-only 8891 diagnostic request against a
+        // local fake relay. No physical robot or motion command is involved.
+        require(socket->write(relay+robotState(5,1))>0,"fresh diagnostic state");
+        socket->flush();
+        require(waitFor([&]{const auto s=worker.client->snapshot();
+            return s.stateSeq==5 && s.actualQuaternionValid && s.feedbackAgeMs<150;
+        }),"diagnostic state restored");
+        QString report;
+        QObject::connect(worker.client,&RelayStateClient::orientationProbeFinished,
+            &app,[&](const QString& result){report=result;});
+        const auto probe=[&](int seq){
+            require(socket->write(relay+robotState(seq,1))>0,"fresh probe state");
+            socket->flush();
+            require(waitFor([&]{return worker.client->snapshot().stateSeq==static_cast<unsigned>(seq);}),
+                    "wait for probe sample");
+            bool requested=false;
+            QMetaObject::invokeMethod(worker.client,[&]{
+                requested=worker.client->requestOrientationIkProbe({10,-100,300,1,2,3});
+            },Qt::BlockingQueuedConnection);
+            require(requested,"read-only IK request accepted");
+            touchpanel::protocol::V2FrameCodec codec;
+            std::vector<std::string> decoded;
+            require(waitFor([&]{
+                const QByteArray bytes=socket->readAll();
+                if(!bytes.isEmpty() && !codec.feed(bytes.constData(),static_cast<size_t>(bytes.size()),decoded))
+                    throw std::runtime_error("malformed diagnostic frame");
+                return !decoded.empty();
+            }),"receive diagnostic request");
+            const auto doc=QJsonDocument::fromJson(QByteArray::fromStdString(decoded.front()));
+            const auto request=doc.object();
+            require(request.value("type").toString()=="command" &&
+                request.value("target_port").toInt()==29999 &&
+                request.value("command").toString().startsWith("InverseSolution("),
+                "only allowlisted dashboard calculation may be emitted");
+            return request;
+        };
+        auto req=probe(6);
+        const auto call=req.value("command").toString();
+        auto replyObject=QJsonObject{{"type","reply"},{"request_id",req.value("request_id")},
+            {"target_port",29999},{"command_name","InverseSolution"},{"controller_code",0},
+            {"raw_reply",QStringLiteral("0,{0,0,0,0,0,0},")+call+";"}};
+        require(socket->write(frame(replyObject))>0,"diagnostic answer");
+        socket->flush();
+        require(waitFor([&]{return report.contains("RTT=");}),"matched read-only IK evidence");
+        report.clear();
+        req=probe(7);
+        replyObject["request_id"]=req.value("request_id");
+        replyObject["raw_reply"]=QStringLiteral("0,{0,0,0,0,0,0},InverseSolution(11,-100,300,1,2,3,0,0,1,{0,0,0,0,0,0});");
+        require(socket->write(frame(replyObject))>0,"mismatched diagnostic answer");
+        socket->flush();
+        require(waitFor([&]{return !report.isEmpty();}) && !report.contains("RTT="),
+                "mismatched echo must not be accepted as IK evidence");
+        std::cout<<"Thread-owned relay, quaternion compatibility, IK echo validation and watchdog passed\n";
         return 0;
     } catch(const std::exception& e) {
         std::cerr<<e.what()<<"\n";return 1;
