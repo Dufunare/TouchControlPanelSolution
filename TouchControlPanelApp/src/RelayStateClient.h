@@ -21,10 +21,15 @@ public:
     bool tryGetFreshPose(std::array<double,6>& pose) const;
     touchpanel::RobotSnapshot snapshot() const;
     QString statusDescription() const;
+    // Owner thread only. This sends an allowlisted Dashboard calculation,
+    // never a motion command. No diagnostic result grants motion authority.
+    bool requestOrientationIkProbe(const std::array<double,6>& pose);
+    bool orientationProbePending() const {return !m_probeId.isEmpty();}
 signals:
     void statusChanged(const QString& description);
     void stateInvalidated();
     void telemetryUpdated(const QString& summary);
+    void orientationProbeFinished(const QString& summary);
 private:
     void readIncoming();
     void handleFrame(const QByteArray& bytes);
@@ -32,6 +37,8 @@ private:
     void sendHello();
     void refreshStatus();
     void publishReadOnlySnapshot();
+    void finishOrientationProbe(const QString& result);
+    void handleOrientationProbeReply(const QJsonObject& object);
     QString buildTelemetrySummary() const;
     QTcpSocket m_socket;
     QTimer m_watchdog;
@@ -47,6 +54,10 @@ private:
     QString m_lastTelemetrySummary;
     touchpanel::RobotSnapshot m_snapshot;
     quint64 m_sequence=0;
+    quint64 m_probeCounter=100;
+    QString m_probeId,m_probeCommand;
+    QElapsedTimer m_probeAge;
+    touchpanel::RobotSnapshot m_probeStart{};
     std::array<double,6> m_pose{},m_joints{};
     QString m_status=QStringLiteral("未连接 v2 遥测");
     mutable std::mutex m_publicMutex;
