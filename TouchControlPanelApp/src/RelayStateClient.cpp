@@ -1,4 +1,5 @@
 #include "RelayStateClient.h"
+#include "OrientationConventionAudit.h"
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonValue>
@@ -178,6 +179,24 @@ void RelayStateClient::handleFrame(const QByteArray& bytes) {
         m_snapshot.feedbackSeen=true;m_snapshot.feedbackValid=true;
         m_snapshot.stateSeq=seq;m_snapshot.robotMode=rv.toInt(-1);
         m_snapshot.tcpPose=pose;m_snapshot.jointPosition=joints;
+        // Optional extension already emitted by relay_station. Never retain
+        // a quaternion from the preceding sample if this one lacks it.
+        m_snapshot.actualQuaternion={};
+        m_snapshot.actualQuaternionValid=false;
+        const auto quaternion=o.value("actual_quaternion").toArray();
+        if(quaternion.size()==4) {
+            std::array<double,4> q{};
+            bool numeric=true;
+            for(int i=0;i<4;++i) {
+                if(!quaternion[i].isDouble()) {numeric=false;break;}
+                q[i]=quaternion[i].toDouble();
+            }
+            touchpanel::teleop::Mat3 rotation{};
+            if(numeric && touchpanel::teleop::quaternionToRotation(q,rotation)) {
+                m_snapshot.actualQuaternion=q;
+                m_snapshot.actualQuaternionValid=true;
+            }
+        }
         m_snapshot.jointVelocity=velocity;m_snapshot.tcpVelocity=tcpVelocity;
         m_snapshot.jointTarget=target;
         m_snapshot.userIndex=uv.toInt(-1);m_snapshot.toolIndex=tv.toInt(-1);
@@ -252,7 +271,8 @@ QString RelayStateClient::buildTelemetrySummary() const {
         "Joints deg  J1 %10  J2 %11  J3 %12  J4 %13  J5 %14  J6 %15\n"
         "qd deg/s    %16  %17  %18  %19  %20  %21\n"
         "Mode %22 · Enabled %23 · Drag %24 · Running %25 · Error %26 · User %27 / Tool %28\n"
-        "Jog %29 · Pause %30 · Queued %31")
+        "Jog %29 · Pause %30 · Queued %31\n"
+        "Actual Q [wxyz] %32 · ZYX Δ %33")
         .arg(freshness).arg(s.feedbackAgeMs).arg(s.stateSeq)
         .arg(p[0],0,'f',1).arg(p[1],0,'f',1).arg(p[2],0,'f',1)
         .arg(p[3],0,'f',1).arg(p[4],0,'f',1).arg(p[5],0,'f',1)
@@ -267,7 +287,15 @@ QString RelayStateClient::buildTelemetrySummary() const {
         .arg(s.userIndex).arg(s.toolIndex)
         .arg(s.jogging?QStringLiteral("yes"):QStringLiteral("no"))
         .arg(s.paused?QStringLiteral("yes"):QStringLiteral("no"))
-        .arg(s.queuedMotion?QStringLiteral("yes"):QStringLiteral("no"));
+        .arg(s.queuedMotion?QStringLiteral("yes"):QStringLiteral("no"))
+        .arg(s.actualQuaternionValid?
+            QStringLiteral("%1, %2, %3, %4")
+            .arg(s.actualQuaternion[0],0,'f',5).arg(s.actualQuaternion[1],0,'f',5)
+            .arg(s.actualQuaternion[2],0,'f',5).arg(s.actualQuaternion[3],0,'f',5):
+            QStringLiteral("缺失/无效"))
+        .arg(std::isfinite(touchpanel::teleop::feedbackZyxErrorDeg(s))?
+            QString::number(touchpanel::teleop::feedbackZyxErrorDeg(s),'f',3)+QStringLiteral("°"):
+            QStringLiteral("未核对"));
 }
 
 QString RelayStateClient::statusDescription() const {
