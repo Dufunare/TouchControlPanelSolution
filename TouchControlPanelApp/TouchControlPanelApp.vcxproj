@@ -126,6 +126,7 @@
     <QtMoc Include="src\widgets\ControlPanelWidget.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="src\widgets\VideoWidget.h" />
+    <ClInclude Include="src\widgets\CameraWarningState.h" />
     <QtMoc Include="src\DeviceController.h" />
     <QtMoc Include="src\RelayStateClient.h" />
     <QtMoc Include="src\RelayVideoClient.h" />

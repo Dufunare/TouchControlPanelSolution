@@ -5,8 +5,10 @@
 #include <QImage>
 #include <QPixmap>
 #include <QWidget>
+#include "CameraWarningState.h"
 
 class QPaintEvent;
+class QPainter;
 class QResizeEvent;
 namespace cv { class Mat; }
 
@@ -26,6 +28,9 @@ public:
     bool saveFrame(const QString& path) const;
     void setMirrored(bool mirrored);
     void updateFrame();
+    void setWarningThreshold(double mm);
+    void setCameraObservation(const QJsonObject& observation,qint64 receivedAtMs);
+    QString cameraWarningText() const {return m_cameraWarning.text(CameraWarningState::nowMs());}
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -42,4 +47,9 @@ private:
     QSize m_cachedSize;
     qreal m_cachedDpr=0;
     void rebuildDisplayCache();
+    CameraWarningState m_cameraWarning;
+    QString m_warningText;
+    bool m_warningActive=false;
+    void refreshWarning();
+    void paintWarning(QPainter& painter);
 };

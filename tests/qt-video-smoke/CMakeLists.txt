@@ -35,3 +35,8 @@ add_executable(qt_control_thread_smoke control_thread_smoke.cpp
 target_include_directories(qt_control_thread_smoke PRIVATE "${APP}"
     "${CMAKE_CURRENT_LIST_DIR}/../../shared")
 target_link_libraries(qt_control_thread_smoke PRIVATE Qt6::Core Qt6::Network)
+
+add_executable(camera_warning_smoke camera_warning_smoke.cpp
+    "${APP}/widgets/VideoWidget.cpp")
+target_include_directories(camera_warning_smoke PRIVATE "${APP}")
+target_link_libraries(camera_warning_smoke PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets)

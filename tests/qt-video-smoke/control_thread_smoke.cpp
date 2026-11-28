@@ -69,6 +69,9 @@ int main(int argc,char** argv) {
         QTcpServer server;
         require(server.listen(QHostAddress::LocalHost,0),"local test server");
         Worker worker;
+        QJsonObject observation; qint64 observationReceivedAt=0;
+        QObject::connect(worker.client,&RelayStateClient::cameraObservationReceived,&app,
+            [&](const QJsonObject& value,qint64 when){observation=value;observationReceivedAt=when;});
         const auto port=server.serverPort();
         QMetaObject::invokeMethod(worker.client,[client=worker.client,port]{
             client->connectToRelay(QStringLiteral("127.0.0.1"),port);
@@ -81,10 +84,13 @@ int main(int argc,char** argv) {
         const auto hello=frame({{"type","hello_ack"},{"request_id","1"}});
         const auto relay=frame({{"type","relay_status"},{"relay_ready",true},
             {"port_29999_connected",true},{"port_30003_connected",true},
-            {"port_30004_connected",true}});
+            {"port_30004_connected",true},
+            {"camera_observation",QJsonObject{{"valid",true},{"gap_mm",40.0},{"age_ms",10.0}}}});
         require(socket->write(hello+relay+robotState(1))>0,"send mock state");
         socket->flush();
         require(waitFor([&]{return worker.client->hasFreshState();}),"cross-thread fresh snapshot");
+        require(waitFor([&]{return observation.value("gap_mm").toDouble()==40 && observationReceivedAt>0;}),
+                "camera observation did not cross worker boundary");
         const auto live=worker.client->snapshot();
         require(live.stateSeq==1 && live.tcpPose[0]==10 && live.feedbackValid &&
                 live.actualQuaternionValid && live.actualQuaternion[0]==1,
@@ -166,6 +172,12 @@ int main(int argc,char** argv) {
             blocked=worker.client->orientationProbeInterlock();
         },Qt::BlockingQueuedConnection);
         require(blocked,"ambiguous dashboard reply must interlock physical starts");
+        const auto oldRelay=frame({{"type","relay_status"},{"relay_ready",true},
+            {"port_29999_connected",true},{"port_30003_connected",true},{"port_30004_connected",true}});
+        socket->write(oldRelay);socket->flush();
+        require(waitFor([&]{return observation.isEmpty();}),"old relay retained previous camera distance");
+        socket->abort();
+        require(waitFor([&]{return observationReceivedAt==0;}),"disconnect did not invalidate camera distance");
         std::cout<<"Thread-owned relay, quaternion compatibility, IK echo validation and watchdog passed\n";
         return 0;
     } catch(const std::exception& e) {

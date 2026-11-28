@@ -5,6 +5,7 @@
 #include "CommunicationBackend.h"
 #include "RelayV2Frame.h"
 #include "ServoPWorkspace.h"
+#include "BoundedSocketWrite.h"
 
 #include <atomic>
 #include <array>
@@ -384,28 +385,14 @@ namespace touchpanel
                 return false;
             }
 
-            int totalSent = 0;
-            const int totalSize = static_cast<int>(payload.size());
-            while (totalSent < totalSize)
-            {
-                const int sent = ::send(
-                    socketHandle,
-                    payload.data() + totalSent,
-                    totalSize - totalSent,
-                    0);
-                if (sent == SOCKET_ERROR)
-                {
-                    emitMessage("发送失败：" + std::to_string(WSAGetLastError()));
-                    return false;
-                }
-
-                if (sent == 0)
-                {
-                    emitMessage("发送失败：连接已关闭。");
-                    return false;
-                }
-
-                totalSent += sent;
+            if (!connected.load(std::memory_order_relaxed) ||
+                !transport::boundedSocketWrite(socketHandle,payload)) {
+                // A prefix may already have reached the relay. Never reuse
+                // this stream or append a later command to that prefix.
+                connected.store(false,std::memory_order_relaxed);
+                ::shutdown(socketHandle,SD_BOTH);
+                emitMessage("TCP 发送失败或超过100ms，已关闭通路，禁止重放旧目标。");
+                return false;
             }
 
             if (reportTx)
@@ -544,6 +531,13 @@ namespace touchpanel
 
         void onLineReceived(const std::string& rawLine)
         {
+            if(rawLine.rfind("ERROR|",0)==0) {
+                emitMessage("[RELAY REJECT] "+rawLine);
+                std::lock_guard<std::mutex> lock(socketMutex);
+                connected.store(false,std::memory_order_relaxed);
+                if(socketHandle!=INVALID_SOCKET)::shutdown(socketHandle,SD_BOTH);
+                return;
+            }
             const std::string detail=extractPayload(rawLine);
             const auto parsed=parseTransitReply(detail.empty()?rawLine:detail);
             // Online ServoP/ServoJ writes have no ordinary pending reply.
@@ -658,6 +652,11 @@ namespace touchpanel
 
                 if (received <= 0)
                 {
+                    if(received==SOCKET_ERROR && WSAGetLastError()==WSAEWOULDBLOCK) {
+                        fd_set readable;FD_ZERO(&readable);FD_SET(currentSocket,&readable);
+                        timeval timeout{0,50000};
+                        if(::select(0,&readable,nullptr,nullptr,&timeout)>=0)continue;
+                    }
                     break;
                 }
 
@@ -682,9 +681,14 @@ namespace touchpanel
 
         void timeoutLoop()
         {
+            unsigned heartbeatTicks=0;
             while (!stopRequested.load(std::memory_order_relaxed))
             {
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                if(!stopRequested.load() && connected.load() && ++heartbeatTicks>=2) {
+                    heartbeatTicks=0;
+                    sendLine("29999|RelayHeartbeat()",false);
+                }
 
                 bool timeout = false;
                 {
@@ -860,7 +864,21 @@ namespace touchpanel
             return;
         }
 
-        const int connectRet = ::connect(newSocket, result->ai_addr, static_cast<int>(result->ai_addrlen));
+        u_long nonblocking=1;
+        if(::ioctlsocket(newSocket,FIONBIO,&nonblocking)==SOCKET_ERROR) {
+            freeaddrinfo(result);::closesocket(newSocket);return;
+        }
+        int connectRet = ::connect(newSocket, result->ai_addr, static_cast<int>(result->ai_addrlen));
+        if(connectRet==SOCKET_ERROR && WSAGetLastError()==WSAEWOULDBLOCK) {
+            fd_set writable,errors;FD_ZERO(&writable);FD_ZERO(&errors);
+            FD_SET(newSocket,&writable);FD_SET(newSocket,&errors);
+            timeval timeout{2,0};
+            if(::select(0,nullptr,&writable,&errors,&timeout)>0 && FD_ISSET(newSocket,&writable)) {
+                int error=0,length=sizeof(error);
+                if(::getsockopt(newSocket,SOL_SOCKET,SO_ERROR,reinterpret_cast<char*>(&error),&length)==0 && error==0)
+                    connectRet=0;
+            }
+        }
         freeaddrinfo(result);
 
         if (connectRet == SOCKET_ERROR)
@@ -893,6 +911,11 @@ namespace touchpanel
 
         m_impl->stopRequested.store(false, std::memory_order_relaxed);
         m_impl->connected.store(true, std::memory_order_relaxed);
+        if(!m_impl->sendLine("29999|RelayHeartbeat()",false)) {
+            m_impl->stopThreads();
+            m_impl->emitConnection(false);
+            return;
+        }
 
         m_impl->recvThread = std::thread([this]() { m_impl->recvLoop(); });
         m_impl->timeoutThread = std::thread([this]() { m_impl->timeoutLoop(); });
@@ -911,6 +934,8 @@ namespace touchpanel
         const bool wasConnected = m_impl->connected.load(std::memory_order_relaxed);
         if (!wasConnected)
         {
+            // A failed send/receive still owns joinable threads and a socket.
+            m_impl->stopThreads();
             if (!silentIfNotConnected)
             {
                 m_impl->emitMessage("当前并未连接中转站。");

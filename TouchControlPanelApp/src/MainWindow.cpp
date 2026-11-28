@@ -5,6 +5,8 @@
 #include <QMetaObject>
 #include <QCheckBox>
 #include <QSpinBox>
+#include <QDoubleSpinBox>
+#include <QSettings>
 #include <QHBoxLayout>
 #include <QFileDialog>
 #include <QDateTime>
@@ -51,6 +53,8 @@ MainWindow::MainWindow(QWidget* parent)
     m_controlPanel = new ControlPanelWidget(this);
     m_glWidget = new GLCoordinateWidget(this);
     m_videoWidget = new VideoWidget(this);
+    connect(m_relayStateClient,&RelayStateClient::cameraObservationReceived,
+            m_videoWidget,&VideoWidget::setCameraObservation,Qt::QueuedConnection);
     m_videoThread = new QThread(this);
     m_videoThread->setObjectName(QStringLiteral("RelayVideoThread"));
     m_videoClient = new RelayVideoClient();
@@ -193,6 +197,32 @@ MainWindow::MainWindow(QWidget* parent)
     videoState->setWordWrap(true);
     videoLayout->addLayout(videoTools);
     videoLayout->addLayout(videoOptions);
+    auto* warningTools=new QHBoxLayout();
+    auto* warningThreshold=new QDoubleSpinBox(videoPanel);
+    warningThreshold->setObjectName(QStringLiteral("cameraWarningThresholdMm"));
+    warningThreshold->setRange(1.0,500.0);
+    warningThreshold->setDecimals(1);
+    warningThreshold->setSingleStep(1.0);
+    warningThreshold->setSuffix(QStringLiteral(" mm"));
+    warningThreshold->setKeyboardTracking(false);
+    warningThreshold->setToolTip(QStringLiteral("间隙小于或等于此值时警示。调大可更早警示，调小可减少过早警示。输入后按 Enter 或离开输入框生效；仅调整提示，不改变测距或机器人运动。"));
+    QSettings warningSettings(QStringLiteral("TouchControlPanel"),QStringLiteral("TouchControlPanel"));
+    const double savedThreshold=CameraWarningState::checkedThreshold(
+        warningSettings.value(QStringLiteral("camera/warningThresholdMm"),30.0).toDouble());
+    warningThreshold->setValue(savedThreshold);
+    m_videoWidget->setWarningThreshold(savedThreshold);
+    auto* warningReset=new QPushButton(QStringLiteral("恢复 30 mm"),videoPanel);
+    warningTools->addWidget(new QLabel(QStringLiteral("距离警示阈值"),videoPanel));
+    warningTools->addWidget(warningThreshold);
+    warningTools->addWidget(warningReset);
+    warningTools->addStretch(1);
+    videoLayout->addLayout(warningTools);
+    connect(warningThreshold,qOverload<double>(&QDoubleSpinBox::valueChanged),this,[this](double value){
+        m_videoWidget->setWarningThreshold(value);
+        QSettings(QStringLiteral("TouchControlPanel"),QStringLiteral("TouchControlPanel"))
+            .setValue(QStringLiteral("camera/warningThresholdMm"),value);
+    });
+    connect(warningReset,&QPushButton::clicked,this,[warningThreshold]{warningThreshold->setValue(30.0);});
     videoLayout->addWidget(videoState);
     videoLayout->addWidget(m_videoWidget,1);
     videoStop->setEnabled(false);

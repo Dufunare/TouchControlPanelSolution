@@ -103,6 +103,7 @@ void RelayStateClient::disconnectRelay() {
     invalidate(QStringLiteral("v2 遥测已断开"));
 }
 void RelayStateClient::invalidate(const QString& why) {
+    emit cameraObservationReceived({},0);
     if(orientationProbePending())finishOrientationProbe(QStringLiteral("会话失效；结果作废"),true);
     const bool wasValid=m_valid||m_ready||m_handshaken;
     m_valid=false;m_ready=false;m_handshaken=false;m_session.clear();
@@ -180,6 +181,9 @@ void RelayStateClient::handleFrame(const QByteArray& bytes) {
            !o.value("port_30003_connected").isBool()||!o.value("port_30004_connected").isBool()) {
             invalidate(QStringLiteral("v2 中转站状态格式错误"));m_socket.abort();return;
         }
+        const auto receivedAt=std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        emit cameraObservationReceived(o.value("camera_observation").toObject(),receivedAt);
         const bool ready=o.value("relay_ready").toBool()&&
             o.value("port_29999_connected").toBool()&&
             o.value("port_30003_connected").toBool()&&

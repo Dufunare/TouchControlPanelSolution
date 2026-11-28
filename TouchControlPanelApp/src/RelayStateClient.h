@@ -33,6 +33,7 @@ signals:
     void stateInvalidated();
     void telemetryUpdated(const QString& summary);
     void orientationProbeFinished(const QString& summary);
+    void cameraObservationReceived(const QJsonObject& observation,qint64 receivedAtMs);
 private:
     void readIncoming();
     void handleFrame(const QByteArray& bytes);
